@@ -1,27 +1,26 @@
 from dataclasses import dataclass
+from datetime import date
 from enum import Enum
 
 
-class Plataforma(str, Enum):
-    SITE_DA_EMPRESA = "Site da empresa"
-    LINKEDIN = "LinkedIn"
-    GUPY = "Gupy"
-    INDICACAO = "Indicação"
-    EMAIL_DIRETO = "E-mail direto"
+class Nivel(str, Enum):
+    JUNIOR = "Júnior"
+    PLENO = "Pleno"
+    SENIOR = "Sênior"
 
 
 class Modalidade(str, Enum):
     REMOTO = "Remoto"
     HIBRIDO = "Híbrido"
-    PRESENCIAL = "Presencial"
 
 
 @dataclass
 class Vaga:
-    empresa: str
     nome: str
-    plataforma: Plataforma
+    empresa: str
+    nivel: Nivel
     modalidade: Modalidade
+    data_candidatura: date
 
     @property
     def remota(self) -> bool:
