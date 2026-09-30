@@ -1,4 +1,4 @@
-# python-app
+# vagas-svc
 
 Projeto Python organizado em camadas dentro de `src/`:
 
