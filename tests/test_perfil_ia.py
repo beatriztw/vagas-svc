@@ -197,17 +197,32 @@ class PerfilIAServiceTest(unittest.TestCase):
         with self.assertRaises(PerfilIAError):
             runner.extrair(criar_pdf(self))
 
-    def test_claude_p_recusa_sem_login_de_assinatura_com_api_key(self):
+    def _importar_com_saida(self, saida: dict) -> list:
         calls = []
 
         def runner(cmd: list[str], prompt: str, cwd: Path) -> str:
             calls.append(cmd)
-            return envelope(json.dumps({"error": "authentication", "message": "login required"}))
+            return json.dumps(saida, ensure_ascii=False)
 
         service = PerfilIAService(AgenteCLIRunner(runner=runner), PerfilRepositoryMemoria())
-        with self.assertRaises(PerfilIAError):
+        with self.assertRaisesRegex(PerfilIAError, "não respondeu"):
             service.importar(criar_pdf(self))
+        return calls
+
+    def test_claude_p_recusa_sem_login_de_assinatura_com_api_key(self):
+        # Sem login de assinatura, o claude -p responde com is_error e a mensagem em result.
+        calls = self._importar_com_saida(
+            {"type": "result", "subtype": "success", "is_error": True, "result": "Invalid API key · Please run /login"}
+        )
         self.assertEqual(len(calls), 1)
+
+    def test_claude_p_que_nao_termina_com_sucesso(self):
+        self._importar_com_saida({"type": "result", "subtype": "error_during_execution", "is_error": False})
+
+    def test_result_com_objeto_de_erro(self):
+        self._importar_com_saida(
+            {"type": "result", "subtype": "success", "result": {"error": "authentication", "message": "login required"}}
+        )
 
 
 class ValidarPdfTest(unittest.TestCase):
