@@ -74,6 +74,13 @@ class CurriculoRepositoryPostgres(CurriculoRepository):
     def salvar(self, curriculo: Curriculo) -> Curriculo:
         curriculo.validar()
         with self._conn.transaction(), self._conn.cursor(row_factory=dict_row) as cur:
+            if curriculo.base_id is not None:
+                # O CHECK da tabela não enxerga outra linha: adaptado de adaptado é barrado aqui.
+                # FOR SHARE segura a base até o commit.
+                cur.execute("SELECT tipo FROM curriculo WHERE id = %s FOR SHARE", (curriculo.base_id,))
+                linha = cur.fetchone()
+                if linha is not None and linha["tipo"] != "base":
+                    raise ValueError(f"base_id {curriculo.base_id} é um currículo adaptado, não uma base")
             cur.execute(
                 "INSERT INTO curriculo (tipo, titulo, conteudo_md, base_id, vaga_url, arquivo_s3) "
                 f"VALUES (%s, %s, %s, %s, %s, %s) RETURNING {_COLUNAS_CURRICULO}",

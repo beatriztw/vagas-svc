@@ -315,6 +315,14 @@ class PerfilRepositorySQLiteTest(unittest.TestCase):
         self.conn.execute("CREATE TABLE perfil (id INTEGER PRIMARY KEY AUTOINCREMENT, dados TEXT NOT NULL)")
         self.repo = PerfilRepositorySQLite(self.conn)
 
+    def test_perfil_invalido_nao_e_gravado(self):
+        with self.assertRaises(ValueError):
+            self.repo.salvar(Perfil(modalidades=["Presencial"]))
+        with self.assertRaises(ValueError):
+            self.repo.salvar(Perfil(publicada_desde_dias=0))
+
+        self.assertIsNone(self.repo.obter())
+
     def test_salvar_e_ler_depois_da_revisao(self):
         perfil = Perfil(termos=["python"], niveis=[Nivel.PLENO], modalidades=[Modalidade.HIBRIDO])
         self.repo.salvar(perfil)

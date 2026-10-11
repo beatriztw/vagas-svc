@@ -6,6 +6,7 @@ from enum import Enum
 
 from src.client.perfil_ia import CAMPOS, PerfilExtractor, validar_bruto
 from src.model.perfil import Perfil, SugestaoPerfil
+from src.repository.base import validar_perfil
 
 ProfileStore = Callable[[Perfil], None]
 
@@ -23,7 +24,7 @@ class PerfilRepositoryMemoria(PerfilRepository):
         self._perfil: Perfil | None = None
 
     def salvar(self, perfil: Perfil) -> None:
-        self._perfil = perfil
+        self._perfil = validar_perfil(perfil)
 
     def obter(self) -> Perfil | None:
         return self._perfil
@@ -40,6 +41,8 @@ class PerfilRepositorySQLite(PerfilRepository):
         self._conn = conn
 
     def salvar(self, perfil: Perfil) -> None:
+        # Valida antes de gravar: um valor fora dos enums deixaria todo obter() quebrado depois.
+        perfil = validar_perfil(perfil)
         self._conn.execute("INSERT INTO perfil (dados) VALUES (?)", [json_dumps(perfil)])
         self._conn.commit()
 
