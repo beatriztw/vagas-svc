@@ -102,6 +102,14 @@ class PostgresTest(unittest.TestCase):
         self.assertEqual(self.curriculos.listar_adaptados(), [adaptado])
         self.assertEqual(self.curriculos.obter_base().id, base.id)
 
+    def test_adaptado_nao_pode_derivar_de_outro_adaptado(self):
+        base = self.curriculos.salvar(Curriculo("base", "Base", "# b"))
+        adaptado = self.curriculos.salvar(Curriculo("adaptado", "Vaga X", "# x", base_id=base.id))
+
+        with self.assertRaisesRegex(ValueError, "adaptado"):
+            self.curriculos.salvar(Curriculo("adaptado", "Vaga Y", "# y", base_id=adaptado.id))
+        self.assertEqual(self.curriculos.listar_adaptados(), [adaptado])
+
 
 if __name__ == "__main__":
     unittest.main()

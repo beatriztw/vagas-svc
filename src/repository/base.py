@@ -49,6 +49,13 @@ def normalizar_perfil(perfil: Perfil) -> Perfil:
     )
 
 
+def validar_perfil(perfil: Perfil) -> Perfil:
+    """Perfil normalizado e conferido antes de gravar; inválido levanta ValueError."""
+    if perfil.publicada_desde_dias is not None and perfil.publicada_desde_dias <= 0:
+        raise ValueError("publicada_desde_dias tem que ser positivo")
+    return normalizar_perfil(perfil)
+
+
 class PerfilBuscaRepositoryMemoria(PerfilBuscaRepository):
     def __init__(self) -> None:
         self._perfil: Perfil | None = None
@@ -57,9 +64,7 @@ class PerfilBuscaRepositoryMemoria(PerfilBuscaRepository):
         return normalizar_perfil(self._perfil) if self._perfil else None
 
     def salvar(self, perfil: Perfil) -> None:
-        if perfil.publicada_desde_dias is not None and perfil.publicada_desde_dias <= 0:
-            raise ValueError("publicada_desde_dias tem que ser positivo")
-        self._perfil = normalizar_perfil(perfil)
+        self._perfil = validar_perfil(perfil)
 
 
 class CurriculoRepositoryMemoria(CurriculoRepository):
@@ -73,8 +78,12 @@ class CurriculoRepositoryMemoria(CurriculoRepository):
 
     def salvar(self, curriculo: Curriculo) -> Curriculo:
         curriculo.validar()
-        if curriculo.base_id is not None and curriculo.base_id not in self._linhas:
-            raise ValueError(f"base_id {curriculo.base_id} não existe")
+        if curriculo.base_id is not None:
+            base = self._linhas.get(curriculo.base_id)
+            if base is None:
+                raise ValueError(f"base_id {curriculo.base_id} não existe")
+            if base.tipo != "base":
+                raise ValueError(f"base_id {curriculo.base_id} é um currículo adaptado, não uma base")
         salvo = replace(curriculo, id=self._proximo_id, criado_em=datetime.now(timezone.utc))
         self._linhas[salvo.id] = salvo
         self._proximo_id += 1

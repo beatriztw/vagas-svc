@@ -107,6 +107,14 @@ class CurriculoMemoriaTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             repo.salvar(Curriculo("adaptado", "Vaga X", "# x", base_id=99))
 
+    def test_adaptado_nao_pode_derivar_de_outro_adaptado(self):
+        repo = CurriculoRepositoryMemoria()
+        base = repo.salvar(Curriculo("base", "Base", "# b"))
+        adaptado = repo.salvar(Curriculo("adaptado", "Vaga X", "# x", base_id=base.id))
+
+        with self.assertRaisesRegex(ValueError, "adaptado"):
+            repo.salvar(Curriculo("adaptado", "Vaga Y", "# y", base_id=adaptado.id))
+
     def test_base_nao_aceita_base_id_e_tipo_invalido(self):
         repo = CurriculoRepositoryMemoria()
         base = repo.salvar(Curriculo("base", "Base", "# b"))
