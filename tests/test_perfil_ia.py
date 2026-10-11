@@ -112,7 +112,8 @@ class PerfilIAServiceTest(unittest.TestCase):
         self.assertIn(str(Path(cmd[cmd.index("--add-dir") + 1]) / "curriculo.pdf"), prompt)
         self.assertNotIn(prompt, cmd)
 
-    def test_claude_le_o_proprio_pdf_so_com_read(self):
+    def test_comando_libera_o_read_so_para_a_copia_do_curriculo(self):
+        # Confere os argumentos do comando; a aplicação da regra pelo claude -p real não é testada aqui.
         calls = []
 
         def runner(cmd: list[str], prompt: str, cwd: Path) -> str:
@@ -122,12 +123,16 @@ class PerfilIAServiceTest(unittest.TestCase):
         AgenteCLIRunner(runner=runner).extrair(criar_pdf(self))
 
         cmd, prompt = calls[0]
+        copia = Path(cmd[cmd.index("--add-dir") + 1]) / "curriculo.pdf"
         self.assertEqual(cmd[cmd.index("--tools") + 1], "Read")
-        self.assertEqual(cmd[cmd.index("--allowedTools") + 1], "Read")
+        self.assertEqual(cmd[cmd.index("--allowedTools") + 1], f"Read(/{copia})")
+        self.assertTrue(cmd[cmd.index("--allowedTools") + 1].startswith("Read(//"))
+        self.assertNotIn("Read", cmd[cmd.index("--allowedTools") + 2 :])
+        self.assertEqual(cmd[cmd.index("--permission-mode") + 1], "dontAsk")
         # O texto do PDF não vai no prompt: quem lê o arquivo é o Claude Code.
         self.assertNotIn("desenvolvedora", prompt)
 
-    def test_claude_so_enxerga_a_copia_do_pdf_numa_pasta_isolada(self):
+    def test_comando_aponta_so_para_a_copia_do_pdf_numa_pasta_isolada(self):
         vistos = {}
 
         def runner(cmd: list[str], prompt: str, cwd: Path) -> str:

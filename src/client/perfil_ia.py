@@ -134,6 +134,11 @@ class PerfilExtractor(ABC):
     def extrair(self, pdf: Path) -> dict: ...
 
 
+def regra_de_leitura(arquivo: Path) -> str:
+    """Regra de permissão que libera o Read só para este arquivo, pelo caminho absoluto."""
+    return f"Read(/{arquivo.resolve()})"
+
+
 def _modelo() -> str:
     import os
 
@@ -183,7 +188,10 @@ class AgenteCLIRunner(PerfilExtractor):
             except OSError as exc:
                 raise PerfilIAError(f"não deu para copiar o PDF: {exc}") from exc
             prompt = f"{INSTRUCAO}\n\nO currículo é o arquivo {curriculo}. Leia esse arquivo com a ferramenta Read."
-            # Só a ferramenta Read existe, liberada sem pergunta, com acesso só à pasta isolada.
+            # Só a ferramenta Read existe. A regra de allow vale só para a cópia do currículo
+            # ("//" é caminho absoluto na sintaxe de permissão do Claude Code): um "Read" sem
+            # escopo liberaria qualquer arquivo da máquina. Com dontAsk, o que a regra não cobre
+            # é negado sem pergunta.
             cmd = [
                 self._binary,
                 "-p",
@@ -194,7 +202,9 @@ class AgenteCLIRunner(PerfilExtractor):
                 "--tools",
                 "Read",
                 "--allowedTools",
-                "Read",
+                regra_de_leitura(curriculo),
+                "--permission-mode",
+                "dontAsk",
                 "--add-dir",
                 str(isolada),
             ]
