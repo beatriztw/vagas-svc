@@ -1,0 +1,55 @@
+name: Claude review
+
+# Review automático de PR com a assinatura do Claude (estilo Bugbot): procura
+# bugs no diff e comenta no PR. Não faz push nem aprova.
+on:
+  pull_request:
+    types: [opened, synchronize, ready_for_review, reopened]
+
+concurrency:
+  group: claude-review-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  review:
+    # Só PR de dentro do repositório e fora de rascunho. PR de fork não recebe
+    # os secrets, então o job falharia de qualquer jeito.
+    if: >-
+      github.event.pull_request.draft == false &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      pull-requests: write
+      # A action usa OIDC para obter o token do app do Claude no GitHub.
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - uses: anthropics/claude-code-action@v1
+        with:
+          # Gerado com `claude setup-token`. Usa a cota do plano Pro.
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          prompt: |
+            REPO: ${{ github.repository }}
+            PR NUMBER: ${{ github.event.pull_request.number }}
+
+            Revise só o diff deste PR procurando BUGS: lógica errada, caso de
+            borda quebrado, erro não tratado, regressão, falha de segurança,
+            teste que não testa o que diz. Não comente estilo, nomes ou
+            preferências.
+
+            Antes de comentar, leia os comentários que já existem no PR
+            (`gh pr view --comments`) e não repita um achado já feito.
+
+            Para cada bug, um comentário inline na linha, em português,
+            dizendo o que quebra e em qual cenário. Se não achar nada, um
+            único comentário curto no PR dizendo que não encontrou bugs.
+          # Sonnet gasta bem menos da cota do Pro que o Opus padrão. As
+          # ferramentas ficam limitadas a ler o PR e comentar.
+          claude_args: |
+            --model claude-sonnet-5-5
+            --allowedTools "mcp__github_inline_comment__create_inline_comment,Bash(gh pr comment:*),Bash(gh pr diff:*),Bash(gh pr view:*)"
