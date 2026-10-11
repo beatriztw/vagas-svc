@@ -2,7 +2,6 @@ import json
 import re
 import shutil
 import subprocess
-import zlib
 from abc import ABC, abstractmethod
 from collections.abc import Callable
 from pathlib import Path
@@ -21,10 +20,8 @@ VALIDOS = {
     "skills": str,
 }
 MAX_PDF_BYTES = 32 * 1024 * 1024
-# Um currículo cabe com folga; o resto seria fonte embutida e metadado gastando cota.
-MAX_TEXTO_CHARS = 100_000
-# Conteúdo de cada stream: o lookbehind evita que o "stream" de "endstream" abra outro trecho.
-STREAM = re.compile(rb"(?<!end)stream\r?\n(.*?)endstream", re.DOTALL)
+# Cerca markdown em volta da resposta: ```json ... ``` ou só ``` ... ```.
+CERCA = re.compile(r"```(?:json)?\s*(.*?)```", re.DOTALL | re.IGNORECASE)
 
 INSTRUCAO = """Você é um extrator de perfil de currículo. Leia o PDF e devolve APENAS um JSON,
 sem texto antes ou depois, no formato:
@@ -82,40 +79,41 @@ def validar_bruto(bruto: dict) -> SugestaoPerfil:
     return SugestaoPerfil(perfil=perfil, justificativas={k: str(v) for k, v in justificativas.items()})
 
 
-def validar_json(texto: str) -> SugestaoPerfil:
+def extrair_objeto_json(texto: str) -> dict:
+    """Primeiro objeto JSON da resposta, tirando cerca markdown e frase antes ou depois."""
+    cerca = CERCA.search(texto)
+    if cerca:
+        texto = cerca.group(1)
+    inicio = texto.find("{")
+    if inicio < 0:
+        raise PerfilIAError("resposta não tem objeto JSON")
     try:
-        bruto = json.loads(texto)
+        bruto, _ = json.JSONDecoder().raw_decode(texto, inicio)
     except json.JSONDecodeError as exc:
         raise PerfilIAError(f"resposta não é JSON: {exc}") from exc
     if not isinstance(bruto, dict):
         raise PerfilIAError("resposta não é um objeto JSON")
-    return validar_bruto(bruto)
+    return bruto
 
 
-def extrair_texto(pdf: Path) -> str:
-    """Lê o texto do PDF sem bibliotecas. Se não conseguir, devolve o caminho para o modelo ler."""
+def validar_json(texto: str) -> SugestaoPerfil:
+    return validar_bruto(extrair_objeto_json(texto))
+
+
+def validar_pdf(pdf: Path) -> Path:
+    """Confere que o arquivo existe, é legível, é PDF e tem até MAX_PDF_BYTES. Devolve o caminho absoluto."""
     try:
-        data = pdf.read_bytes()
+        caminho = pdf.resolve()
+        tamanho = caminho.stat().st_size
+        with caminho.open("rb") as arquivo:
+            cabecalho = arquivo.read(4)
     except OSError as exc:
         raise PerfilIAError(f"não deu para ler o PDF: {exc}") from exc
-    if len(data) > MAX_PDF_BYTES:
+    if tamanho > MAX_PDF_BYTES:
         raise PerfilIAError(f"PDF maior que {MAX_PDF_BYTES // (1024 * 1024)} MB")
-    if not data.startswith(b"%PDF"):
+    if cabecalho != b"%PDF":
         raise PerfilIAError("o arquivo não é um PDF")
-
-    texto = []
-    for match in STREAM.finditer(data):
-        chunk = match.group(1)
-        try:
-            # Com limite de saída: um stream de poucos KB pode descomprimir para GBs.
-            chunk = zlib.decompressobj().decompress(chunk, MAX_PDF_BYTES)
-        except zlib.error:
-            pass
-        readable = bytes(b for b in chunk if 32 <= b < 127 or b in (9, 10, 13))
-        if len(readable) > 40:
-            texto.append(readable.decode())
-    limpo = " ".join(texto).strip()[:MAX_TEXTO_CHARS]
-    return limpo or str(pdf)
+    return caminho
 
 
 Extractor = Callable[[Path], dict]
@@ -165,9 +163,25 @@ class AgenteCLIRunner(PerfilExtractor):
 
     def extrair(self, pdf: Path) -> dict:
         # Valida o arquivo (existe, é PDF, até 32 MB) antes de gastar uma chamada ao modelo.
-        curriculo = extrair_texto(pdf)
-        prompt = f"{INSTRUCAO}\n\nCurrículo: {curriculo}"
-        out = self._runner([self._binary, "-p", "--output-format", "json", "--model", _modelo()], prompt)
+        curriculo = validar_pdf(pdf)
+        prompt = f"{INSTRUCAO}\n\nO currículo é o arquivo {curriculo}. Leia esse arquivo com a ferramenta Read."
+        # O próprio Claude Code lê o PDF: só a ferramenta Read existe, liberada sem pergunta,
+        # e só a pasta do currículo entra no acesso além do diretório de trabalho.
+        cmd = [
+            self._binary,
+            "-p",
+            "--output-format",
+            "json",
+            "--model",
+            _modelo(),
+            "--tools",
+            "Read",
+            "--allowedTools",
+            "Read",
+            "--add-dir",
+            str(curriculo.parent),
+        ]
+        out = self._runner(cmd, prompt)
         try:
             envelope = json.loads(out)
         except json.JSONDecodeError as exc:

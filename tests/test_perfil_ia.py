@@ -1,9 +1,9 @@
 import json
+import os
 import sqlite3
 import subprocess
 import tempfile
 import unittest
-import zlib
 from pathlib import Path
 from unittest import mock
 
@@ -12,8 +12,8 @@ from src.client.perfil_ia import (
     ExtractorFixo,
     PerfilIAError,
     _runner,
-    extrair_texto,
     validar_json,
+    validar_pdf,
 )
 from src.model.perfil import Perfil
 from src.model.vaga import Modalidade, Nivel
@@ -35,14 +35,35 @@ def envelope(resposta: str) -> str:
     return json.dumps({"type": "result", "subtype": "success", "result": resposta}, ensure_ascii=False)
 
 
-def criar_pdf(testcase: unittest.TestCase) -> Path:
-    """PDF mínimo com texto legível, apagado no fim do teste."""
+def escrever_pdf(pdf: Path, texto: str) -> Path:
+    """PDF válido de uma página, com xref, e o texto em Helvetica."""
+    conteudo = f"BT /F1 12 Tf 72 720 Td ({texto}) Tj ET".encode("latin-1")
+    objetos = [
+        b"<< /Type /Catalog /Pages 2 0 R >>",
+        b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+        b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R"
+        b" /Resources << /Font << /F1 5 0 R >> >> >>",
+        b"<< /Length %d >>\nstream\n" % len(conteudo) + conteudo + b"\nendstream",
+        b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>",
+    ]
+    data = b"%PDF-1.4\n"
+    offsets = []
+    for numero, objeto in enumerate(objetos, start=1):
+        offsets.append(len(data))
+        data += b"%d 0 obj\n" % numero + objeto + b"\nendobj\n"
+    xref = len(data)
+    data += b"xref\n0 %d\n0000000000 65535 f \n" % (len(objetos) + 1)
+    data += b"".join(b"%010d 00000 n \n" % offset for offset in offsets)
+    data += b"trailer\n<< /Size %d /Root 1 0 R >>\nstartxref\n%d\n%%%%EOF\n" % (len(objetos) + 1, xref)
+    pdf.write_bytes(data)
+    return pdf
+
+
+def criar_pdf(testcase: unittest.TestCase, texto: str = "Beatriz Souza - desenvolvedora em São Paulo") -> Path:
+    """PDF real numa pasta temporária, apagada no fim do teste."""
     pasta = tempfile.TemporaryDirectory()
     testcase.addCleanup(pasta.cleanup)
-    pdf = Path(pasta.name) / "curriculo.pdf"
-    stream = zlib.compress(b"BT /F1 12 Tf (Beatriz Souza - desenvolvedora, python, sql) Tj ET")
-    pdf.write_bytes(b"%PDF-1.4\n1 0 obj\nstream\n" + stream + b"\nendstream\n")
-    return pdf
+    return escrever_pdf(Path(pasta.name) / "curriculo.pdf", texto)
 
 
 class PerfilIAServiceTest(unittest.TestCase):
@@ -80,15 +101,58 @@ class PerfilIAServiceTest(unittest.TestCase):
             calls.append((cmd, prompt))
             return envelope(json.dumps(BRUTO, ensure_ascii=False))
 
+        pdf = criar_pdf(self)
         service = PerfilIAService(AgenteCLIRunner(runner=runner), PerfilRepositoryMemoria())
-        sugestao = service.importar(criar_pdf(self))
+        sugestao = service.importar(pdf)
 
         self.assertEqual(sugestao.perfil.skills, ["python", "sql"])
         cmd, prompt = calls[0]
         self.assertEqual(cmd[:4], ["claude", "-p", "--output-format", "json"])
         self.assertIn("extrator de perfil", prompt)
-        self.assertIn("desenvolvedora, python, sql", prompt)
+        self.assertIn(str(pdf.resolve()), prompt)
         self.assertNotIn(prompt, cmd)
+
+    def test_claude_le_o_proprio_pdf_so_com_read_na_pasta_do_curriculo(self):
+        calls = []
+
+        def runner(cmd: list[str], prompt: str) -> str:
+            calls.append((cmd, prompt))
+            return envelope(json.dumps(BRUTO, ensure_ascii=False))
+
+        pdf = criar_pdf(self)
+        AgenteCLIRunner(runner=runner).extrair(pdf)
+
+        cmd, prompt = calls[0]
+        self.assertEqual(cmd[cmd.index("--tools") + 1], "Read")
+        self.assertEqual(cmd[cmd.index("--allowedTools") + 1], "Read")
+        self.assertEqual(cmd[cmd.index("--add-dir") + 1], str(pdf.resolve().parent))
+        # O texto do PDF não vai no prompt: quem lê o arquivo é o Claude Code.
+        self.assertNotIn("desenvolvedora", prompt)
+
+    def test_caminho_relativo_vira_absoluto_no_prompt(self):
+        calls = []
+
+        def runner(cmd: list[str], prompt: str) -> str:
+            calls.append((cmd, prompt))
+            return envelope(json.dumps(BRUTO, ensure_ascii=False))
+
+        pdf = criar_pdf(self)
+        relativo = Path(os.path.relpath(pdf, Path.cwd()))
+        self.assertFalse(relativo.is_absolute())
+        AgenteCLIRunner(runner=runner).extrair(relativo)
+
+        cmd, prompt = calls[0]
+        self.assertIn(f"arquivo {pdf.resolve()}.", prompt)
+        self.assertEqual(cmd[cmd.index("--add-dir") + 1], str(pdf.resolve().parent))
+
+    def test_resposta_em_cerca_markdown_e_aceita(self):
+        resposta = "Aqui está o perfil:\n```json\n" + json.dumps(BRUTO, ensure_ascii=False) + "\n```\nQualquer dúvida, avise."
+        runner = AgenteCLIRunner(runner=lambda cmd, prompt: envelope(resposta))
+
+        sugestao = PerfilIAService(runner, PerfilRepositoryMemoria()).importar(criar_pdf(self))
+
+        self.assertEqual(sugestao.perfil.localidades, ["São Paulo, SP"])
+        self.assertEqual(sugestao.perfil.niveis, [Nivel.PLENO])
 
     def test_arquivo_que_nao_e_pdf_nao_chega_ao_modelo(self):
         calls = []
@@ -120,53 +184,69 @@ class PerfilIAServiceTest(unittest.TestCase):
         self.assertEqual(len(calls), 1)
 
 
-class ExtrairTextoTest(unittest.TestCase):
-    def test_pdf_com_texto_legivel(self):
-        pdf = Path(tempfile.gettempdir()) / "curriculo_teste.pdf"
-        stream = zlib.compress(b"BT /F1 12 Tf (Matheus Toledo - engenheiro de software, python, sql) Tj ET")
-        pdf.write_bytes(b"%PDF-1.4\n1 0 obj\nstream\n" + stream + b"\nendstream\n")
-        try:
-            texto = extrair_texto(pdf)
-            self.assertIn("python", texto)
-        finally:
-            pdf.unlink()
-
-    def test_arquivo_que_nao_e_pdf(self):
+class ValidarPdfTest(unittest.TestCase):
+    def setUp(self):
         pasta = tempfile.TemporaryDirectory()
         self.addCleanup(pasta.cleanup)
-        falso = Path(pasta.name) / "nao-e-pdf.txt"
+        self.pasta = Path(pasta.name)
+
+    def test_pdf_valido_devolve_caminho_absoluto(self):
+        pdf = escrever_pdf(self.pasta / "curriculo.pdf", "Matheus Toledo - engenheiro de software")
+
+        self.assertEqual(validar_pdf(pdf), pdf.resolve())
+        self.assertTrue(validar_pdf(pdf).is_absolute())
+
+    def test_arquivo_que_nao_e_pdf(self):
+        falso = self.pasta / "nao-e-pdf.txt"
         falso.write_text("texto comum")
 
         with self.assertRaisesRegex(PerfilIAError, "não é um PDF"):
-            extrair_texto(falso)
+            validar_pdf(falso)
 
-    def test_stream_comprimido_nao_estoura_a_memoria(self):
-        pasta = tempfile.TemporaryDirectory()
-        self.addCleanup(pasta.cleanup)
-        bomba = Path(pasta.name) / "bomba.pdf"
-        # 64 MB de "A" comprimidos viram ~64 KB; sem limite, o decompress devolveria tudo.
-        stream = zlib.compress(b"A" * (64 * 1024 * 1024), 9)
-        bomba.write_bytes(b"%PDF-1.4\n1 0 obj\nstream\n" + stream + b"\nendstream\n")
+    def test_arquivo_inexistente(self):
+        with self.assertRaisesRegex(PerfilIAError, "não deu para ler"):
+            validar_pdf(self.pasta / "sumiu.pdf")
 
-        with mock.patch("src.client.perfil_ia.MAX_PDF_BYTES", 1024 * 1024):
-            texto = extrair_texto(bomba)
-        self.assertLessEqual(len(texto), 100_000)
+    def test_pdf_maior_que_o_limite(self):
+        pdf = escrever_pdf(self.pasta / "grande.pdf", "x" * 2048)
 
-    def test_trecho_fora_de_stream_nao_entra_no_texto(self):
-        pasta = tempfile.TemporaryDirectory()
-        self.addCleanup(pasta.cleanup)
-        pdf = Path(pasta.name) / "curriculo.pdf"
-        dentro = zlib.compress(b"BT (Beatriz Souza - desenvolvedora python e sql ha quatro anos) Tj ET")
-        fora = b"<< /Producer (METADADO-FORA-DO-STREAM-QUE-NAO-E-TEXTO-DO-CURRICULO) >>"
-        pdf.write_bytes(b"%PDF-1.4\n1 0 obj\nstream\n" + dentro + b"\nendstream\n" + fora + b"\n")
+        with mock.patch("src.client.perfil_ia.MAX_PDF_BYTES", 1024):
+            with self.assertRaisesRegex(PerfilIAError, "maior que"):
+                validar_pdf(pdf)
 
-        texto = extrair_texto(pdf)
-        self.assertIn("desenvolvedora python", texto)
-        self.assertNotIn("METADADO", texto)
+    def test_pdf_grande_nao_chega_ao_modelo(self):
+        calls = []
+        pdf = escrever_pdf(self.pasta / "grande.pdf", "x" * 2048)
 
-    def test_resposta_fora_de_json(self):
-        with self.assertRaises(PerfilIAError):
+        with mock.patch("src.client.perfil_ia.MAX_PDF_BYTES", 1024):
+            with self.assertRaises(PerfilIAError):
+                AgenteCLIRunner(runner=lambda cmd, prompt: calls.append(cmd)).extrair(pdf)
+        self.assertEqual(calls, [])
+
+
+class ValidarJsonTest(unittest.TestCase):
+    def test_json_puro(self):
+        self.assertEqual(validar_json(json.dumps(BRUTO)).perfil.termos, ["python", "backend"])
+
+    def test_cerca_markdown_json(self):
+        texto = "```json\n" + json.dumps(BRUTO, ensure_ascii=False) + "\n```"
+        self.assertEqual(validar_json(texto).perfil.skills, ["python", "sql"])
+
+    def test_cerca_markdown_sem_linguagem(self):
+        texto = "```\n" + json.dumps(BRUTO, ensure_ascii=False) + "\n```"
+        self.assertEqual(validar_json(texto).perfil.niveis, [Nivel.PLENO])
+
+    def test_frase_antes_e_depois(self):
+        texto = "Claro! Segue o perfil: " + json.dumps(BRUTO, ensure_ascii=False) + " Espero ter ajudado {:)}"
+        self.assertEqual(validar_json(texto).perfil.excluir, ["estágio"])
+
+    def test_resposta_sem_objeto_json(self):
+        with self.assertRaisesRegex(PerfilIAError, "não tem objeto JSON"):
             validar_json("Claro! Aqui está o perfil...")
+
+    def test_objeto_json_quebrado(self):
+        with self.assertRaisesRegex(PerfilIAError, "não é JSON"):
+            validar_json('Segue: {"termos": ["python"')
 
 
 class RunnerTest(unittest.TestCase):
