@@ -4,7 +4,7 @@ from psycopg.rows import dict_row
 from src.model.curriculo import Curriculo
 from src.model.perfil import Perfil
 from src.model.vaga import Modalidade, Nivel
-from src.repository.base import CurriculoRepository, PerfilBuscaRepository, normalizar_perfil
+from src.repository.base import CurriculoRepository, PerfilBuscaRepository, normalizar_perfil, validar_perfil
 
 _LISTAS = ("termos", "excluir", "localidades", "plataformas", "skills")
 _COLUNAS_CURRICULO = "id, tipo, titulo, conteudo_md, base_id, vaga_url, arquivo_s3, criado_em"
@@ -43,6 +43,8 @@ class PerfilBuscaRepositoryPostgres(PerfilBuscaRepository):
         return linha_para_perfil(linha) if linha else None
 
     def salvar(self, perfil: Perfil) -> None:
+        # Mesmo contrato da memória e do SQLite: ValueError antes de chegar ao CHECK do banco.
+        perfil = validar_perfil(perfil)
         colunas = list(perfil_para_linha(perfil))
         nomes = ", ".join(colunas)
         valores = ", ".join(f"%({c})s" for c in colunas)

@@ -69,7 +69,16 @@ class PostgresTest(unittest.TestCase):
         with self.assertRaises(self.errors.CheckViolation):
             self.conn.execute("INSERT INTO perfil_busca (id) VALUES (2)")
         with self.assertRaises(self.errors.CheckViolation):
-            self.perfis.salvar(Perfil(publicada_desde_dias=0))
+            self.conn.execute("INSERT INTO perfil_busca (publicada_desde_dias) VALUES (0)")
+        with self.assertRaises(self.errors.CheckViolation):
+            self.conn.execute("INSERT INTO perfil_busca (publicada_desde_dias) VALUES (3651)")
+        self.assertEqual(self.contar("perfil_busca"), 0)
+
+    def test_repository_recusa_perfil_invalido_com_value_error(self):
+        # Mesmo contrato da memória e do SQLite: a API transforma ValueError em 422.
+        for perfil in (Perfil(publicada_desde_dias=0), Perfil(publicada_desde_dias=10**6), Perfil(modalidades=["Presencial"])):
+            with self.assertRaises(ValueError):
+                self.perfis.salvar(perfil)
         self.assertEqual(self.contar("perfil_busca"), 0)
 
     def test_base_vigente_e_a_mais_recente(self):

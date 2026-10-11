@@ -15,7 +15,12 @@ from src.model.curriculo import Curriculo
 from src.model.perfil import Perfil
 from src.model.vaga import Modalidade, Nivel
 from src.model.vaga_externa import VagaExterna
-from src.repository.base import CurriculoRepository, PerfilBuscaRepository, validar_perfil
+from src.repository.base import (
+    MAX_PUBLICADA_DESDE_DIAS,
+    CurriculoRepository,
+    PerfilBuscaRepository,
+    validar_perfil,
+)
 from src.service.busca_service import BuscaService
 from src.service.recomendacao_service import RecomendacaoService
 
@@ -30,7 +35,7 @@ class PerfilJson(BaseModel):
     plataformas: list[str] = []
     niveis: list[Nivel] = []
     skills: list[str] = []
-    publicada_desde_dias: int | None = Field(default=None, gt=0)
+    publicada_desde_dias: int | None = Field(default=None, gt=0, le=MAX_PUBLICADA_DESDE_DIAS)
     ocultar_candidatadas: bool = True
 
     @classmethod
@@ -169,32 +174,50 @@ def criar_app(
     return app
 
 
-class _Preguicoso:
-    """Repassa cada chamada a um objeto recriado por `fabrica` a cada uso.
+class _PorChamada:
+    """Cada chamada usa um repository novo, com uma conexão do pool só para ela.
 
-    Permite subir a app (e responder /saude) sem o Postgres no ar, e voltar a funcionar
-    quando a conexão cai, porque a conexão é pedida de novo em cada chamada.
+    Uma conexão compartilhada entre as threads do FastAPI misturaria as transações de
+    requisições simultâneas: o segundo `transaction()` vira SAVEPOINT do primeiro, e o
+    rollback de um desfaz a gravação do outro, que já respondeu 201.
     """
 
-    def __init__(self, fabrica: Callable[[], Any]):
-        self._fabrica = fabrica
+    def __init__(self, pool: Callable[[], Any], classe: Callable[[], type]):
+        self._pool = pool
+        # A classe vem por função para o import do psycopg ficar para o primeiro uso.
+        self._classe = classe
 
     def __getattr__(self, nome: str) -> Any:
-        return getattr(self._fabrica(), nome)
+        def chamar(*args, **kwargs):
+            with self._pool().connection() as conn:
+                return getattr(self._classe()(conn), nome)(*args, **kwargs)
+
+        return chamar
 
 
-class _ConexaoPostgres:
+class _PoolPreguicoso:
+    """Cria o pool no primeiro uso: a app sobe e responde /saude sem o Postgres no ar."""
+
     def __init__(self):
-        self._conn = None
+        self._pool = None
         self._lock = threading.Lock()
 
-    def obter(self):
-        from src.repository.conexao import conectar
-
+    def __call__(self):
         with self._lock:
-            if self._conn is None or self._conn.closed or self._conn.broken:
-                self._conn = conectar()
-            return self._conn
+            if self._pool is None:
+                from psycopg_pool import ConnectionPool
+
+                from src.repository.conexao import parametros
+
+                self._pool = ConnectionPool(
+                    kwargs={**parametros(), "autocommit": True},
+                    min_size=1,
+                    max_size=4,
+                    # Conexão que caiu é trocada antes de ser entregue a uma requisição.
+                    check=ConnectionPool.check_connection,
+                    open=True,
+                )
+            return self._pool
 
 
 def _lista_env(nome: str) -> list[str]:
@@ -216,22 +239,23 @@ def providers_padrao() -> list:
     return providers
 
 
+def _perfis_postgres() -> type:
+    from src.repository.postgres import PerfilBuscaRepositoryPostgres
+
+    return PerfilBuscaRepositoryPostgres
+
+
+def _curriculos_postgres() -> type:
+    from src.repository.postgres import CurriculoRepositoryPostgres
+
+    return CurriculoRepositoryPostgres
+
+
 def criar_app_producao() -> FastAPI:
-    conexao = _ConexaoPostgres()
-
-    def perfis():
-        from src.repository.postgres import PerfilBuscaRepositoryPostgres
-
-        return PerfilBuscaRepositoryPostgres(conexao.obter())
-
-    def curriculos():
-        from src.repository.postgres import CurriculoRepositoryPostgres
-
-        return CurriculoRepositoryPostgres(conexao.obter())
-
+    pool = _PoolPreguicoso()
     return criar_app(
-        perfis=_Preguicoso(perfis),
-        curriculos=_Preguicoso(curriculos),
+        perfis=_PorChamada(pool, _perfis_postgres),
+        curriculos=_PorChamada(pool, _curriculos_postgres),
         busca=BuscaService(providers_padrao()),
         armazenamento=Armazenamento(),
     )

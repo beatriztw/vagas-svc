@@ -67,7 +67,11 @@ class ApiTest(unittest.TestCase):
         self.assertIsNone(self.perfis.obter())
 
     def test_put_perfil_com_dias_nao_positivo_ou_campo_desconhecido_e_422(self):
-        for corpo in ({**PERFIL, "publicada_desde_dias": 0}, {**PERFIL, "nivel": ["Pleno"]}):
+        for corpo in (
+            {**PERFIL, "publicada_desde_dias": 0},
+            {**PERFIL, "publicada_desde_dias": 1_000_000},
+            {**PERFIL, "nivel": ["Pleno"]},
+        ):
             with self.subTest(corpo=corpo):
                 self.assertEqual(self.api.put("/perfil", json=corpo).status_code, 422)
 
@@ -216,6 +220,57 @@ class ApiPostgresTest(unittest.TestCase):
         self.assertEqual(self.api.get("/curriculos/adaptados").json(), [adaptado.json()])
 
 
+@unittest.skipUnless(os.environ.get("PGHOST"), "PGHOST não definido: pool com Postgres pulado")
+class PoolPostgresConcorrenciaTest(unittest.TestCase):
+    """Gravações simultâneas pelo pool da produção: o rollback de uma não desfaz a outra."""
+
+    def test_falha_simultanea_nao_desfaz_gravacao_que_respondeu_ok(self):
+        from concurrent.futures import ThreadPoolExecutor
+
+        from psycopg import sql
+        from psycopg_pool import ConnectionPool
+
+        from src.controller.api import _PorChamada
+        from src.model.curriculo import Curriculo
+        from src.repository.conexao import conectar, parametros
+        from src.repository.postgres import CurriculoRepositoryPostgres
+
+        admin = conectar()
+        self.addCleanup(admin.close)
+        schema = f"teste_pool_{uuid.uuid4().hex[:12]}"
+        admin.execute(sql.SQL("CREATE SCHEMA {}").format(sql.Identifier(schema)))
+        self.addCleanup(admin.execute, sql.SQL("DROP SCHEMA {} CASCADE").format(sql.Identifier(schema)))
+        admin.execute(sql.SQL("SET search_path TO {}").format(sql.Identifier(schema)))
+        admin.execute(MIGRATION.read_text(encoding="utf-8"))
+
+        pool = ConnectionPool(
+            kwargs={**parametros(), "autocommit": True, "options": f"-c search_path={schema}"},
+            min_size=4,
+            max_size=4,
+            open=True,
+        )
+        self.addCleanup(pool.close)
+        repo = _PorChamada(lambda: pool, lambda: CurriculoRepositoryPostgres)
+        base = repo.salvar(Curriculo("base", "Base", "# b"))
+        adaptado = repo.salvar(Curriculo("adaptado", "A0", "# a0", base_id=base.id))
+
+        def gravar(i):
+            # Metade falha (adaptado de adaptado, rollback), metade grava.
+            alvo = adaptado.id if i % 2 else base.id
+            try:
+                return repo.salvar(Curriculo("adaptado", f"A{i}", "# a", base_id=alvo)).id
+            except ValueError:
+                return None
+
+        with ThreadPoolExecutor(max_workers=8) as executor:
+            ids = [i for i in executor.map(gravar, range(40)) if i is not None]
+
+        self.assertEqual(len(ids), 20)
+        no_banco = {c.id for c in repo.listar_adaptados()}
+        self.assertLessEqual(set(ids), no_banco)
+        self.assertEqual(len(no_banco), 21)
+
+
 class PerfilSemValidacao(PerfilBuscaRepositoryMemoria):
     """Como o repositório Postgres: grava sem chamar validar_perfil."""
 
@@ -235,3 +290,41 @@ class ApiValidaPerfilTest(unittest.TestCase):
 
         self.assertEqual(resposta.status_code, 422)
         self.assertIsNone(perfis._perfil)
+
+
+class PorChamadaTest(unittest.TestCase):
+    """Cada chamada pega e devolve a própria conexão: requisições simultâneas não dividem transação."""
+
+    def test_cada_chamada_usa_uma_conexao_propria_e_devolve(self):
+        from contextlib import contextmanager
+
+        from src.controller.api import _PorChamada
+
+        entregues, devolvidas = [], []
+
+        class Pool:
+            @contextmanager
+            def connection(self):
+                conn = object()
+                entregues.append(conn)
+                try:
+                    yield conn
+                finally:
+                    devolvidas.append(conn)
+
+        class Repo:
+            def __init__(self, conn):
+                self.conn = conn
+
+            def qual(self):
+                return self.conn
+
+        pool = Pool()
+        repo = _PorChamada(lambda: pool, lambda: Repo)
+
+        primeira, segunda = repo.qual(), repo.qual()
+
+        self.assertIsNot(primeira, segunda)
+        self.assertEqual(entregues, [primeira, segunda])
+        self.assertEqual(devolvidas, [primeira, segunda])
+

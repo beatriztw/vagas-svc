@@ -96,12 +96,15 @@ def extrair_objeto_json(texto: str) -> dict:
                 bruto, _ = json.JSONDecoder().raw_decode(candidato, inicio)
             except json.JSONDecodeError:
                 bruto = None
-            if isinstance(bruto, dict):
+            # Só vale um objeto com algum campo do perfil: um {"arquivo": ...} antes, ou um
+            # {"perfil": {...}} em volta, viraria um Perfil vazio aceito sem erro. O "{" de
+            # dentro do embrulho é tentado na próxima volta.
+            if isinstance(bruto, dict) and any(campo in bruto for campo in CAMPOS):
                 return bruto
             inicio = candidato.find("{", inicio + 1)
     if not viu_chave:
         raise PerfilIAError("resposta não tem objeto JSON")
-    raise PerfilIAError("resposta não é JSON: nenhum objeto válido")
+    raise PerfilIAError("resposta não é JSON com os campos do perfil")
 
 
 def validar_json(texto: str) -> SugestaoPerfil:

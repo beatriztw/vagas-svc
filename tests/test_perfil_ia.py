@@ -278,6 +278,18 @@ class ValidarJsonTest(unittest.TestCase):
         texto = "```\nfor x in {a, b}\n```\n```json\n" + json.dumps(BRUTO) + "\n```"
         self.assertEqual(validar_json(texto).perfil.niveis, [Nivel.PLENO])
 
+    def test_objeto_sem_campos_do_perfil_antes_do_perfil(self):
+        texto = 'Li o arquivo {"arquivo": "curriculo.pdf"} e segue: ' + json.dumps(BRUTO, ensure_ascii=False)
+        self.assertEqual(validar_json(texto).perfil.termos, ["python", "backend"])
+
+    def test_perfil_embrulhado_em_outro_objeto(self):
+        texto = json.dumps({"perfil": BRUTO}, ensure_ascii=False)
+        self.assertEqual(validar_json(texto).perfil.skills, ["python", "sql"])
+
+    def test_so_objeto_sem_campos_do_perfil_vira_erro(self):
+        with self.assertRaises(PerfilIAError):
+            validar_json('{"arquivo": "curriculo.pdf", "status": "ok"}')
+
     def test_resposta_sem_objeto_json(self):
         with self.assertRaisesRegex(PerfilIAError, "não tem objeto JSON"):
             validar_json("Claro! Aqui está o perfil...")

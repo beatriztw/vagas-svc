@@ -49,10 +49,16 @@ def normalizar_perfil(perfil: Perfil) -> Perfil:
     )
 
 
+# Dez anos: acima disso o filtro não serve para nada, e um valor enorme estoura o
+# `hoje - timedelta(days=...)` da recomendação e o INT da coluna.
+MAX_PUBLICADA_DESDE_DIAS = 3650
+
+
 def validar_perfil(perfil: Perfil) -> Perfil:
     """Perfil normalizado e conferido antes de gravar; inválido levanta ValueError."""
-    if perfil.publicada_desde_dias is not None and perfil.publicada_desde_dias <= 0:
-        raise ValueError("publicada_desde_dias tem que ser positivo")
+    dias = perfil.publicada_desde_dias
+    if dias is not None and not 0 < dias <= MAX_PUBLICADA_DESDE_DIAS:
+        raise ValueError(f"publicada_desde_dias tem que estar entre 1 e {MAX_PUBLICADA_DESDE_DIAS}")
     return normalizar_perfil(perfil)
 
 

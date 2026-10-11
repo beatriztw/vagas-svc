@@ -26,7 +26,7 @@ CREATE TABLE IF NOT EXISTS perfil_busca (
     plataformas           TEXT[]       NOT NULL DEFAULT '{}',
     niveis                TEXT[]       NOT NULL DEFAULT '{}' CHECK (niveis <@ ARRAY['Júnior', 'Pleno', 'Sênior']),
     skills                TEXT[]       NOT NULL DEFAULT '{}',
-    publicada_desde_dias  INT          NULL CHECK (publicada_desde_dias > 0),
+    publicada_desde_dias  INT          NULL CHECK (publicada_desde_dias BETWEEN 1 AND 3650),
     ocultar_candidatadas  BOOLEAN      NOT NULL DEFAULT TRUE,
     atualizado_em         TIMESTAMPTZ  NOT NULL DEFAULT now()
 );
