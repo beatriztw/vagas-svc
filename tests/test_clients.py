@@ -171,6 +171,16 @@ class ApifyLinkedInClientTest(unittest.TestCase):
         self.assertIsNone(vagas[0].publicada_em)
         self.assertEqual(vagas[1].publicada_em, date(2026, 10, 9))
 
+    def test_epoch_em_segundos_e_em_milissegundos(self):
+        itens = [
+            {"id": "1", "link": "https://br.linkedin.com/jobs/view/1", "title": "A", "postedAt": 1791590400},
+            {"id": "2", "link": "https://br.linkedin.com/jobs/view/2", "title": "B", "postedAt": 1791590400000},
+        ]
+        vagas = ApifyLinkedInClient(token="tk", http_post=lambda url, corpo, token: itens).buscar("a")
+
+        self.assertEqual(vagas[0].publicada_em, vagas[1].publicada_em)
+        self.assertEqual(vagas[0].publicada_em.year, 2026)
+
     def test_item_que_nao_e_objeto_nao_derruba_a_busca(self):
         itens = [None, "erro do actor", {"id": "1", "link": "https://br.linkedin.com/jobs/view/1", "title": "Analista"}]
         vagas = ApifyLinkedInClient(token="tk", http_post=lambda url, corpo, token: itens).buscar("analista")

@@ -33,9 +33,12 @@ def post_json(url: str, corpo: dict, token: str) -> Any:
 
 
 def _data(valor: str | int | None):
+    # parse_data trata todo int como milissegundos; abaixo de 10^11 é um epoch em segundos.
+    if isinstance(valor, int) and 0 < valor < 10**11:
+        valor *= 1000
     try:
         return parse_data(valor)
-    # OverflowError/OSError: epoch fora do intervalo (em segundos, ou absurdo).
+    # OverflowError/OSError: epoch absurdo, fora do que o datetime aceita.
     except (TypeError, ValueError, OverflowError, OSError):
         return None
 
