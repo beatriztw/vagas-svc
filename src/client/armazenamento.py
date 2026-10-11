@@ -13,8 +13,8 @@ def ler_segredo(env: Mapping[str, str], nome: str) -> str | None:
 
 
 def criar_cliente_s3(env: Mapping[str, str]) -> Any:
-    """Cliente S3 do boto3. O botocore recusa host com "_" no S3_ENDPOINT ("Invalid endpoint"),
-    então o nome do service do Swarm (`storage_garage`) não serve: use um alias sem "_"."""
+    """Cliente S3 do boto3. No Pi, S3_ENDPOINT=http://garage:3900 (alias na public_network): o botocore
+    recusa host com "_" ("Invalid endpoint"), então o nome completo do service do Swarm não serve."""
     import boto3
     from botocore.config import Config
 

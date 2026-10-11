@@ -6,7 +6,8 @@ from collections.abc import Callable
 from datetime import date, datetime
 from typing import Any
 
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException, Query, Request
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field
 
 from src.client.armazenamento import Armazenamento
@@ -100,6 +101,11 @@ def criar_app(
     app = FastAPI(title="vagas-svc")
     app.state.armazenamento = armazenamento
     recomendacao = RecomendacaoService(busca)
+
+    @app.exception_handler(ValueError)
+    def valor_invalido(_: Request, erro: ValueError) -> JSONResponse:
+        # Os repositórios validam (Curriculo.validar, enums do perfil) e levantam ValueError.
+        return JSONResponse(status_code=422, content={"detail": str(erro)})
 
     @app.get("/saude")
     def saude() -> dict[str, bool]:

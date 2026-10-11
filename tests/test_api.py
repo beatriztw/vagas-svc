@@ -1,5 +1,8 @@
+import os
 import unittest
+import uuid
 from datetime import date
+from pathlib import Path
 
 from fastapi.testclient import TestClient
 
@@ -8,6 +11,8 @@ from src.model.vaga_externa import VagaExterna
 from src.repository.base import CurriculoRepositoryMemoria, PerfilBuscaRepositoryMemoria
 from src.service.busca_service import BuscaService
 from tests.test_busca_service import ClientFixo, ClientQuebrado
+
+MIGRATION = Path(__file__).resolve().parent.parent / "migrations" / "001_curriculo_perfil.sql"
 
 PERFIL = {
     "termos": ["python"],
@@ -157,3 +162,55 @@ class ApiTest(unittest.TestCase):
 
     def test_vagas_sem_termo_e_422(self):
         self.assertEqual(self.api.get("/vagas").status_code, 422)
+
+
+class ValueErrorDoRepositorio(PerfilBuscaRepositoryMemoria):
+    def salvar(self, perfil):
+        raise ValueError("recusado pelo repositório")
+
+
+class ApiErrosDoRepositorioTest(unittest.TestCase):
+    def test_value_error_do_repositorio_vira_422(self):
+        api = TestClient(criar_app(ValueErrorDoRepositorio(), CurriculoRepositoryMemoria(), BuscaService([])))
+
+        resposta = api.put("/perfil", json=PERFIL)
+
+        self.assertEqual(resposta.status_code, 422)
+        self.assertEqual(resposta.json(), {"detail": "recusado pelo repositório"})
+
+
+@unittest.skipUnless(os.environ.get("PGHOST"), "PGHOST não definido: API com Postgres pulada")
+class ApiPostgresTest(unittest.TestCase):
+    """A API com os repositórios Postgres, num schema descartável."""
+
+    def setUp(self):
+        from psycopg import sql
+
+        from src.repository.conexao import conectar
+        from src.repository.postgres import CurriculoRepositoryPostgres, PerfilBuscaRepositoryPostgres
+
+        conn = conectar()
+        self.addCleanup(conn.close)
+        schema = f"teste_api_{uuid.uuid4().hex[:12]}"
+        conn.execute(sql.SQL("CREATE SCHEMA {}").format(sql.Identifier(schema)))
+        self.addCleanup(conn.execute, sql.SQL("DROP SCHEMA {} CASCADE").format(sql.Identifier(schema)))
+        conn.execute(sql.SQL("SET search_path TO {}").format(sql.Identifier(schema)))
+        conn.execute(MIGRATION.read_text(encoding="utf-8"))
+        self.api = TestClient(
+            criar_app(PerfilBuscaRepositoryPostgres(conn), CurriculoRepositoryPostgres(conn), BuscaService([]))
+        )
+
+    def test_perfil_e_curriculos_de_ponta_a_ponta(self):
+        self.assertEqual(self.api.get("/perfil").status_code, 404)
+        self.assertEqual(self.api.put("/perfil", json=PERFIL).json(), PERFIL)
+        self.assertEqual(self.api.get("/perfil").json(), PERFIL)
+
+        sem_base = self.api.post("/curriculos/adaptados", json={"titulo": "a", "conteudo_md": "# a", "vaga_url": "u1"})
+        self.assertEqual(sem_base.status_code, 409)
+        base = self.api.put("/curriculos/base", json={"titulo": "v1", "conteudo_md": "# v1"}).json()
+        adaptado = self.api.post("/curriculos/adaptados", json={"titulo": "a", "conteudo_md": "# a", "vaga_url": "u1"})
+
+        self.assertEqual(adaptado.status_code, 201)
+        self.assertEqual(adaptado.json()["base_id"], base["id"])
+        self.assertEqual(self.api.get("/curriculos/base").json(), base)
+        self.assertEqual(self.api.get("/curriculos/adaptados").json(), [adaptado.json()])

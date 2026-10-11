@@ -53,3 +53,8 @@ class ArmazenamentoTest(unittest.TestCase):
         self.assertEqual(cliente.meta.config.s3["addressing_style"], "path")
         credenciais = cliente._request_signer._credentials
         self.assertEqual((credenciais.access_key, credenciais.secret_key), ("id", "segredo"))
+
+    def test_armazenamento_com_endpoint_do_pi_monta_o_cliente(self):
+        armazenamento = Armazenamento(env={"S3_ENDPOINT": "http://garage:3900", "S3_ACCESS_KEY_ID": "id", "S3_SECRET_ACCESS_KEY": "s"})
+
+        self.assertEqual(armazenamento.cliente.meta.endpoint_url, "http://garage:3900")
