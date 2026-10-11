@@ -16,3 +16,31 @@ python -m venv .venv
 .venv\Scripts\activate
 pip install -r requirements.txt
 ```
+
+## Providers de vagas
+
+Os clients em `src/client` usam apenas a biblioteca padrão e devolvem `VagaExterna`:
+
+| Client | Fonte | Busca |
+|---|---|---|
+| `GreenhouseClient(empresas)` | API pública de boards do Greenhouse | filtra o título localmente |
+| `LeverClient(empresas)` | API pública de postings do Lever | filtra o título localmente |
+| `AshbyClient(empresas)` | API pública de job board do Ashby | filtra o título localmente |
+| `RemotarClient()` | API do Remotar | termo enviado para a API |
+| `TramposClient()` | API do Trampos.co | filtra título e categoria localmente |
+
+`BuscaService` consulta todos, remove vagas repetidas pela URL e registra em `erros` os providers que falharam, sem interromper a busca:
+
+```python
+from src.client.greenhouse import GreenhouseClient
+from src.client.remotar import RemotarClient
+from src.service.busca_service import BuscaService
+
+resultado = BuscaService([GreenhouseClient(["stone"]), RemotarClient()]).buscar("python")
+```
+
+## Testes
+
+```bash
+python -m unittest discover -s tests -t .
+```

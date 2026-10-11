@@ -1,0 +1,48 @@
+{
+  "opportunities": [
+    {
+      "id": 774774,
+      "name": "Account Manager | Marketing & Performance",
+      "category_name": "Marketing",
+      "state": "RS",
+      "city": "São Leopoldo",
+      "hybrid": false,
+      "published_at": "2026-10-10T14:10:06.000-03:00",
+      "custom_company_name": null,
+      "company": {
+        "name": "Fatture Digital"
+      }
+    },
+    {
+      "id": 774721,
+      "name": "Vendedor(a) Técnico(a) – Controle de Pragas",
+      "category_name": "Comercial",
+      "state": "SP",
+      "city": "São Paulo",
+      "hybrid": false,
+      "published_at": "2026-10-10T11:45:03.000-03:00",
+      "custom_company_name": null,
+      "company": {
+        "name": "Pestshop"
+      }
+    },
+    {
+      "id": 774708,
+      "name": "Gestor(a) de Vendas e E-commerce",
+      "category_name": "Comercial",
+      "state": "BA",
+      "city": "Porto Seguro",
+      "hybrid": false,
+      "published_at": "2026-10-09T11:15:04.000-03:00",
+      "custom_company_name": null,
+      "company": {
+        "name": "YAAYOO"
+      }
+    }
+  ],
+  "pagination": {
+    "total": 3,
+    "total_pages": 1,
+    "per_page": 12
+  }
+}

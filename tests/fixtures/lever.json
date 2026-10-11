@@ -1,0 +1,36 @@
+[
+  {
+    "id": "ad208490-4052-4f91-a57e-433f2d1e484b",
+    "text": "Customer Success Manager",
+    "hostedUrl": "https://jobs.lever.co/leverdemo/ad208490-4052-4f91-a57e-433f2d1e484b",
+    "categories": {
+      "commitment": "Regular Full Time (Salary)",
+      "department": "Customer Success",
+      "location": "Atlanta, Georgia",
+      "team": "Customer Success Team",
+      "allLocations": [
+        "Atlanta, Georgia"
+      ]
+    },
+    "workplaceType": "hybrid",
+    "createdAt": 1788199939703,
+    "country": "US"
+  },
+  {
+    "id": "120b5976-ee4e-4dc5-b31b-2b1ca124460c",
+    "text": "Dentist",
+    "hostedUrl": "https://jobs.lever.co/leverdemo/120b5976-ee4e-4dc5-b31b-2b1ca124460c",
+    "categories": {
+      "commitment": "Regular Full Time (Salary)",
+      "department": "People (HR)",
+      "location": "Houston, TX",
+      "team": "People",
+      "allLocations": [
+        "Houston, TX"
+      ]
+    },
+    "workplaceType": "onsite",
+    "createdAt": 1787600587936,
+    "country": "US"
+  }
+]
