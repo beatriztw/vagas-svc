@@ -227,7 +227,8 @@ def _lista_env(nome: str) -> list[str]:
 
 
 def providers_padrao() -> list:
-    """Remotar e Trampos sempre; Greenhouse, Lever e Ashby só com empresas em GREENHOUSE_EMPRESAS etc."""
+    """Remotar e Trampos sempre; Greenhouse, Lever e Ashby só com empresas em GREENHOUSE_EMPRESAS etc.;
+    o LinkedIn pelo Apify só com APIFY_TOKEN."""
     from src.client.ashby import AshbyClient
     from src.client.greenhouse import GreenhouseClient
     from src.client.lever import LeverClient
@@ -238,6 +239,16 @@ def providers_padrao() -> list:
     for classe, env in ((GreenhouseClient, "GREENHOUSE_EMPRESAS"), (LeverClient, "LEVER_EMPRESAS"), (AshbyClient, "ASHBY_EMPRESAS")):
         if empresas := _lista_env(env):
             providers.append(classe(empresas))
+    if os.environ.get("APIFY_TOKEN"):
+        from src.client.apify_linkedin import ApifyLinkedInClient
+
+        # Cada busca custa até APIFY_LIMITE vagas no Apify (US$ 0,001–0,002 cada em out/2026).
+        providers.append(
+            ApifyLinkedInClient(
+                local=os.environ.get("APIFY_LOCAL", "Brasil"),
+                limite=int(os.environ.get("APIFY_LIMITE", "50")),
+            )
+        )
     return providers
 
 
