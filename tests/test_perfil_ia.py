@@ -1,14 +1,17 @@
 import json
 import sqlite3
+import subprocess
 import tempfile
 import unittest
 import zlib
 from pathlib import Path
+from unittest import mock
 
 from src.client.perfil_ia import (
     AgenteCLIRunner,
     ExtractorFixo,
     PerfilIAError,
+    _runner,
     extrair_texto,
     validar_json,
 )
@@ -30,6 +33,16 @@ BRUTO = {
 
 def envelope(resposta: str) -> str:
     return json.dumps({"type": "result", "subtype": "success", "result": resposta}, ensure_ascii=False)
+
+
+def criar_pdf(testcase: unittest.TestCase) -> Path:
+    """PDF mínimo com texto legível, apagado no fim do teste."""
+    pasta = tempfile.TemporaryDirectory()
+    testcase.addCleanup(pasta.cleanup)
+    pdf = Path(pasta.name) / "curriculo.pdf"
+    stream = zlib.compress(b"BT /F1 12 Tf (Beatriz Souza - desenvolvedora, python, sql) Tj ET")
+    pdf.write_bytes(b"%PDF-1.4\n1 0 obj\nstream\n" + stream + b"\nendstream\n")
+    return pdf
 
 
 class PerfilIAServiceTest(unittest.TestCase):
@@ -68,11 +81,29 @@ class PerfilIAServiceTest(unittest.TestCase):
             return envelope(json.dumps(BRUTO, ensure_ascii=False))
 
         service = PerfilIAService(AgenteCLIRunner(runner=runner), PerfilRepositoryMemoria())
-        sugestao = service.importar(Path(tempfile.gettempdir()) / "curriculo-ausente.pdf")
+        sugestao = service.importar(criar_pdf(self))
 
         self.assertEqual(sugestao.perfil.skills, ["python", "sql"])
         self.assertEqual(calls[0][:4], ["claude", "-p", "--output-format", "json"])
         self.assertIn("extrator de perfil", calls[0][-1])
+        self.assertIn("desenvolvedora, python, sql", calls[0][-1])
+
+    def test_arquivo_que_nao_e_pdf_nao_chega_ao_modelo(self):
+        calls = []
+        pasta = tempfile.TemporaryDirectory()
+        self.addCleanup(pasta.cleanup)
+        falso = Path(pasta.name) / "curriculo.pdf"
+        falso.write_text("não sou um PDF")
+
+        with self.assertRaises(PerfilIAError):
+            AgenteCLIRunner(runner=calls.append).extrair(falso)
+        self.assertEqual(calls, [])
+
+    def test_saida_json_que_nao_e_objeto_vira_erro_de_resposta(self):
+        runner = AgenteCLIRunner(runner=lambda cmd: "[1, 2]")
+
+        with self.assertRaises(PerfilIAError):
+            runner.extrair(criar_pdf(self))
 
     def test_claude_p_recusa_sem_login_de_assinatura_com_api_key(self):
         def runner(cmd: list[str]) -> str:
@@ -103,6 +134,28 @@ class ExtrairTextoTest(unittest.TestCase):
             validar_json("Claro! Aqui está o perfil...")
 
 
+class RunnerTest(unittest.TestCase):
+    def setUp(self):
+        which = mock.patch("src.client.perfil_ia.shutil.which", return_value="/usr/local/bin/claude")
+        which.start()
+        self.addCleanup(which.stop)
+
+    def test_timeout_vira_erro_de_resposta(self):
+        with mock.patch("src.client.perfil_ia.subprocess.run", side_effect=subprocess.TimeoutExpired("claude", 180)):
+            with self.assertRaises(PerfilIAError):
+                _runner(["claude", "-p"])
+
+    def test_falha_ao_executar_vira_erro_de_resposta(self):
+        with mock.patch("src.client.perfil_ia.subprocess.run", side_effect=PermissionError("sem permissão")):
+            with self.assertRaises(PerfilIAError):
+                _runner(["claude", "-p"])
+
+    def test_claude_ausente_vira_erro_de_resposta(self):
+        with mock.patch("src.client.perfil_ia.shutil.which", return_value=None):
+            with self.assertRaises(PerfilIAError):
+                _runner(["claude", "-p"])
+
+
 class PerfilRepositorySQLiteTest(unittest.TestCase):
     def setUp(self):
         self.conn = sqlite3.connect(":memory:")
@@ -120,6 +173,13 @@ class PerfilRepositorySQLiteTest(unittest.TestCase):
 
     def test_sem_perfil_salvo_devolve_none(self):
         self.assertIsNone(self.repo.obter())
+
+    def test_filtros_escalares_sobrevivem_a_gravacao(self):
+        self.repo.salvar(Perfil(termos=["python"], ocultar_candidatadas=False, publicada_desde_dias=7))
+
+        lido = self.repo.obter()
+        self.assertFalse(lido.ocultar_candidatadas)
+        self.assertEqual(lido.publicada_desde_dias, 7)
 
 
 if __name__ == "__main__":

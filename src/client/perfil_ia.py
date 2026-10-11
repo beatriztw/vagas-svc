@@ -129,7 +129,14 @@ def _modelo() -> str:
 
 
 def _runner(cmd: list[str]) -> str:
-    result = subprocess.run(cmd, capture_output=True, text=True, timeout=180)
+    if shutil.which(cmd[0]) is None:
+        raise PerfilIAError(f"{cmd[0]} não está instalado no ambiente")
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=180)
+    except subprocess.TimeoutExpired as exc:
+        raise PerfilIAError(f"claude -p passou de {exc.timeout:.0f}s sem responder") from exc
+    except OSError as exc:
+        raise PerfilIAError(f"não deu para rodar o claude -p: {exc}") from exc
     if result.returncode != 0:
         raise PerfilIAError(f"claude -p saiu com {result.returncode}: {result.stderr.strip()[:300]}")
     return result.stdout
@@ -150,14 +157,16 @@ class AgenteCLIRunner(PerfilExtractor):
         self._runner = runner
 
     def extrair(self, pdf: Path) -> dict:
-        if shutil.which(self._binary) is None:
-            raise PerfilIAError(f"{self._binary} não está instalado no ambiente")
-        prompt = f"{INSTRUCAO}\n\nCurrículo: {pdf}"
+        # Valida o arquivo (existe, é PDF, até 32 MB) antes de gastar uma chamada ao modelo.
+        curriculo = extrair_texto(pdf)
+        prompt = f"{INSTRUCAO}\n\nCurrículo: {curriculo}"
         out = self._runner([self._binary, "-p", "--output-format", "json", "--model", _modelo(), prompt])
         try:
             envelope = json.loads(out)
         except json.JSONDecodeError as exc:
             raise PerfilIAError(f"saída do claude -p não é JSON: {exc}") from exc
+        if not isinstance(envelope, dict):
+            raise PerfilIAError("saída do claude -p não é um objeto JSON")
         resposta = envelope.get("result") or envelope.get("text") or ""
         if not envelope.get("is_error", False) and envelope.get("subtype") == "success":
             if isinstance(resposta, dict) and "error" in resposta:

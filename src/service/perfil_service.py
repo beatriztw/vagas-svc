@@ -30,7 +30,11 @@ class PerfilRepositoryMemoria(PerfilRepository):
 
 
 class PerfilRepositorySQLite(PerfilRepository):
-    """Uma linha só, com o perfil em JSON. Serve para SQLite e para o MySQL do schema.sql."""
+    """Uma linha por gravação, com o perfil em JSON; `obter` lê a mais recente.
+
+    Só para sqlite3: usa o placeholder `?` e `conn.execute`. Drivers MySQL usam `%s` e
+    exigem cursor, então o MySQL do schema.sql precisa de outro repository.
+    """
 
     def __init__(self, conn):
         self._conn = conn
@@ -55,11 +59,12 @@ def json_dumps(perfil: Perfil) -> str:
 
 def from_json(texto: str) -> Perfil:
     bruto = json.loads(texto)
-    bruto = {campo: bruto.get(campo, []) for campo in CAMPOS}
-    bruto["ocultar_candidatadas"] = bool(bruto.get("ocultar_candidatadas", True))
-    bruto["publicada_desde_dias"] = bruto.get("publicada_desde_dias")
-    sugestao = validar_bruto(bruto)
-    return sugestao.perfil
+    perfil = validar_bruto({campo: bruto.get(campo, []) for campo in CAMPOS}).perfil
+    # validar_bruto só conhece as listas de CAMPOS; os dois campos escalares vêm à parte.
+    perfil.ocultar_candidatadas = bool(bruto.get("ocultar_candidatadas", True))
+    dias = bruto.get("publicada_desde_dias")
+    perfil.publicada_desde_dias = None if dias is None else int(dias)
+    return perfil
 
 
 class PerfilIAService:
