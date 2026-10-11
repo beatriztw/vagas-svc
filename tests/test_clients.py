@@ -130,6 +130,19 @@ class ApifyLinkedInClientTest(unittest.TestCase):
         self.assertFalse(corpo["scrapeCompany"])
         self.assertEqual(token, "tk")
 
+    def test_input_bate_com_o_schema_gravado_do_actor(self):
+        """O schema é o do build 1.7.18, baixado da API do Apify em 2026-10-11 (não tem `count`)."""
+        schema = json.loads((FIXTURES / "apify_linkedin_input_schema.json").read_text(encoding="utf-8"))
+        chamadas: list[tuple] = []
+        ApifyLinkedInClient(token="tk", http_post=fake_post("apify_linkedin.json", chamadas)).buscar("dados")
+
+        _, corpo, _ = chamadas[0]
+        self.assertLessEqual(set(corpo), set(schema["properties"]))
+        self.assertLessEqual(set(schema["required"]), set(corpo))
+        for campo, valor in corpo.items():
+            tipo = {"string": str, "integer": int, "boolean": bool, "array": list}[schema["properties"][campo]["type"]]
+            self.assertIsInstance(valor, tipo, campo)
+
     def test_converte_vaga_com_url_estavel(self):
         vagas = ApifyLinkedInClient(token="tk", http_post=fake_post("apify_linkedin.json")).buscar("dados")
 

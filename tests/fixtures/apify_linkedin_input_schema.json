@@ -1,0 +1,47 @@
+{
+  "_fonte": "GET https://api.apify.com/v2/acts/curious_coder~linkedin-jobs-scraper/builds/default",
+  "_build": "1.7.18",
+  "_baixado_em": "2026-10-11",
+  "required": [],
+  "properties": {
+    "urls": {
+      "type": "array"
+    },
+    "keywords": {
+      "type": "string"
+    },
+    "location": {
+      "type": "string"
+    },
+    "geoId": {
+      "type": "string"
+    },
+    "distance": {
+      "type": "integer"
+    },
+    "datePosted": {
+      "type": "string"
+    },
+    "companyIds": {
+      "type": "array"
+    },
+    "under10Applicants": {
+      "type": "boolean"
+    },
+    "autoConvertToAiSearch": {
+      "type": "boolean"
+    },
+    "scrapeCompany": {
+      "type": "boolean"
+    },
+    "limitPerSource": {
+      "type": "integer"
+    },
+    "splitByLocation": {
+      "type": "boolean"
+    },
+    "splitCountry": {
+      "type": "string"
+    }
+  }
+}

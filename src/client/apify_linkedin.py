@@ -7,6 +7,8 @@ from typing import Any
 from src.client.base import USER_AGENT, ProviderClient, normalizar, parse_data
 from src.model.vaga_externa import VagaExterna
 
+# Input conferido contra o schema gravado em tests/fixtures/apify_linkedin_input_schema.json
+# (build 1.7.18): keywords/location/limitPerSource; o schema não tem `count`.
 ACTOR = "curious_coder~linkedin-jobs-scraper"
 RUN_URL = "https://api.apify.com/v2/acts/{actor}/run-sync-get-dataset-items"
 VAGA_URL = "https://www.linkedin.com/jobs/view/{id}"
