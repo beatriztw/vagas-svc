@@ -25,6 +25,13 @@ class AplicarPerfilTest(unittest.TestCase):
 
         self.assertEqual([v.titulo for v in filtradas], ["Dev Júnior"])
 
+
+    def test_termo_de_excluir_vazio_depois_de_normalizado_e_ignorado(self):
+        vagas = [vaga("Analista de Dados"), vaga("Analista Fiscal")]
+
+        filtradas = aplicar_perfil(vagas, Perfil(excluir=["", "  ", "—", "🚫"]), HOJE)
+
+        self.assertEqual(filtradas, vagas)
     def test_so_remoto_mantem_remotas_e_as_sem_modalidade_com_local_remoto(self):
         vagas = [
             vaga("a", remoto=True),

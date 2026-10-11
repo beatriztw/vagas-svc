@@ -3,6 +3,7 @@ from dataclasses import replace
 from datetime import datetime, timezone
 
 from src.model.curriculo import Curriculo
+from src.model.erros import DadoInvalido
 from src.model.perfil import Perfil
 from src.model.vaga import Modalidade, Nivel
 
@@ -58,8 +59,12 @@ def validar_perfil(perfil: Perfil) -> Perfil:
     """Perfil normalizado e conferido antes de gravar; inválido levanta ValueError."""
     dias = perfil.publicada_desde_dias
     if dias is not None and not 0 < dias <= MAX_PUBLICADA_DESDE_DIAS:
-        raise ValueError(f"publicada_desde_dias tem que estar entre 1 e {MAX_PUBLICADA_DESDE_DIAS}")
-    return normalizar_perfil(perfil)
+        raise DadoInvalido(f"publicada_desde_dias tem que estar entre 1 e {MAX_PUBLICADA_DESDE_DIAS}")
+    try:
+        return normalizar_perfil(perfil)
+    except ValueError as erro:
+        # Enum fora de Modalidade/Nivel: dado do usuário, não falha do servidor.
+        raise DadoInvalido(str(erro)) from erro
 
 
 class PerfilBuscaRepositoryMemoria(PerfilBuscaRepository):
@@ -87,9 +92,9 @@ class CurriculoRepositoryMemoria(CurriculoRepository):
         if curriculo.base_id is not None:
             base = self._linhas.get(curriculo.base_id)
             if base is None:
-                raise ValueError(f"base_id {curriculo.base_id} não existe")
+                raise DadoInvalido(f"base_id {curriculo.base_id} não existe")
             if base.tipo != "base":
-                raise ValueError(f"base_id {curriculo.base_id} é um currículo adaptado, não uma base")
+                raise DadoInvalido(f"base_id {curriculo.base_id} é um currículo adaptado, não uma base")
         salvo = replace(curriculo, id=self._proximo_id, criado_em=datetime.now(timezone.utc))
         self._linhas[salvo.id] = salvo
         self._proximo_id += 1

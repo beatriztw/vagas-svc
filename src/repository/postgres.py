@@ -2,6 +2,7 @@ import psycopg
 from psycopg.rows import dict_row
 
 from src.model.curriculo import Curriculo
+from src.model.erros import DadoInvalido
 from src.model.perfil import Perfil
 from src.model.vaga import Modalidade, Nivel
 from src.repository.base import CurriculoRepository, PerfilBuscaRepository, normalizar_perfil, validar_perfil
@@ -82,7 +83,7 @@ class CurriculoRepositoryPostgres(CurriculoRepository):
                 cur.execute("SELECT tipo FROM curriculo WHERE id = %s FOR SHARE", (curriculo.base_id,))
                 linha = cur.fetchone()
                 if linha is not None and linha["tipo"] != "base":
-                    raise ValueError(f"base_id {curriculo.base_id} é um currículo adaptado, não uma base")
+                    raise DadoInvalido(f"base_id {curriculo.base_id} é um currículo adaptado, não uma base")
             cur.execute(
                 "INSERT INTO curriculo (tipo, titulo, conteudo_md, base_id, vaga_url, arquivo_s3) "
                 f"VALUES (%s, %s, %s, %s, %s, %s) RETURNING {_COLUNAS_CURRICULO}",

@@ -7,6 +7,7 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 
 from src.controller.api import criar_app
+from src.model.erros import DadoInvalido
 from src.model.vaga_externa import VagaExterna
 from src.repository.base import CurriculoRepositoryMemoria, PerfilBuscaRepositoryMemoria
 from src.service.busca_service import BuscaService
@@ -170,7 +171,23 @@ class ApiTest(unittest.TestCase):
 
 class ValueErrorDoRepositorio(PerfilBuscaRepositoryMemoria):
     def salvar(self, perfil):
-        raise ValueError("recusado pelo repositório")
+        raise DadoInvalido("recusado pelo repositório")
+
+
+class FalhaDeConfiguracao(PerfilBuscaRepositoryMemoria):
+    def obter(self):
+        # Como o int(PGPORT) de conexao.parametros com PGPORT="5432/tcp".
+        return int("5432/tcp")
+
+
+class ApiErrosDoServidorTest(unittest.TestCase):
+    def test_value_error_que_nao_e_validacao_vira_500(self):
+        api = TestClient(
+            criar_app(FalhaDeConfiguracao(), CurriculoRepositoryMemoria(), BuscaService([])),
+            raise_server_exceptions=False,
+        )
+
+        self.assertEqual(api.get("/perfil").status_code, 500)
 
 
 class ApiErrosDoRepositorioTest(unittest.TestCase):
@@ -285,7 +302,7 @@ class ApiValidaPerfilTest(unittest.TestCase):
         perfis = PerfilSemValidacao()
         api = TestClient(criar_app(perfis, CurriculoRepositoryMemoria(), BuscaService([])))
 
-        with mock.patch("src.controller.api.validar_perfil", side_effect=ValueError("inválido")):
+        with mock.patch("src.controller.api.validar_perfil", side_effect=DadoInvalido("inválido")):
             resposta = api.put("/perfil", json=PERFIL)
 
         self.assertEqual(resposta.status_code, 422)

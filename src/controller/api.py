@@ -12,6 +12,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from src.client.armazenamento import Armazenamento
 from src.model.curriculo import Curriculo
+from src.model.erros import DadoInvalido
 from src.model.perfil import Perfil
 from src.model.vaga import Modalidade, Nivel
 from src.model.vaga_externa import VagaExterna
@@ -107,9 +108,10 @@ def criar_app(
     app.state.armazenamento = armazenamento
     recomendacao = RecomendacaoService(busca)
 
-    @app.exception_handler(ValueError)
-    def valor_invalido(_: Request, erro: ValueError) -> JSONResponse:
-        # Os repositórios validam (Curriculo.validar, enums do perfil) e levantam ValueError.
+    @app.exception_handler(DadoInvalido)
+    def valor_invalido(_: Request, erro: DadoInvalido) -> JSONResponse:
+        # Só a validação do domínio vira 422; um ValueError qualquer (PGPORT inválido, dado
+        # inesperado do banco) é falha do servidor e sai como 500.
         return JSONResponse(status_code=422, content={"detail": str(erro)})
 
     @app.get("/saude")
@@ -125,7 +127,7 @@ def criar_app(
 
     @app.put("/perfil")
     def salvar_perfil(corpo: PerfilJson) -> PerfilJson:
-        # O repositório Postgres não chama validar_perfil; aqui o ValueError vira 422 em qualquer repositório.
+        # Valida aqui também: um repositório que não valide ainda devolve 422, não 500.
         perfis.salvar(validar_perfil(corpo.para_perfil()))
         return PerfilJson.de(perfis.obter())
 

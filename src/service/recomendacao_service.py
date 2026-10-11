@@ -1,6 +1,6 @@
 from datetime import date, timedelta
 
-from src.client.base import contem
+from src.client.base import contem, normalizar
 from src.model.perfil import Perfil
 from src.model.vaga import Modalidade
 from src.model.vaga_externa import VagaExterna
@@ -16,7 +16,10 @@ def _remota(vaga: VagaExterna) -> bool:
 
 def aplicar_perfil(vagas: list[VagaExterna], perfil: Perfil, hoje: date) -> list[VagaExterna]:
     """Elimina as vagas que o perfil exclui; não muda a ordem das que ficam."""
-    filtradas = [v for v in vagas if not any(contem(v.titulo, termo) for termo in perfil.excluir)]
+    # Termo que fica vazio depois de normalizado ("", "—", emoji) casaria com todo título
+    # (`"" in titulo`) e a busca voltaria sempre vazia: é ignorado.
+    excluir = [termo for termo in perfil.excluir if normalizar(termo).strip()]
+    filtradas = [v for v in vagas if not any(contem(v.titulo, termo) for termo in excluir)]
     if perfil.modalidades == [Modalidade.REMOTO]:
         filtradas = [v for v in filtradas if _remota(v)]
     if perfil.publicada_desde_dias is not None:

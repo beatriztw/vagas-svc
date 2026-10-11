@@ -1,6 +1,8 @@
 from dataclasses import dataclass
 from datetime import datetime
 
+from src.model.erros import DadoInvalido
+
 TIPOS = ("base", "adaptado")
 
 
@@ -20,8 +22,8 @@ class Curriculo:
     def validar(self) -> None:
         """Mesmas regras dos CHECK da tabela curriculo, para falhar antes de ir ao banco."""
         if self.tipo not in TIPOS:
-            raise ValueError(f"tipo inválido: {self.tipo!r}")
+            raise DadoInvalido(f"tipo inválido: {self.tipo!r}")
         if self.tipo == "base" and self.base_id is not None:
-            raise ValueError("currículo base não tem base_id")
+            raise DadoInvalido("currículo base não tem base_id")
         if self.tipo == "adaptado" and self.base_id is None:
-            raise ValueError("currículo adaptado exige base_id")
+            raise DadoInvalido("currículo adaptado exige base_id")
