@@ -154,6 +154,23 @@ class ApifyLinkedInClientTest(unittest.TestCase):
         self.assertIsNone(vagas[2].publicada_em)
         self.assertIsNone(vagas[2].remoto)
 
+    def test_remoto_com_rotulo_em_portugues(self):
+        itens = [{"id": "1", "link": "https://br.linkedin.com/jobs/view/1", "title": "Analista", "workplaceTypes": ["Remoto"]}]
+        vagas = ApifyLinkedInClient(token="tk", http_post=lambda url, corpo, token: itens).buscar("analista")
+
+        self.assertTrue(vagas[0].remoto)
+
+    def test_epoch_fora_do_intervalo_nao_derruba_a_busca(self):
+        itens = [
+            {"id": "1", "link": "https://br.linkedin.com/jobs/view/1", "title": "Analista", "postedAt": 10**20},
+            {"id": "2", "link": "https://br.linkedin.com/jobs/view/2", "title": "Analista II", "postedAt": "2026-10-09"},
+        ]
+        vagas = ApifyLinkedInClient(token="tk", http_post=lambda url, corpo, token: itens).buscar("analista")
+
+        self.assertEqual(len(vagas), 2)
+        self.assertIsNone(vagas[0].publicada_em)
+        self.assertEqual(vagas[1].publicada_em, date(2026, 10, 9))
+
     def test_item_que_nao_e_objeto_nao_derruba_a_busca(self):
         itens = [None, "erro do actor", {"id": "1", "link": "https://br.linkedin.com/jobs/view/1", "title": "Analista"}]
         vagas = ApifyLinkedInClient(token="tk", http_post=lambda url, corpo, token: itens).buscar("analista")

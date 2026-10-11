@@ -4,7 +4,7 @@ import urllib.request
 from collections.abc import Callable
 from typing import Any
 
-from src.client.base import USER_AGENT, ProviderClient, parse_data
+from src.client.base import USER_AGENT, ProviderClient, normalizar, parse_data
 from src.model.vaga_externa import VagaExterna
 
 ACTOR = "curious_coder~linkedin-jobs-scraper"
@@ -35,7 +35,8 @@ def post_json(url: str, corpo: dict, token: str) -> Any:
 def _data(valor: str | int | None):
     try:
         return parse_data(valor)
-    except (TypeError, ValueError):
+    # OverflowError/OSError: epoch fora do intervalo (em segundos, ou absurdo).
+    except (TypeError, ValueError, OverflowError, OSError):
         return None
 
 
@@ -44,7 +45,8 @@ def _remoto(item: dict) -> bool | None:
         return item["workRemoteAllowed"]
     tipos = item.get("workplaceTypes")
     if isinstance(tipos, list) and tipos:
-        return any("remote" in str(t).casefold() for t in tipos)
+        # O actor devolve o rótulo no idioma do LinkedIn: "Remote", "Remoto", "Remota".
+        return any("remot" in normalizar(str(t)) for t in tipos)
     return None
 
 
