@@ -1,0 +1,43 @@
+{
+  "meta": {
+    "total": 1098,
+    "per_page": 50,
+    "current_page": 1,
+    "last_page": 1,
+    "first_page": 1,
+    "first_page_url": "/?page=1",
+    "last_page_url": "/?page=22",
+    "next_page_url": "/?page=2",
+    "previous_page_url": null
+  },
+  "data": [
+    {
+      "id": 166022,
+      "title": "Data Science",
+      "city": null,
+      "state": null,
+      "type": "remote",
+      "externalLink": "https://compass.gupy.io/job/eyJqb2JJZCI6MTI3MTA4NDgsInNvdXJjZSI6InJlbW90YXIifQ==?jobBoardSource=remotar",
+      "isExternalLink": true,
+      "createdAt": "2026-10-10T16:32:47.256-03:00",
+      "companyDisplayName": null,
+      "company": {
+        "name": "Compass.UOL"
+      }
+    },
+    {
+      "id": 165981,
+      "title": "Cientista de Dados Sênior",
+      "city": null,
+      "state": null,
+      "type": "remote",
+      "externalLink": "https://grupomoovenfornax.inhire.app/vagas/377ed750-f681-4756-aafc-170e87f3bb65/consultor-desenvolvedor-ruby",
+      "isExternalLink": true,
+      "createdAt": "2026-10-09T21:16:37.486-03:00",
+      "companyDisplayName": null,
+      "company": {
+        "name": "Grupo Mooven Fornax"
+      }
+    }
+  ]
+}

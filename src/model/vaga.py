@@ -18,6 +18,7 @@ class Modalidade(str, Enum):
 class Vaga:
     nome: str
     empresa: str
+    plataforma: str
     nivel: Nivel
     modalidade: Modalidade
     data_candidatura: date
