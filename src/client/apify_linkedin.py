@@ -85,7 +85,9 @@ class ApifyLinkedInClient(ProviderClient):
             # Dados da empresa custam um request extra por vaga e não são usados aqui.
             "scrapeCompany": False,
         }
-        itens = self._http_post(RUN_URL.format(actor=ACTOR), corpo, token)
+        # maxItems é o teto de cobrança do próprio Apify, valha o input do actor ou não.
+        url = f"{RUN_URL.format(actor=ACTOR)}?maxItems={self.limite}"
+        itens = self._http_post(url, corpo, token)
         if not isinstance(itens, list):
             raise ValueError(f"resposta do Apify não é uma lista: {str(itens)[:200]}")
 

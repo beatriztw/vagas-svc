@@ -123,7 +123,7 @@ class ApifyLinkedInClientTest(unittest.TestCase):
         ApifyLinkedInClient(local="Rio de Janeiro", limite=20, token="tk", http_post=fake_post("apify_linkedin.json", chamadas)).buscar("power bi")
 
         url, corpo, token = chamadas[0]
-        self.assertEqual(url, "https://api.apify.com/v2/acts/curious_coder~linkedin-jobs-scraper/run-sync-get-dataset-items")
+        self.assertEqual(url, "https://api.apify.com/v2/acts/curious_coder~linkedin-jobs-scraper/run-sync-get-dataset-items?maxItems=20")
         self.assertEqual(corpo["keywords"], "power bi")
         self.assertEqual(corpo["location"], "Rio de Janeiro")
         self.assertEqual(corpo["limitPerSource"], 20)
