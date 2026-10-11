@@ -89,6 +89,9 @@ class ApifyLinkedInClient(ProviderClient):
 
         vagas = []
         for item in itens:
+            # Um item quebrado no dataset não pode derrubar as vagas válidas da mesma busca.
+            if not isinstance(item, dict):
+                continue
             titulo = (item.get("title") or "").strip()
             link = item.get("link") or item.get("applyUrl")
             if not titulo or not link:

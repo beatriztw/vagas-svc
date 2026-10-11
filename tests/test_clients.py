@@ -154,6 +154,12 @@ class ApifyLinkedInClientTest(unittest.TestCase):
         self.assertIsNone(vagas[2].publicada_em)
         self.assertIsNone(vagas[2].remoto)
 
+    def test_item_que_nao_e_objeto_nao_derruba_a_busca(self):
+        itens = [None, "erro do actor", {"id": "1", "link": "https://br.linkedin.com/jobs/view/1", "title": "Analista"}]
+        vagas = ApifyLinkedInClient(token="tk", http_post=lambda url, corpo, token: itens).buscar("analista")
+
+        self.assertEqual([v.titulo for v in vagas], ["Analista"])
+
     def test_resposta_que_nao_e_lista_vira_erro(self):
         client = ApifyLinkedInClient(token="tk", http_post=lambda url, corpo, token: {"error": {"type": "run-failed"}})
 
