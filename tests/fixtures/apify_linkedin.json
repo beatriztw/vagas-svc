@@ -1,0 +1,36 @@
+[
+  {
+    "id": "4310298811",
+    "link": "https://br.linkedin.com/jobs/view/analista-de-dados-power-bi-at-empresa-exemplo-4310298811?refId=abc&trackingId=xyz",
+    "title": "  Analista de Dados Pleno - Power BI ",
+    "companyName": "Empresa Exemplo",
+    "location": "Rio de Janeiro, RJ",
+    "postedAt": "2026-10-08",
+    "workRemoteAllowed": false,
+    "workplaceTypes": ["Híbrido"],
+    "seniorityLevel": "Pleno-sênior",
+    "employmentType": "Tempo integral"
+  },
+  {
+    "id": "4310441207",
+    "link": "https://br.linkedin.com/jobs/view/analista-fiscal-4310441207?trackingId=def",
+    "title": "Analista Fiscal com SQL",
+    "companyName": "Outra Empresa",
+    "location": "Brasil",
+    "postedAt": "2026-10-10",
+    "workplaceTypes": ["Remote"]
+  },
+  {
+    "id": "4310555500",
+    "link": "https://br.linkedin.com/jobs/view/sem-titulo-4310555500",
+    "title": "",
+    "companyName": "Sem Título"
+  },
+  {
+    "id": "4310555501",
+    "link": "https://br.linkedin.com/jobs/view/data-estranha-4310555501",
+    "title": "Assistente de Indicadores",
+    "companyName": "Terceira Empresa",
+    "postedAt": "há 2 dias"
+  }
+]
