@@ -1,4 +1,5 @@
 import json
+import re
 import shutil
 import subprocess
 import zlib
@@ -20,6 +21,10 @@ VALIDOS = {
     "skills": str,
 }
 MAX_PDF_BYTES = 32 * 1024 * 1024
+# Um currículo cabe com folga; o resto seria fonte embutida e metadado gastando cota.
+MAX_TEXTO_CHARS = 100_000
+# Conteúdo de cada stream: o lookbehind evita que o "stream" de "endstream" abra outro trecho.
+STREAM = re.compile(rb"(?<!end)stream\r?\n(.*?)endstream", re.DOTALL)
 
 INSTRUCAO = """Você é um extrator de perfil de currículo. Leia o PDF e devolve APENAS um JSON,
 sem texto antes ou depois, no formato:
@@ -99,16 +104,17 @@ def extrair_texto(pdf: Path) -> str:
         raise PerfilIAError("o arquivo não é um PDF")
 
     texto = []
-    for part in data.split(b"stream"):
-        chunk = part.split(b"endstream", 1)[0].lstrip(b"\r\n")
+    for match in STREAM.finditer(data):
+        chunk = match.group(1)
         try:
-            chunk = zlib.decompress(chunk)
+            # Com limite de saída: um stream de poucos KB pode descomprimir para GBs.
+            chunk = zlib.decompressobj().decompress(chunk, MAX_PDF_BYTES)
         except zlib.error:
             pass
         readable = bytes(b for b in chunk if 32 <= b < 127 or b in (9, 10, 13))
         if len(readable) > 40:
             texto.append(readable.decode())
-    limpo = " ".join(texto).strip()
+    limpo = " ".join(texto).strip()[:MAX_TEXTO_CHARS]
     return limpo or str(pdf)
 
 
@@ -128,11 +134,12 @@ def _modelo() -> str:
     return os.environ.get("CLAUDE_PI_MODEL", "claude-sonnet-5-5")
 
 
-def _runner(cmd: list[str]) -> str:
+def _runner(cmd: list[str], prompt: str) -> str:
     if shutil.which(cmd[0]) is None:
         raise PerfilIAError(f"{cmd[0]} não está instalado no ambiente")
     try:
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=180)
+        # Prompt por stdin: como argumento, o Linux limita cada um a ~128 KB.
+        result = subprocess.run(cmd, input=prompt, capture_output=True, text=True, timeout=180)
     except subprocess.TimeoutExpired as exc:
         raise PerfilIAError(f"claude -p passou de {exc.timeout:.0f}s sem responder") from exc
     except OSError as exc:
@@ -152,7 +159,7 @@ class AgenteCLIRunner(PerfilExtractor):
 
     nome = "claude-code"
 
-    def __init__(self, binary: str = "claude", runner: Callable[[list[str]], str] = _runner):
+    def __init__(self, binary: str = "claude", runner: Callable[[list[str], str], str] = _runner):
         self._binary = binary
         self._runner = runner
 
@@ -160,7 +167,7 @@ class AgenteCLIRunner(PerfilExtractor):
         # Valida o arquivo (existe, é PDF, até 32 MB) antes de gastar uma chamada ao modelo.
         curriculo = extrair_texto(pdf)
         prompt = f"{INSTRUCAO}\n\nCurrículo: {curriculo}"
-        out = self._runner([self._binary, "-p", "--output-format", "json", "--model", _modelo(), prompt])
+        out = self._runner([self._binary, "-p", "--output-format", "json", "--model", _modelo()], prompt)
         try:
             envelope = json.loads(out)
         except json.JSONDecodeError as exc:
