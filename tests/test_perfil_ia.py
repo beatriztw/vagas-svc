@@ -97,7 +97,7 @@ class PerfilIAServiceTest(unittest.TestCase):
     def test_runner_falso_nao_usa_rede(self):
         calls = []
 
-        def runner(cmd: list[str], prompt: str) -> str:
+        def runner(cmd: list[str], prompt: str, cwd: Path) -> str:
             calls.append((cmd, prompt))
             return envelope(json.dumps(BRUTO, ensure_ascii=False))
 
@@ -109,31 +109,52 @@ class PerfilIAServiceTest(unittest.TestCase):
         cmd, prompt = calls[0]
         self.assertEqual(cmd[:4], ["claude", "-p", "--output-format", "json"])
         self.assertIn("extrator de perfil", prompt)
-        self.assertIn(str(pdf.resolve()), prompt)
+        self.assertIn(str(Path(cmd[cmd.index("--add-dir") + 1]) / "curriculo.pdf"), prompt)
         self.assertNotIn(prompt, cmd)
 
-    def test_claude_le_o_proprio_pdf_so_com_read_na_pasta_do_curriculo(self):
+    def test_claude_le_o_proprio_pdf_so_com_read(self):
         calls = []
 
-        def runner(cmd: list[str], prompt: str) -> str:
+        def runner(cmd: list[str], prompt: str, cwd: Path) -> str:
             calls.append((cmd, prompt))
             return envelope(json.dumps(BRUTO, ensure_ascii=False))
 
-        pdf = criar_pdf(self)
-        AgenteCLIRunner(runner=runner).extrair(pdf)
+        AgenteCLIRunner(runner=runner).extrair(criar_pdf(self))
 
         cmd, prompt = calls[0]
         self.assertEqual(cmd[cmd.index("--tools") + 1], "Read")
         self.assertEqual(cmd[cmd.index("--allowedTools") + 1], "Read")
-        self.assertEqual(cmd[cmd.index("--add-dir") + 1], str(pdf.resolve().parent))
         # O texto do PDF não vai no prompt: quem lê o arquivo é o Claude Code.
         self.assertNotIn("desenvolvedora", prompt)
 
-    def test_caminho_relativo_vira_absoluto_no_prompt(self):
+    def test_claude_so_enxerga_a_copia_do_pdf_numa_pasta_isolada(self):
+        vistos = {}
+
+        def runner(cmd: list[str], prompt: str, cwd: Path) -> str:
+            pasta = Path(cmd[cmd.index("--add-dir") + 1])
+            vistos.update(pasta=pasta, cwd=cwd, prompt=prompt, arquivos=sorted(p.name for p in pasta.iterdir()))
+            vistos["bytes"] = (pasta / "curriculo.pdf").read_bytes()
+            return envelope(json.dumps(BRUTO, ensure_ascii=False))
+
+        pdf = criar_pdf(self)
+        segredo = pdf.parent / ".env"
+        segredo.write_text("SENHA=nao-pode-vazar")
+        AgenteCLIRunner(runner=runner).extrair(pdf)
+
+        self.assertNotEqual(vistos["pasta"], pdf.resolve().parent)
+        self.assertEqual(vistos["arquivos"], ["curriculo.pdf"])
+        self.assertEqual(vistos["bytes"], pdf.read_bytes())
+        self.assertEqual(vistos["cwd"], vistos["pasta"])
+        self.assertIn(f"arquivo {vistos['pasta'] / 'curriculo.pdf'}.", vistos["prompt"])
+        self.assertNotIn(str(pdf.parent), vistos["prompt"])
+        # A cópia some depois da chamada.
+        self.assertFalse(vistos["pasta"].exists())
+
+    def test_caminho_relativo_e_aceito(self):
         calls = []
 
-        def runner(cmd: list[str], prompt: str) -> str:
-            calls.append((cmd, prompt))
+        def runner(cmd: list[str], prompt: str, cwd: Path) -> str:
+            calls.append((cmd, (Path(cmd[cmd.index("--add-dir") + 1]) / "curriculo.pdf").read_bytes()))
             return envelope(json.dumps(BRUTO, ensure_ascii=False))
 
         pdf = criar_pdf(self)
@@ -141,13 +162,13 @@ class PerfilIAServiceTest(unittest.TestCase):
         self.assertFalse(relativo.is_absolute())
         AgenteCLIRunner(runner=runner).extrair(relativo)
 
-        cmd, prompt = calls[0]
-        self.assertIn(f"arquivo {pdf.resolve()}.", prompt)
-        self.assertEqual(cmd[cmd.index("--add-dir") + 1], str(pdf.resolve().parent))
+        cmd, copia = calls[0]
+        self.assertTrue(Path(cmd[cmd.index("--add-dir") + 1]).is_absolute())
+        self.assertEqual(copia, pdf.read_bytes())
 
     def test_resposta_em_cerca_markdown_e_aceita(self):
         resposta = "Aqui está o perfil:\n```json\n" + json.dumps(BRUTO, ensure_ascii=False) + "\n```\nQualquer dúvida, avise."
-        runner = AgenteCLIRunner(runner=lambda cmd, prompt: envelope(resposta))
+        runner = AgenteCLIRunner(runner=lambda cmd, prompt, cwd: envelope(resposta))
 
         sugestao = PerfilIAService(runner, PerfilRepositoryMemoria()).importar(criar_pdf(self))
 
@@ -162,11 +183,11 @@ class PerfilIAServiceTest(unittest.TestCase):
         falso.write_text("não sou um PDF")
 
         with self.assertRaises(PerfilIAError):
-            AgenteCLIRunner(runner=lambda cmd, prompt: calls.append(cmd)).extrair(falso)
+            AgenteCLIRunner(runner=lambda cmd, prompt, cwd: calls.append(cmd)).extrair(falso)
         self.assertEqual(calls, [])
 
     def test_saida_json_que_nao_e_objeto_vira_erro_de_resposta(self):
-        runner = AgenteCLIRunner(runner=lambda cmd, prompt: "[1, 2]")
+        runner = AgenteCLIRunner(runner=lambda cmd, prompt, cwd: "[1, 2]")
 
         with self.assertRaises(PerfilIAError):
             runner.extrair(criar_pdf(self))
@@ -174,7 +195,7 @@ class PerfilIAServiceTest(unittest.TestCase):
     def test_claude_p_recusa_sem_login_de_assinatura_com_api_key(self):
         calls = []
 
-        def runner(cmd: list[str], prompt: str) -> str:
+        def runner(cmd: list[str], prompt: str, cwd: Path) -> str:
             calls.append(cmd)
             return envelope(json.dumps({"error": "authentication", "message": "login required"}))
 
@@ -220,7 +241,7 @@ class ValidarPdfTest(unittest.TestCase):
 
         with mock.patch("src.client.perfil_ia.MAX_PDF_BYTES", 1024):
             with self.assertRaises(PerfilIAError):
-                AgenteCLIRunner(runner=lambda cmd, prompt: calls.append(cmd)).extrair(pdf)
+                AgenteCLIRunner(runner=lambda cmd, prompt, cwd: calls.append(cmd)).extrair(pdf)
         self.assertEqual(calls, [])
 
 
@@ -239,6 +260,18 @@ class ValidarJsonTest(unittest.TestCase):
     def test_frase_antes_e_depois(self):
         texto = "Claro! Segue o perfil: " + json.dumps(BRUTO, ensure_ascii=False) + " Espero ter ajudado {:)}"
         self.assertEqual(validar_json(texto).perfil.excluir, ["estágio"])
+
+    def test_chave_em_frase_antes_do_json(self):
+        texto = "Segue o perfil {versão 2}: " + json.dumps(BRUTO, ensure_ascii=False)
+        self.assertEqual(validar_json(texto).perfil.termos, ["python", "backend"])
+
+    def test_primeira_cerca_sem_o_json(self):
+        texto = "Comando usado:\n```\nclaude -p\n```\nResultado:\n```json\n" + json.dumps(BRUTO) + "\n```"
+        self.assertEqual(validar_json(texto).perfil.skills, ["python", "sql"])
+
+    def test_primeira_cerca_com_chaves_que_nao_sao_json(self):
+        texto = "```\nfor x in {a, b}\n```\n```json\n" + json.dumps(BRUTO) + "\n```"
+        self.assertEqual(validar_json(texto).perfil.niveis, [Nivel.PLENO])
 
     def test_resposta_sem_objeto_json(self):
         with self.assertRaisesRegex(PerfilIAError, "não tem objeto JSON"):

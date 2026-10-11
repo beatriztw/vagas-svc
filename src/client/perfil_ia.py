@@ -2,6 +2,7 @@ import json
 import re
 import shutil
 import subprocess
+import tempfile
 from abc import ABC, abstractmethod
 from collections.abc import Callable
 from pathlib import Path
@@ -80,20 +81,27 @@ def validar_bruto(bruto: dict) -> SugestaoPerfil:
 
 
 def extrair_objeto_json(texto: str) -> dict:
-    """Primeiro objeto JSON da resposta, tirando cerca markdown e frase antes ou depois."""
-    cerca = CERCA.search(texto)
-    if cerca:
-        texto = cerca.group(1)
-    inicio = texto.find("{")
-    if inicio < 0:
+    """Primeiro objeto JSON da resposta, tirando cerca markdown e frase antes ou depois.
+
+    Tenta o conteúdo de cada cerca e depois o texto inteiro, e em cada um cada "{" até um
+    raw_decode dar certo: chave numa frase antes do JSON não pode derrubar a importação.
+    """
+    candidatos = [cerca.group(1) for cerca in CERCA.finditer(texto)] + [texto]
+    viu_chave = False
+    for candidato in candidatos:
+        inicio = candidato.find("{")
+        while inicio >= 0:
+            viu_chave = True
+            try:
+                bruto, _ = json.JSONDecoder().raw_decode(candidato, inicio)
+            except json.JSONDecodeError:
+                bruto = None
+            if isinstance(bruto, dict):
+                return bruto
+            inicio = candidato.find("{", inicio + 1)
+    if not viu_chave:
         raise PerfilIAError("resposta não tem objeto JSON")
-    try:
-        bruto, _ = json.JSONDecoder().raw_decode(texto, inicio)
-    except json.JSONDecodeError as exc:
-        raise PerfilIAError(f"resposta não é JSON: {exc}") from exc
-    if not isinstance(bruto, dict):
-        raise PerfilIAError("resposta não é um objeto JSON")
-    return bruto
+    raise PerfilIAError("resposta não é JSON: nenhum objeto válido")
 
 
 def validar_json(texto: str) -> SugestaoPerfil:
@@ -132,12 +140,12 @@ def _modelo() -> str:
     return os.environ.get("CLAUDE_PI_MODEL", "claude-sonnet-5-5")
 
 
-def _runner(cmd: list[str], prompt: str) -> str:
+def _runner(cmd: list[str], prompt: str, cwd: Path | None = None) -> str:
     if shutil.which(cmd[0]) is None:
         raise PerfilIAError(f"{cmd[0]} não está instalado no ambiente")
     try:
         # Prompt por stdin: como argumento, o Linux limita cada um a ~128 KB.
-        result = subprocess.run(cmd, input=prompt, capture_output=True, text=True, timeout=180)
+        result = subprocess.run(cmd, input=prompt, capture_output=True, text=True, timeout=180, cwd=cwd)
     except subprocess.TimeoutExpired as exc:
         raise PerfilIAError(f"claude -p passou de {exc.timeout:.0f}s sem responder") from exc
     except OSError as exc:
@@ -157,31 +165,40 @@ class AgenteCLIRunner(PerfilExtractor):
 
     nome = "claude-code"
 
-    def __init__(self, binary: str = "claude", runner: Callable[[list[str], str], str] = _runner):
+    def __init__(self, binary: str = "claude", runner: Callable[[list[str], str, Path], str] = _runner):
         self._binary = binary
         self._runner = runner
 
     def extrair(self, pdf: Path) -> dict:
         # Valida o arquivo (existe, é PDF, até 32 MB) antes de gastar uma chamada ao modelo.
-        curriculo = validar_pdf(pdf)
-        prompt = f"{INSTRUCAO}\n\nO currículo é o arquivo {curriculo}. Leia esse arquivo com a ferramenta Read."
-        # O próprio Claude Code lê o PDF: só a ferramenta Read existe, liberada sem pergunta,
-        # e só a pasta do currículo entra no acesso além do diretório de trabalho.
-        cmd = [
-            self._binary,
-            "-p",
-            "--output-format",
-            "json",
-            "--model",
-            _modelo(),
-            "--tools",
-            "Read",
-            "--allowedTools",
-            "Read",
-            "--add-dir",
-            str(curriculo.parent),
-        ]
-        out = self._runner(cmd, prompt)
+        original = validar_pdf(pdf)
+        # O PDF é conteúdo não confiável (pode trazer prompt injection). O claude -p só enxerga
+        # uma pasta temporária com a cópia do currículo, que também é o diretório de trabalho:
+        # nem os vizinhos do PDF (ex.: o Downloads inteiro) nem o repositório ficam ao alcance.
+        with tempfile.TemporaryDirectory(prefix="perfil-ia-") as pasta:
+            isolada = Path(pasta).resolve()
+            curriculo = isolada / "curriculo.pdf"
+            try:
+                shutil.copyfile(original, curriculo)
+            except OSError as exc:
+                raise PerfilIAError(f"não deu para copiar o PDF: {exc}") from exc
+            prompt = f"{INSTRUCAO}\n\nO currículo é o arquivo {curriculo}. Leia esse arquivo com a ferramenta Read."
+            # Só a ferramenta Read existe, liberada sem pergunta, com acesso só à pasta isolada.
+            cmd = [
+                self._binary,
+                "-p",
+                "--output-format",
+                "json",
+                "--model",
+                _modelo(),
+                "--tools",
+                "Read",
+                "--allowedTools",
+                "Read",
+                "--add-dir",
+                str(isolada),
+            ]
+            out = self._runner(cmd, prompt, isolada)
         try:
             envelope = json.loads(out)
         except json.JSONDecodeError as exc:
