@@ -15,7 +15,7 @@ from src.model.curriculo import Curriculo
 from src.model.perfil import Perfil
 from src.model.vaga import Modalidade, Nivel
 from src.model.vaga_externa import VagaExterna
-from src.repository.base import CurriculoRepository, PerfilBuscaRepository
+from src.repository.base import CurriculoRepository, PerfilBuscaRepository, validar_perfil
 from src.service.busca_service import BuscaService
 from src.service.recomendacao_service import RecomendacaoService
 
@@ -120,7 +120,8 @@ def criar_app(
 
     @app.put("/perfil")
     def salvar_perfil(corpo: PerfilJson) -> PerfilJson:
-        perfis.salvar(corpo.para_perfil())
+        # O repositório Postgres não chama validar_perfil; aqui o ValueError vira 422 em qualquer repositório.
+        perfis.salvar(validar_perfil(corpo.para_perfil()))
         return PerfilJson.de(perfis.obter())
 
     @app.get("/curriculos/base")

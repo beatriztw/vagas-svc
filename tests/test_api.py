@@ -214,3 +214,24 @@ class ApiPostgresTest(unittest.TestCase):
         self.assertEqual(adaptado.json()["base_id"], base["id"])
         self.assertEqual(self.api.get("/curriculos/base").json(), base)
         self.assertEqual(self.api.get("/curriculos/adaptados").json(), [adaptado.json()])
+
+
+class PerfilSemValidacao(PerfilBuscaRepositoryMemoria):
+    """Como o repositório Postgres: grava sem chamar validar_perfil."""
+
+    def salvar(self, perfil):
+        self._perfil = perfil
+
+
+class ApiValidaPerfilTest(unittest.TestCase):
+    def test_api_valida_o_perfil_mesmo_com_repositorio_que_nao_valida(self):
+        from unittest import mock
+
+        perfis = PerfilSemValidacao()
+        api = TestClient(criar_app(perfis, CurriculoRepositoryMemoria(), BuscaService([])))
+
+        with mock.patch("src.controller.api.validar_perfil", side_effect=ValueError("inválido")):
+            resposta = api.put("/perfil", json=PERFIL)
+
+        self.assertEqual(resposta.status_code, 422)
+        self.assertIsNone(perfis._perfil)
