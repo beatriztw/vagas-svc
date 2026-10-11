@@ -1,13 +1,16 @@
 import json
 import unittest
+import unittest.mock
 from datetime import date
 from pathlib import Path
 
+from src.client.apify_linkedin import ApifyLinkedInClient
 from src.client.ashby import AshbyClient
 from src.client.greenhouse import GreenhouseClient
 from src.client.lever import LeverClient
 from src.client.remotar import RemotarClient
 from src.client.trampos import TramposClient
+from src.service.busca_service import BuscaService
 
 FIXTURES = Path(__file__).parent / "fixtures"
 
@@ -98,6 +101,75 @@ class TramposClientTest(unittest.TestCase):
         TramposClient(max_paginas=3, http=http).buscar("python")
 
         self.assertEqual(len(chamadas), 3)
+
+
+
+def fake_post(arquivo: str, chamadas: list[tuple] | None = None):
+    dados = json.loads((FIXTURES / arquivo).read_text(encoding="utf-8"))
+
+    def http_post(url: str, corpo: dict, token: str):
+        if chamadas is not None:
+            chamadas.append((url, corpo, token))
+        return dados
+
+    return http_post
+
+
+class ApifyLinkedInClientTest(unittest.TestCase):
+    """A fixture segue os campos documentados no README do actor; não é uma resposta gravada."""
+
+    def test_envia_busca_ao_actor_com_token(self):
+        chamadas: list[tuple] = []
+        ApifyLinkedInClient(local="Rio de Janeiro", limite=20, token="tk", http_post=fake_post("apify_linkedin.json", chamadas)).buscar("power bi")
+
+        url, corpo, token = chamadas[0]
+        self.assertEqual(url, "https://api.apify.com/v2/acts/curious_coder~linkedin-jobs-scraper/run-sync-get-dataset-items")
+        self.assertEqual(corpo["keywords"], "power bi")
+        self.assertEqual(corpo["location"], "Rio de Janeiro")
+        self.assertEqual(corpo["limitPerSource"], 20)
+        self.assertFalse(corpo["scrapeCompany"])
+        self.assertEqual(token, "tk")
+
+    def test_converte_vaga_com_url_estavel(self):
+        vagas = ApifyLinkedInClient(token="tk", http_post=fake_post("apify_linkedin.json")).buscar("dados")
+
+        vaga = vagas[0]
+        self.assertEqual(vaga.titulo, "Analista de Dados Pleno - Power BI")
+        self.assertEqual(vaga.empresa, "Empresa Exemplo")
+        self.assertEqual(vaga.plataforma, "LinkedIn (Apify)")
+        self.assertEqual(vaga.url, "https://www.linkedin.com/jobs/view/4310298811")
+        self.assertEqual(vaga.local, "Rio de Janeiro, RJ")
+        self.assertFalse(vaga.remoto)
+        self.assertEqual(vaga.publicada_em, date(2026, 10, 8))
+
+    def test_remoto_pelo_tipo_de_local_de_trabalho(self):
+        vagas = ApifyLinkedInClient(token="tk", http_post=fake_post("apify_linkedin.json")).buscar("fiscal")
+
+        self.assertTrue(vagas[1].remoto)
+
+    def test_pula_vaga_sem_titulo_e_ignora_data_que_nao_e_iso(self):
+        vagas = ApifyLinkedInClient(token="tk", http_post=fake_post("apify_linkedin.json")).buscar("dados")
+
+        self.assertEqual([v.titulo for v in vagas], ["Analista de Dados Pleno - Power BI", "Analista Fiscal com SQL", "Assistente de Indicadores"])
+        self.assertIsNone(vagas[2].publicada_em)
+        self.assertIsNone(vagas[2].remoto)
+
+    def test_resposta_que_nao_e_lista_vira_erro(self):
+        client = ApifyLinkedInClient(token="tk", http_post=lambda url, corpo, token: {"error": {"type": "run-failed"}})
+
+        with self.assertRaises(ValueError):
+            client.buscar("dados")
+
+    def test_sem_token_o_busca_service_registra_erro_e_segue(self):
+        sem_token = ApifyLinkedInClient(http_post=fake_post("apify_linkedin.json"))
+        remotar = RemotarClient(http=fake_http("remotar.json"))
+
+        with unittest.mock.patch.dict("os.environ", {}, clear=True):
+            resultado = BuscaService([sem_token, remotar]).buscar("dados python")
+
+        self.assertIn("LinkedIn (Apify)", resultado.erros)
+        self.assertIn("APIFY_TOKEN", resultado.erros["LinkedIn (Apify)"])
+        self.assertTrue(resultado.vagas)
 
 
 if __name__ == "__main__":
