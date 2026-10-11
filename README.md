@@ -39,8 +39,23 @@ from src.service.busca_service import BuscaService
 resultado = BuscaService([GreenhouseClient(["stone"]), RemotarClient()]).buscar("python")
 ```
 
+## Banco
+
+O estado (perfil de busca e currículos) fica num Postgres. O schema está em `migrations/001_curriculo_perfil.sql`, idempotente (`CREATE TABLE IF NOT EXISTS`), aplicado à mão:
+
+```bash
+psql -f migrations/001_curriculo_perfil.sql
+```
+
+- `perfil_busca`: uma linha só (id = 1), gravada por upsert. Os CHECK de `modalidades` e `niveis` espelham `Modalidade` e `Nivel` de `src/model/vaga.py`.
+- `curriculo`: `tipo` é `base` ou `adaptado`; adaptado sempre aponta para uma base (`base_id`). A base vigente é a base mais recente; as anteriores ficam como histórico.
+
+`src/repository/conexao.py` conecta com as variáveis `PGHOST`, `PGPORT` (padrão 5432), `PGDATABASE`, `PGUSER` e a senha de `PGPASSWORD` ou do arquivo apontado por `PGPASSWORD_FILE` (no Swarm, `/run/secrets/vagas_db_password`).
+
 ## Testes
 
 ```bash
 python -m unittest discover -s tests -t .
 ```
+
+Os testes de `tests/test_postgres.py` só rodam com `PGHOST` definido; cada um cria um schema descartável, aplica a migration e o apaga no fim. Sem `PGHOST` eles são pulados.
