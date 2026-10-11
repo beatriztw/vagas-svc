@@ -48,8 +48,9 @@ jobs:
             Para cada bug, um comentário inline na linha, em português,
             dizendo o que quebra e em qual cenário. Se não achar nada, um
             único comentário curto no PR dizendo que não encontrou bugs.
-          # Sonnet gasta bem menos da cota do Pro que o Opus padrão. As
-          # ferramentas ficam limitadas a ler o PR e comentar.
+          # Opus: o Sonnet errava demais nos achados. Gasta mais da cota do Pro,
+          # a mesma das sessões do celular. As ferramentas ficam limitadas a ler
+          # o PR e comentar.
           claude_args: |
-            --model claude-sonnet-5-5
+            --model claude-opus-5-5
             --allowedTools "mcp__github_inline_comment__create_inline_comment,Bash(gh pr comment:*),Bash(gh pr diff:*),Bash(gh pr view:*)"
