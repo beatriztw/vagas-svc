@@ -1,0 +1,41 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  testes:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: vagas
+          POSTGRES_PASSWORD: vagas-ci
+          POSTGRES_DB: vagas_teste
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U vagas -d vagas_teste"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      # Banco descartável do service container: a senha não é segredo.
+      PGHOST: localhost
+      PGPORT: "5432"
+      PGUSER: vagas
+      PGPASSWORD: vagas-ci
+      PGDATABASE: vagas_teste
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - run: pip install -r requirements.txt
+      - run: python -m unittest discover -s tests -t . -v

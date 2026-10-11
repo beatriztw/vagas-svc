@@ -1,0 +1,266 @@
+"""API HTTP do vagas-svc. Sem autenticação: só é exposta na rede interna do Swarm."""
+
+import os
+import threading
+from collections.abc import Callable
+from datetime import date, datetime
+from typing import Any
+
+from fastapi import FastAPI, HTTPException, Query, Request
+from fastapi.responses import JSONResponse
+from pydantic import BaseModel, ConfigDict, Field
+
+from src.client.armazenamento import Armazenamento
+from src.model.curriculo import Curriculo
+from src.model.erros import DadoInvalido
+from src.model.perfil import Perfil
+from src.model.vaga import Modalidade, Nivel
+from src.model.vaga_externa import VagaExterna
+from src.repository.base import (
+    MAX_PUBLICADA_DESDE_DIAS,
+    CurriculoRepository,
+    PerfilBuscaRepository,
+    validar_perfil,
+)
+from src.service.busca_service import BuscaService
+from src.service.recomendacao_service import RecomendacaoService
+
+
+class PerfilJson(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    termos: list[str] = []
+    excluir: list[str] = []
+    modalidades: list[Modalidade] = []
+    localidades: list[str] = []
+    plataformas: list[str] = []
+    niveis: list[Nivel] = []
+    skills: list[str] = []
+    publicada_desde_dias: int | None = Field(default=None, gt=0, le=MAX_PUBLICADA_DESDE_DIAS)
+    ocultar_candidatadas: bool = True
+
+    @classmethod
+    def de(cls, perfil: Perfil) -> "PerfilJson":
+        return cls(**vars(perfil))
+
+    def para_perfil(self) -> Perfil:
+        return Perfil(**self.model_dump())
+
+
+class CurriculoJson(BaseModel):
+    id: int | None
+    tipo: str
+    titulo: str
+    conteudo_md: str
+    base_id: int | None
+    vaga_url: str | None
+    arquivo_s3: str | None
+    criado_em: datetime | None
+
+    @classmethod
+    def de(cls, curriculo: Curriculo) -> "CurriculoJson":
+        return cls(**vars(curriculo))
+
+
+class NovaBase(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    titulo: str = Field(min_length=1)
+    conteudo_md: str = Field(min_length=1)
+    arquivo_s3: str | None = None
+
+
+class NovoAdaptado(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    titulo: str = Field(min_length=1)
+    conteudo_md: str = Field(min_length=1)
+    vaga_url: str = Field(min_length=1)
+    base_id: int | None = None
+
+
+class VagaJson(BaseModel):
+    titulo: str
+    empresa: str
+    plataforma: str
+    url: str
+    local: str | None
+    remoto: bool | None
+    publicada_em: date | None
+
+    @classmethod
+    def de(cls, vaga: VagaExterna) -> "VagaJson":
+        return cls(**vars(vaga))
+
+
+class ResultadoJson(BaseModel):
+    vagas: list[VagaJson]
+    erros: dict[str, str]
+
+
+def criar_app(
+    perfis: PerfilBuscaRepository,
+    curriculos: CurriculoRepository,
+    busca: BuscaService,
+    armazenamento: Armazenamento | None = None,
+) -> FastAPI:
+    app = FastAPI(title="vagas-svc")
+    app.state.armazenamento = armazenamento
+    recomendacao = RecomendacaoService(busca)
+
+    @app.exception_handler(DadoInvalido)
+    def valor_invalido(_: Request, erro: DadoInvalido) -> JSONResponse:
+        # Só a validação do domínio vira 422; um ValueError qualquer (PGPORT inválido, dado
+        # inesperado do banco) é falha do servidor e sai como 500.
+        return JSONResponse(status_code=422, content={"detail": str(erro)})
+
+    @app.get("/saude")
+    def saude() -> dict[str, bool]:
+        return {"ok": True}
+
+    @app.get("/perfil")
+    def obter_perfil() -> PerfilJson:
+        perfil = perfis.obter()
+        if perfil is None:
+            raise HTTPException(404, "Nenhum perfil salvo")
+        return PerfilJson.de(perfil)
+
+    @app.put("/perfil")
+    def salvar_perfil(corpo: PerfilJson) -> PerfilJson:
+        # Valida aqui também: um repositório que não valide ainda devolve 422, não 500.
+        perfis.salvar(validar_perfil(corpo.para_perfil()))
+        return PerfilJson.de(perfis.obter())
+
+    @app.get("/curriculos/base")
+    def obter_base() -> CurriculoJson:
+        base = curriculos.obter_base()
+        if base is None:
+            raise HTTPException(404, "Nenhum currículo base salvo")
+        return CurriculoJson.de(base)
+
+    @app.put("/curriculos/base")
+    def nova_base(corpo: NovaBase) -> CurriculoJson:
+        salvo = curriculos.salvar(Curriculo(tipo="base", **corpo.model_dump()))
+        return CurriculoJson.de(salvo)
+
+    @app.get("/curriculos/adaptados")
+    def listar_adaptados() -> list[CurriculoJson]:
+        return [CurriculoJson.de(c) for c in curriculos.listar_adaptados()]
+
+    @app.post("/curriculos/adaptados", status_code=201)
+    def novo_adaptado(corpo: NovoAdaptado) -> CurriculoJson:
+        if corpo.base_id is None:
+            base = curriculos.obter_base()
+            if base is None:
+                raise HTTPException(409, "Não há currículo base para adaptar")
+        else:
+            base = curriculos.obter(corpo.base_id)
+            if base is None or base.tipo != "base":
+                raise HTTPException(404, f"Currículo base {corpo.base_id} não encontrado")
+        salvo = curriculos.salvar(
+            Curriculo(
+                tipo="adaptado",
+                titulo=corpo.titulo,
+                conteudo_md=corpo.conteudo_md,
+                base_id=base.id,
+                vaga_url=corpo.vaga_url,
+            )
+        )
+        return CurriculoJson.de(salvo)
+
+    @app.get("/vagas")
+    def buscar_vagas(termo: str = Query(min_length=1)) -> ResultadoJson:
+        resultado = recomendacao.recomendar(termo, perfis.obter())
+        return ResultadoJson(vagas=[VagaJson.de(v) for v in resultado.vagas], erros=resultado.erros)
+
+    return app
+
+
+class _PorChamada:
+    """Cada chamada usa um repository novo, com uma conexão do pool só para ela.
+
+    Uma conexão compartilhada entre as threads do FastAPI misturaria as transações de
+    requisições simultâneas: o segundo `transaction()` vira SAVEPOINT do primeiro, e o
+    rollback de um desfaz a gravação do outro, que já respondeu 201.
+    """
+
+    def __init__(self, pool: Callable[[], Any], classe: Callable[[], type]):
+        self._pool = pool
+        # A classe vem por função para o import do psycopg ficar para o primeiro uso.
+        self._classe = classe
+
+    def __getattr__(self, nome: str) -> Any:
+        def chamar(*args, **kwargs):
+            with self._pool().connection() as conn:
+                return getattr(self._classe()(conn), nome)(*args, **kwargs)
+
+        return chamar
+
+
+class _PoolPreguicoso:
+    """Cria o pool no primeiro uso: a app sobe e responde /saude sem o Postgres no ar."""
+
+    def __init__(self):
+        self._pool = None
+        self._lock = threading.Lock()
+
+    def __call__(self):
+        with self._lock:
+            if self._pool is None:
+                from psycopg_pool import ConnectionPool
+
+                from src.repository.conexao import parametros
+
+                self._pool = ConnectionPool(
+                    kwargs={**parametros(), "autocommit": True},
+                    min_size=1,
+                    max_size=4,
+                    # Conexão que caiu é trocada antes de ser entregue a uma requisição.
+                    check=ConnectionPool.check_connection,
+                    open=True,
+                )
+            return self._pool
+
+
+def _lista_env(nome: str) -> list[str]:
+    return [p.strip() for p in os.environ.get(nome, "").split(",") if p.strip()]
+
+
+def providers_padrao() -> list:
+    """Remotar e Trampos sempre; Greenhouse, Lever e Ashby só com empresas em GREENHOUSE_EMPRESAS etc."""
+    from src.client.ashby import AshbyClient
+    from src.client.greenhouse import GreenhouseClient
+    from src.client.lever import LeverClient
+    from src.client.remotar import RemotarClient
+    from src.client.trampos import TramposClient
+
+    providers = [RemotarClient(), TramposClient()]
+    for classe, env in ((GreenhouseClient, "GREENHOUSE_EMPRESAS"), (LeverClient, "LEVER_EMPRESAS"), (AshbyClient, "ASHBY_EMPRESAS")):
+        if empresas := _lista_env(env):
+            providers.append(classe(empresas))
+    return providers
+
+
+def _perfis_postgres() -> type:
+    from src.repository.postgres import PerfilBuscaRepositoryPostgres
+
+    return PerfilBuscaRepositoryPostgres
+
+
+def _curriculos_postgres() -> type:
+    from src.repository.postgres import CurriculoRepositoryPostgres
+
+    return CurriculoRepositoryPostgres
+
+
+def criar_app_producao() -> FastAPI:
+    pool = _PoolPreguicoso()
+    return criar_app(
+        perfis=_PorChamada(pool, _perfis_postgres),
+        curriculos=_PorChamada(pool, _curriculos_postgres),
+        busca=BuscaService(providers_padrao()),
+        armazenamento=Armazenamento(),
+    )
+
+
+app = criar_app_producao()
