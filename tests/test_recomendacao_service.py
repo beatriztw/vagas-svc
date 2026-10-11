@@ -5,7 +5,7 @@ from src.model.perfil import Perfil
 from src.model.vaga import Modalidade, Nivel
 from src.model.vaga_externa import VagaExterna
 from src.service.busca_service import BuscaService
-from src.service.recomendacao_service import RecomendacaoService, aplicar_perfil, nivel_do_titulo, titulo_combina
+from src.service.recomendacao_service import RecomendacaoService, aplicar_perfil, nivel_do_titulo
 from tests.test_busca_service import ClientFixo, ClientQuebrado
 
 HOJE = date(2026, 10, 11)
@@ -89,22 +89,14 @@ class RecomendacaoServiceTest(unittest.TestCase):
         self.assertEqual(len(resultado.vagas), 1)
 
 
-class TituloCombinaTest(unittest.TestCase):
-    def test_todas_as_palavras_do_termo_fora_as_de_ligacao(self):
-        self.assertTrue(titulo_combina("Analista de Dados Pleno", "analista de dados"))
-        self.assertTrue(titulo_combina("Dados: Analista Jr", "analista de dados"))
-        self.assertFalse(titulo_combina("Analista de QA", "analista de dados"))
-        self.assertFalse(titulo_combina("Analista de BI", "analista de dados"))
+class RecomendarSemFiltroDeTituloTest(unittest.TestCase):
+    def test_recomendar_nao_corta_titulo_em_ingles_de_outro_provider(self):
+        # O corte por título fica no client do Remotar; LinkedIn e outros mantêm "Data Analyst".
+        busca = BuscaService([ClientFixo("A", [vaga("Data Analyst", url="u1")])])
 
-    def test_sem_acento_nem_caixa(self):
-        self.assertTrue(titulo_combina("ANALISTA DE CONCILIAÇÃO", "analista de conciliacao"))
+        resultado = RecomendacaoService(busca).recomendar("analista de dados", Perfil(), HOJE)
 
-    def test_recomendar_corta_titulo_que_nao_combina_mesmo_sem_perfil(self):
-        busca = BuscaService([ClientFixo("A", [vaga("Analista de Dados", url="u1"), vaga("Analista de QA", url="u2")])])
-
-        resultado = RecomendacaoService(busca).recomendar("analista de dados", None, HOJE)
-
-        self.assertEqual([v.titulo for v in resultado.vagas], ["Analista de Dados"])
+        self.assertEqual([v.titulo for v in resultado.vagas], ["Data Analyst"])
 
 
 class NivelTest(unittest.TestCase):
@@ -114,6 +106,8 @@ class NivelTest(unittest.TestCase):
         self.assertEqual(nivel_do_titulo("Analista SÊNIOR"), Nivel.SENIOR)
         self.assertIsNone(nivel_do_titulo("Analista de Dados"))
         self.assertIsNone(nivel_do_titulo("Analista Pleno/Sênior"))
+        self.assertIsNone(nivel_do_titulo("Desenvolvedor PL/SQL"))
+        self.assertEqual(nivel_do_titulo("Analista PL/SQL Jr"), Nivel.JUNIOR)
 
     def test_corta_nivel_fora_do_perfil_e_mantem_os_sem_nivel(self):
         vagas = [vaga("Analista Júnior"), vaga("Analista Sênior"), vaga("Analista"), vaga("Analista Pleno/Sênior")]
@@ -139,6 +133,17 @@ class LocalidadeTest(unittest.TestCase):
 
         self.assertEqual([v.titulo for v in filtradas], ["a", "b", "c", "d", "e"])
 
+    def test_cidade_por_igualdade_nao_por_pedaco_do_nome(self):
+        vagas = [
+            vaga("a", local="Vitória da Conquista, BA", remoto=False),
+            vaga("b", local="Vitória - ES", remoto=False),
+            vaga("c", local="Serra Talhada, PE", remoto=False),
+        ]
+
+        filtradas = aplicar_perfil(vagas, Perfil(localidades=["Vitória, ES", "Serra, ES"]), HOJE)
+
+        self.assertEqual([v.titulo for v in filtradas], ["b"])
+
     def test_sem_localidade_no_perfil_nada_e_cortado(self):
         vagas = [vaga("f", local="São Paulo, SP", remoto=False)]
 
@@ -154,4 +159,12 @@ class OrdenacaoPorSkillsTest(unittest.TestCase):
         self.assertEqual(
             [v.titulo for v in filtradas], ["Analista SQL e Power BI", "Analista Power BI", "Analista 1", "Analista 2"]
         )
+
+    def test_skill_compara_palavra_inteira(self):
+        vagas = [vaga("Dev JavaScript"), vaga("Analista NoSQL"), vaga("Coordenador Agro"), vaga("Dev Java")]
+
+        filtradas = aplicar_perfil(vagas, Perfil(skills=["Java", "SQL", "Go", "R"]), HOJE)
+
+        self.assertEqual(filtradas[0].titulo, "Dev Java")
+        self.assertEqual([v.titulo for v in filtradas[1:]], ["Dev JavaScript", "Analista NoSQL", "Coordenador Agro"])
 

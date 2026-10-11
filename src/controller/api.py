@@ -226,6 +226,18 @@ def _lista_env(nome: str) -> list[str]:
     return [p.strip() for p in os.environ.get(nome, "").split(",") if p.strip()]
 
 
+APIFY_LIMITE_PADRAO = 50
+
+
+def _limite_apify() -> int:
+    """APIFY_LIMITE inválido ou não positivo cai no padrão: um provider opcional não derruba a app."""
+    try:
+        limite = int(os.environ.get("APIFY_LIMITE", APIFY_LIMITE_PADRAO))
+    except ValueError:
+        return APIFY_LIMITE_PADRAO
+    return limite if limite > 0 else APIFY_LIMITE_PADRAO
+
+
 def providers_padrao() -> list:
     """Remotar e Trampos sempre; Greenhouse, Lever e Ashby só com empresas em GREENHOUSE_EMPRESAS etc.;
     o LinkedIn pelo Apify só com APIFY_TOKEN."""
@@ -244,10 +256,7 @@ def providers_padrao() -> list:
 
         # Cada busca custa até APIFY_LIMITE vagas no Apify (US$ 0,001–0,002 cada em out/2026).
         providers.append(
-            ApifyLinkedInClient(
-                local=os.environ.get("APIFY_LOCAL", "Brasil"),
-                limite=int(os.environ.get("APIFY_LIMITE", "50")),
-            )
+            ApifyLinkedInClient(local=os.environ.get("APIFY_LOCAL", "Brasil"), limite=_limite_apify())
         )
     return providers
 

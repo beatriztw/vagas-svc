@@ -70,14 +70,36 @@ class AshbyClientTest(unittest.TestCase):
 class RemotarClientTest(unittest.TestCase):
     def test_envia_termo_para_api_e_converte(self):
         chamadas: list[str] = []
-        vagas = RemotarClient(http=fake_http("remotar.json", chamadas)).buscar("dados python")
+        vagas = RemotarClient(http=fake_http("remotar.json", chamadas)).buscar("dados")
 
-        self.assertEqual(chamadas, ["https://api.remotar.com.br/jobs?search=dados+python&page=1"])
+        self.assertEqual(chamadas, ["https://api.remotar.com.br/jobs?search=dados&page=1"])
         self.assertEqual(len(vagas), 2)
         self.assertEqual(vagas[0].empresa, "Compass.UOL")
         self.assertEqual(vagas[0].url, "https://remotar.com.br/job/166022")
         self.assertTrue(vagas[0].remoto)
         self.assertIsNone(vagas[0].local)
+
+
+    def test_corta_titulo_que_a_busca_frouxa_da_api_trouxe(self):
+        titulos = ["Analista de QA", "Analista de Dados Pleno", "Engenheira de Dados", "Data Engineer", "Analista de Salesforce"]
+        dados = {"data": [{"id": i, "title": t} for i, t in enumerate(titulos)], "meta": {"last_page": 1}}
+
+        vagas = RemotarClient(http=lambda url: dados).buscar("engenheiro de dados")
+        self.assertEqual([v.titulo for v in vagas], ["Engenheira de Dados", "Data Engineer"])
+
+        vagas = RemotarClient(http=lambda url: dados).buscar("analista de dados")
+        self.assertEqual([v.titulo for v in vagas], ["Analista de Dados Pleno"])
+
+
+class CombinaTermoTest(unittest.TestCase):
+    def test_genero_plural_hifen_e_ingles(self):
+        from src.client.base import combina_termo
+
+        self.assertTrue(combina_termo("Pessoa Desenvolvedora Back-end", "desenvolvedor backend"))
+        self.assertTrue(combina_termo("Frontend Developer", "desenvolvedor front-end"))
+        self.assertTrue(combina_termo("Analistas de Dados", "analista de dados"))
+        self.assertTrue(combina_termo("ANALISTA DE CONCILIAÇÃO", "analista de conciliacao"))
+        self.assertFalse(combina_termo("Analista de BI", "analista de dados"))
 
 
 class TramposClientTest(unittest.TestCase):
@@ -211,7 +233,7 @@ class ApifyLinkedInClientTest(unittest.TestCase):
         remotar = RemotarClient(http=fake_http("remotar.json"))
 
         with unittest.mock.patch.dict("os.environ", {}, clear=True):
-            resultado = BuscaService([sem_token, remotar]).buscar("dados python")
+            resultado = BuscaService([sem_token, remotar]).buscar("dados")
 
         self.assertIn("LinkedIn (Apify)", resultado.erros)
         self.assertIn("APIFY_TOKEN", resultado.erros["LinkedIn (Apify)"])

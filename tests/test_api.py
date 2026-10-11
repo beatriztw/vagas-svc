@@ -370,3 +370,14 @@ class ProvidersPadraoTest(unittest.TestCase):
         self.assertEqual(len(apify), 1)
         self.assertEqual((apify[0].local, apify[0].limite), ("Rio de Janeiro", 20))
 
+    def test_apify_limite_invalido_cai_no_padrao_sem_derrubar_a_app(self):
+        from unittest import mock
+
+        from src.client.apify_linkedin import ApifyLinkedInClient
+        from src.controller.api import providers_padrao
+
+        for valor in ("", "50.0", "cinquenta", "0", "-5"):
+            with mock.patch.dict(os.environ, {"APIFY_TOKEN": "tk", "APIFY_LIMITE": valor}, clear=True):
+                apify = [p for p in providers_padrao() if isinstance(p, ApifyLinkedInClient)]
+            self.assertEqual(apify[0].limite, 50, valor)
+
