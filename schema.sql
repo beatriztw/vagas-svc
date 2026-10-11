@@ -7,3 +7,8 @@ CREATE TABLE vaga (
     modalidade        VARCHAR(7)    NOT NULL CHECK (modalidade IN ('Remoto', 'Híbrido')),
     data_candidatura  DATE          NOT NULL
 );
+
+CREATE TABLE perfil (
+    id     INT          PRIMARY KEY AUTO_INCREMENT,
+    dados  JSON         NOT NULL
+);
