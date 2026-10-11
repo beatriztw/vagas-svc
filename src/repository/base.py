@@ -36,17 +36,22 @@ class CurriculoRepository(ABC):
         """Adaptados do mais recente para o mais antigo."""
 
 
+def _sem_repetidos(valores) -> list:
+    # Mantém a ordem; ["Remoto", "Remoto"] deixaria de ser igual a [Remoto] nos filtros.
+    return list(dict.fromkeys(valores))
+
+
 def normalizar_perfil(perfil: Perfil) -> Perfil:
-    """Cópia do perfil com enums de verdade; valor fora de Modalidade/Nivel levanta ValueError."""
+    """Cópia do perfil com enums de verdade e sem repetidos; valor fora de Modalidade/Nivel levanta ValueError."""
     return replace(
         perfil,
-        termos=list(perfil.termos),
-        excluir=list(perfil.excluir),
-        modalidades=[Modalidade(m) for m in perfil.modalidades],
-        localidades=list(perfil.localidades),
-        plataformas=list(perfil.plataformas),
-        niveis=[Nivel(n) for n in perfil.niveis],
-        skills=list(perfil.skills),
+        termos=_sem_repetidos(perfil.termos),
+        excluir=_sem_repetidos(perfil.excluir),
+        modalidades=_sem_repetidos(Modalidade(m) for m in perfil.modalidades),
+        localidades=_sem_repetidos(perfil.localidades),
+        plataformas=_sem_repetidos(perfil.plataformas),
+        niveis=_sem_repetidos(Nivel(n) for n in perfil.niveis),
+        skills=_sem_repetidos(perfil.skills),
     )
 
 

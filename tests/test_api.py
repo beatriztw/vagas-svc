@@ -59,6 +59,14 @@ class ApiTest(unittest.TestCase):
         self.assertEqual(self.api.get("/perfil").json(), PERFIL)
         self.assertEqual(self.perfis.obter().niveis[0].name, "JUNIOR")
 
+    def test_put_perfil_tira_valores_repetidos(self):
+        corpo = {**PERFIL, "modalidades": ["Remoto", "Remoto"], "termos": ["python", "python", "dados"]}
+
+        salvo = self.api.put("/perfil", json=corpo).json()
+
+        self.assertEqual(salvo["modalidades"], ["Remoto"])
+        self.assertEqual(salvo["termos"], ["python", "dados"])
+
     def test_put_perfil_com_enum_invalido_e_422(self):
         for campo, valor in (("modalidades", ["Presencial"]), ("niveis", ["junior"])):
             with self.subTest(campo=campo):

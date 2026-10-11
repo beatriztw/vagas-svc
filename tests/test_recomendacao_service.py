@@ -45,6 +45,13 @@ class AplicarPerfilTest(unittest.TestCase):
 
         self.assertEqual([v.titulo for v in filtradas], ["a", "c"])
 
+
+    def test_so_remotas_com_modalidade_repetida(self):
+        vagas = [vaga("Remota", url="u1", remoto=True), vaga("Presencial", url="u2", remoto=False)]
+
+        filtradas = aplicar_perfil(vagas, Perfil(modalidades=[Modalidade.REMOTO, Modalidade.REMOTO]), HOJE)
+
+        self.assertEqual([v.titulo for v in filtradas], ["Remota"])
     def test_remoto_e_hibrido_nao_filtra_modalidade(self):
         vagas = [vaga("a", remoto=True), vaga("b", remoto=False)]
 

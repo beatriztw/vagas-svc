@@ -20,7 +20,8 @@ def aplicar_perfil(vagas: list[VagaExterna], perfil: Perfil, hoje: date) -> list
     # (`"" in titulo`) e a busca voltaria sempre vazia: é ignorado.
     excluir = [termo for termo in perfil.excluir if normalizar(termo).strip()]
     filtradas = [v for v in vagas if not any(contem(v.titulo, termo) for termo in excluir)]
-    if perfil.modalidades == [Modalidade.REMOTO]:
+    # Conjunto: perfil vindo de fora sem normalizar pode repetir a modalidade.
+    if set(perfil.modalidades) == {Modalidade.REMOTO}:
         filtradas = [v for v in filtradas if _remota(v)]
     if perfil.publicada_desde_dias is not None:
         limite = hoje - timedelta(days=perfil.publicada_desde_dias)
