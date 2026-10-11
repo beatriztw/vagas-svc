@@ -1,7 +1,7 @@
 import re
 from datetime import date, timedelta
 
-from src.client.base import contem, normalizar, palavras
+from src.client.base import contem, normalizar, palavras, relevancia_termo
 from src.model.perfil import Perfil
 from src.model.vaga import Modalidade, Nivel
 from src.model.vaga_externa import VagaExterna
@@ -89,14 +89,17 @@ def aplicar_perfil(vagas: list[VagaExterna], perfil: Perfil, hoje: date) -> list
 
 
 class RecomendacaoService:
-    """Roda a busca nos providers e aplica os filtros do perfil ao resultado."""
+    """Roda a busca nos providers, aplica os filtros do perfil e ordena por relevância do título."""
 
     def __init__(self, busca: BuscaService):
         self.busca = busca
 
     def recomendar(self, termo: str, perfil: Perfil | None, hoje: date | None = None) -> ResultadoBusca:
         resultado = self.busca.buscar(termo)
-        if perfil is None:
-            return resultado
-        vagas = aplicar_perfil(resultado.vagas, perfil, hoje or date.today())
+        vagas = resultado.vagas
+        if perfil is not None:
+            vagas = aplicar_perfil(vagas, perfil, hoje or date.today())
+        # Título mais parecido com o termo primeiro; sorted é estável, então dentro da mesma
+        # relevância fica a ordem das skills (e depois a da data).
+        vagas = sorted(vagas, key=lambda v: relevancia_termo(v.titulo, termo), reverse=True)
         return ResultadoBusca(vagas=vagas, erros=resultado.erros)

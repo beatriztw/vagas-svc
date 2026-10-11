@@ -50,31 +50,54 @@ def radical(palavra: str) -> str:
     return palavra
 
 
-# Cargos em português que aparecem em inglês nos títulos (LinkedIn, empresas gringas).
-_EM_INGLES = {
-    "dado": {"data"},
-    "analist": {"analyst"},
-    "desenvolvedor": {"developer"},
-    "engenheir": {"engineer"},
-    "cientist": {"scientist"},
-    "cienci": {"science"},
-}
+# Cargos que aparecem nos dois idiomas nos títulos; cada grupo vale nos dois sentidos.
+_MESMO_CARGO = [
+    {"dado", "data"},
+    {"analist", "analyst"},
+    {"desenvolvedor", "developer"},
+    {"engenheir", "engineer"},
+    {"cientist", "scientist"},
+    {"cienci", "science"},
+]
 
 
-def combina_termo(titulo: str, termo: str) -> bool:
-    """Cada palavra do termo (fora as de ligação) aparece no título, por radical ou em inglês.
+def _equivalentes(raiz: str) -> set[str]:
+    for grupo in _MESMO_CARGO:
+        if raiz in grupo:
+            return grupo
+    return {raiz}
 
-    "engenheiro de dados" casa com "Engenheira de Dados" e com "Data Engineer"; "backend"
-    casa com "Back-end"; "analista de dados" não casa com "Analista de QA".
+
+def _formas_do_titulo(titulo: str) -> list[str]:
+    # Radicais das palavras e de cada par vizinho junto: "Front End" também vira "frontend",
+    # para casar com "front-end"/"frontend" no termo.
+    raizes = [radical(p) for p in palavras(titulo)]
+    return raizes + [a + b for a, b in zip(raizes, raizes[1:])]
+
+
+def relevancia_termo(titulo: str, termo: str) -> float:
+    """Fração das palavras do termo (fora as de ligação) que aparecem no título, de 0 a 1.
+
+    Compara por radical (gênero e plural), ignora hífen, junta palavras vizinhas ("front
+    end" = "front-end" = "frontend") e aceita o cargo no outro idioma (dados/data,
+    engenheiro/engineer...). Termo sem palavra útil vale 1: não há o que comparar.
     """
-    no_titulo = [radical(p) for p in palavras(titulo)]
-    for palavra in palavras(termo):
-        if palavra in _LIGACAO:
+    formas = _formas_do_titulo(titulo)
+    exigidas = [radical(p) for p in palavras(termo) if p not in _LIGACAO]
+    if not exigidas:
+        return 1.0
+    casadas = 0
+    i = 0
+    while i < len(exigidas):
+        # Par vizinho do termo junto ("front" + "end") conta pelas duas palavras.
+        if i + 1 < len(exigidas) and any(f.startswith(exigidas[i] + exigidas[i + 1]) for f in formas):
+            casadas += 2
+            i += 2
             continue
-        alternativas = {radical(palavra)} | _EM_INGLES.get(radical(palavra), set())
-        if not any(p.startswith(alt) for alt in alternativas for p in no_titulo):
-            return False
-    return True
+        if any(f.startswith(alt) for alt in _equivalentes(exigidas[i]) for f in formas):
+            casadas += 1
+        i += 1
+    return casadas / len(exigidas)
 
 
 def contem(texto: str | None, termo: str) -> bool:

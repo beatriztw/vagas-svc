@@ -89,14 +89,24 @@ class RecomendacaoServiceTest(unittest.TestCase):
         self.assertEqual(len(resultado.vagas), 1)
 
 
-class RecomendarSemFiltroDeTituloTest(unittest.TestCase):
-    def test_recomendar_nao_corta_titulo_em_ingles_de_outro_provider(self):
-        # O corte por título fica no client do Remotar; LinkedIn e outros mantêm "Data Analyst".
-        busca = BuscaService([ClientFixo("A", [vaga("Data Analyst", url="u1")])])
+class RelevanciaNaRecomendacaoTest(unittest.TestCase):
+    def test_titulo_mais_parecido_primeiro_sem_cortar_ingles_de_outro_provider(self):
+        vagas = [vaga("Analista de QA", url="u1"), vaga("Data Analyst", url="u2"), vaga("Analista de Dados", url="u3")]
+        busca = BuscaService([ClientFixo("A", vagas)])
 
         resultado = RecomendacaoService(busca).recomendar("analista de dados", Perfil(), HOJE)
 
-        self.assertEqual([v.titulo for v in resultado.vagas], ["Data Analyst"])
+        self.assertEqual([v.titulo for v in resultado.vagas], ["Data Analyst", "Analista de Dados", "Analista de QA"])
+
+    def test_skills_desempatam_dentro_da_mesma_relevancia(self):
+        vagas = [vaga("Analista de Dados", url="u1"), vaga("Analista de Dados Power BI", url="u2"), vaga("Analista de QA", url="u3")]
+        busca = BuscaService([ClientFixo("A", vagas)])
+
+        resultado = RecomendacaoService(busca).recomendar("analista de dados", Perfil(skills=["Power BI"]), HOJE)
+
+        self.assertEqual(
+            [v.titulo for v in resultado.vagas], ["Analista de Dados Power BI", "Analista de Dados", "Analista de QA"]
+        )
 
 
 class NivelTest(unittest.TestCase):
