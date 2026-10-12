@@ -14,8 +14,10 @@ Projeto Python organizado em camadas dentro de `src/`:
 ```bash
 python -m venv .venv
 .venv\Scripts\activate
-pip install -r requirements.txt
+pip install -r requirements.txt -r requirements-dev.txt
 ```
+
+`requirements-dev.txt` só tem o que os testes usam (o `pypdf`, que lê o texto do PDF do currículo); a imagem instala só o `requirements.txt`.
 
 ## Providers de vagas
 
