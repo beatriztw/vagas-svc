@@ -1,4 +1,34 @@
-<section id="detalhe" aria-live="polite">
+{# Partial = alvo do swap (outerHTML). `data-url` diz ao tela.js qual card marcar como selecionado. #}
+{% if selecionada is defined and selecionada is not none %}
+{% set vaga = selecionada %}
+{% set link = vaga.url | url_segura %}
+<section id="detalhe" class="detalhe" data-url="{{ vaga.url }}" aria-labelledby="t-detalhe">
+  <h2 id="t-detalhe" class="detalhe-titulo">{{ vaga.titulo }}</h2>
+  <div class="chips">
+    <span class="chip-info">{{ vaga.empresa }}</span>
+    <span class="chip-info">{{ vaga.local or "—" }}</span>
+    <span class="chip-info">{{ "remoto" if vaga.remoto is true else "presencial" if vaga.remoto is false else "não informado" }}</span>
+  </div>
+  <div class="detalhe-rodape">
+    {% if link %}
+    <a href="{{ link }}" target="_blank" rel="noopener noreferrer">Ver vaga original</a>
+    {% else %}
+    <span class="mono" title="a vaga não tem um link http(s) válido">Ver vaga original (sem link)</span>
+    {% endif %}
+    <div class="acoes">
+      <button type="button" class="botao" disabled title="em breve">Marcar como aplicada</button>
+      <button type="button" class="botao botao-ai" disabled title="em breve">Gerar</button>
+    </div>
+  </div>
+</section>
+{% elif nao_encontrada is defined and nao_encontrada %}
+<section id="detalhe" class="detalhe" aria-labelledby="t-detalhe">
+  <h2 id="t-detalhe" class="visualmente-oculto">Detalhe da vaga</h2>
+  <p class="vazio">Vaga não encontrada</p>
+</section>
+{% else %}
+<section id="detalhe" class="detalhe" aria-labelledby="t-detalhe">
   <h2 id="t-detalhe" class="visualmente-oculto">Detalhe da vaga</h2>
   <p class="vazio">Selecione uma vaga</p>
 </section>
+{% endif %}
