@@ -73,6 +73,14 @@ class VagaEncontradaRepository(ABC):
         """Quantas vagas `listar` devolveria sem limite nem deslocamento."""
 
     @abstractmethod
+    def listar_recentes(self, somente_novas: bool, teto: int, q: str | None = None) -> list[VagaEncontrada]:
+        """A janela de varredura do histórico: as `teto` vagas mais recentes na ordem de `listar`
+        (já com o filtro `somente_novas`) e, dentro delas, as que casam com `q`.
+
+        O teto vale antes do `q`, para o custo ficar limitado pelo teto nos dois repositórios.
+        """
+
+    @abstractmethod
     def obter(self, url: str) -> VagaEncontrada | None:
         """A vaga pela URL exatamente como foi gravada (é a chave: não se normaliza); None se não existe."""
 
@@ -146,6 +154,12 @@ def filtrar_e_ordenar(
     ]
     # Mesma ordem do Postgres: primeira_vez_em desc, publicada_em desc (sem data por último), url.
     return sorted(sorted(linhas, key=lambda v: v.url), key=_chave_listagem, reverse=True)
+
+
+def validar_teto(teto: int) -> int:
+    if isinstance(teto, bool) or not isinstance(teto, int) or teto < 1:
+        raise DadoInvalido("teto da varredura tem que ser um inteiro positivo")
+    return teto
 
 
 def validar_urls(urls: list[str]) -> list[str]:
@@ -307,6 +321,12 @@ class VagaEncontradaRepositoryMemoria(VagaEncontradaRepository):
 
     def contar(self, somente_novas: bool, q: str | None = None) -> int:
         return len(filtrar_e_ordenar(list(self._linhas.values()), somente_novas, q))
+
+    def listar_recentes(self, somente_novas: bool, teto: int, q: str | None = None) -> list[VagaEncontrada]:
+        teto = validar_teto(teto)
+        exigidas = exigidas_da_busca(q)
+        janela = filtrar_e_ordenar(list(self._linhas.values()), somente_novas, None)[:teto]
+        return [replace(v, termos=list(v.termos)) for v in janela if casa_busca(v, exigidas)]
 
     def obter(self, url: str) -> VagaEncontrada | None:
         vaga = self._linhas.get(url) if isinstance(url, str) else None

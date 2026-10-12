@@ -10,6 +10,7 @@ from src.model.erros import DadoInvalido
 from src.repository.base import MAX_DESLOCAMENTO_VAGAS, MAX_TAMANHO_BUSCA, VagaEncontradaRepository, validar_deslocamento
 from src.service.candidatura_service import CandidaturaService
 from src.service.coleta_service import ColetaService
+from src.service.historico_service import HistoricoService
 
 # D11: 50 por vez; o resto vem pelo "carregar mais".
 TAMANHO_PAGINA = 50
@@ -51,10 +52,14 @@ def _query(**parametros) -> str:
 
 
 def criar_router_tela(
-    encontradas: VagaEncontradaRepository, coleta: ColetaService, candidaturas: CandidaturaService
+    encontradas: VagaEncontradaRepository,
+    historico: HistoricoService,
+    coleta: ColetaService,
+    candidaturas: CandidaturaService,
 ) -> APIRouter:
     """Recebe o que `criar_app` já tem: os repositories (na produção, os `_PorChamada`), o MESMO
-    `ColetaService` (com a mesma trava de uma coleta por vez da API e do cron) e o serviço de candidaturas."""
+    `HistoricoService` da rota JSON (a lista com o perfil salvo aplicado), o MESMO `ColetaService`
+    (com a mesma trava de uma coleta por vez da API e do cron) e o serviço de candidaturas."""
     router = APIRouter(prefix=PREFIXO_TELA, include_in_schema=False)
 
     def obter(url: str | None):
@@ -67,9 +72,10 @@ def criar_router_tela(
         return candidaturas.obter_por_url(vaga.url) if vaga is not None else None
 
     def contexto_lista(q: str | None, novas: bool, deslocamento: int) -> dict:
-        """O que `_lista.html` e `_cards.html` precisam; a contagem vem de `contar`, nunca do tamanho da página."""
-        total = encontradas.contar(somente_novas=novas, q=q)
-        vagas = encontradas.listar(somente_novas=novas, limite=TAMANHO_PAGINA, q=q, deslocamento=deslocamento)
+        """O que `_lista.html` e `_cards.html` precisam. Página e total saem da mesma leitura do
+        histórico com o perfil aplicado: o contador é o da lista inteira, nunca o tamanho da página."""
+        lida = historico.pagina(somente_novas=novas, limite=TAMANHO_PAGINA, q=q, deslocamento=deslocamento)
+        vagas, total = lida.vagas, lida.total
         proximo = deslocamento + len(vagas)
         query_proximo = None
         if vagas and proximo < total and proximo <= MAX_DESLOCAMENTO_VAGAS:

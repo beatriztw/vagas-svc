@@ -1,11 +1,15 @@
 import re
 from datetime import date, timedelta
+from typing import TypeVar
 
-from src.client.base import contem, normalizar, palavras, relevancia_termo
+from src.client.base import _LIGACAO, contem, normalizar, palavras, relevancia_termo
 from src.model.perfil import Perfil
 from src.model.vaga import Modalidade, Nivel
 from src.model.vaga_externa import VagaExterna
 from src.service.busca_service import BuscaService, ResultadoBusca
+
+# VagaExterna (busca ao vivo) ou VagaEncontrada (histórico): os filtros só leem os campos comuns.
+V = TypeVar("V")
 
 
 def _remota(vaga: VagaExterna) -> bool:
@@ -69,8 +73,13 @@ def pontuar(vaga: VagaExterna, skills: list[str]) -> int:
     return sum(1 for skill in skills if palavras(skill) and relevancia_termo(vaga.titulo, skill) == 1)
 
 
-def aplicar_perfil(vagas: list[VagaExterna], perfil: Perfil, hoje: date) -> list[VagaExterna]:
-    """Elimina as vagas que o perfil exclui e ordena pelas skills; empate mantém a ordem recebida."""
+def filtrar_pelo_perfil(vagas: list[V], perfil: Perfil, hoje: date) -> list[V]:
+    """Só as vagas que o perfil não elimina, na ordem recebida.
+
+    É a regra única dos filtros do perfil: a busca ao vivo (`aplicar_perfil`) e o histórico
+    da coleta (`HistoricoService`) passam por aqui. Serve para `VagaExterna` e `VagaEncontrada`
+    (usa só `titulo`, `local`, `remoto` e `publicada_em`).
+    """
     # Termo que fica vazio depois de normalizado ("", "—", emoji) casaria com todo título
     # (`"" in titulo`) e a busca voltaria sempre vazia: é ignorado.
     excluir = [termo for termo in perfil.excluir if normalizar(termo).strip()]
@@ -88,8 +97,23 @@ def aplicar_perfil(vagas: list[VagaExterna], perfil: Perfil, hoje: date) -> list
     cidades = {c for c in (_cidade(loc) for loc in perfil.localidades) if c and c not in _SO_PAIS}
     if cidades:
         filtradas = [v for v in filtradas if _no_lugar(v, cidades)]
+    return filtradas
+
+
+def aplicar_perfil(vagas: list[VagaExterna], perfil: Perfil, hoje: date) -> list[VagaExterna]:
+    """Elimina as vagas que o perfil exclui e ordena pelas skills; empate mantém a ordem recebida."""
     # sorted é estável: entre vagas com a mesma pontuação fica a ordem do BuscaService (mais nova antes).
-    return sorted(filtradas, key=lambda v: pontuar(v, perfil.skills), reverse=True)
+    return sorted(filtrar_pelo_perfil(vagas, perfil, hoje), key=lambda v: pontuar(v, perfil.skills), reverse=True)
+
+
+def relevancia_perfil(titulo: str, termos: list[str]) -> float:
+    """Maior `relevancia_termo` do título entre os termos do perfil; 0 sem termo útil.
+
+    Termo sem palavra útil ("", "de", "—") vale 1 em `relevancia_termo` para qualquer
+    título: aqui ele não diz nada sobre a vaga e é ignorado, senão todo título empataria em 1.
+    """
+    uteis = [t for t in termos if any(p not in _LIGACAO for p in palavras(t))]
+    return max((relevancia_termo(titulo, t) for t in uteis), default=0.0)
 
 
 class RecomendacaoService:

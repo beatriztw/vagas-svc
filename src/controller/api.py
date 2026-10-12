@@ -38,6 +38,7 @@ from src.repository.trava import ColetaEmAndamento, TravaColeta, TravaColetaPost
 from src.service.busca_service import BuscaService
 from src.service.candidatura_service import CandidaturaService
 from src.service.coleta_service import ColetaService
+from src.service.historico_service import HistoricoService
 from src.service.recomendacao_service import RecomendacaoService
 
 
@@ -177,6 +178,8 @@ def criar_app(
     recomendacao = RecomendacaoService(busca)
     encontradas = encontradas if encontradas is not None else VagaEncontradaRepositoryMemoria()
     coleta = ColetaService(recomendacao, perfis, encontradas, trava)
+    # Lista do histórico (JSON e tela) com o perfil salvo aplicado na leitura.
+    historico = HistoricoService(encontradas, perfis)
     if candidaturas is None:
         candidaturas = CandidaturaRepositoryMemoria(vaga_por_url_em(encontradas))
     # Um serviço só, para as rotas JSON e as da tela (na produção, o repositório é o _PorChamada).
@@ -221,7 +224,7 @@ def criar_app(
         return resposta
 
     app.mount("/static", StaticFiles(directory=DIRETORIO_STATIC), name="static")
-    app.include_router(criar_router_tela(encontradas, coleta, servico_candidaturas))
+    app.include_router(criar_router_tela(encontradas, historico, coleta, servico_candidaturas))
     app.include_router(criar_router_tela_candidaturas(servico_candidaturas))
 
     @app.get("/", include_in_schema=False)
@@ -309,7 +312,7 @@ def criar_app(
         q: str | None = Query(default=None, max_length=MAX_TAMANHO_BUSCA),
         deslocamento: int = Query(default=0, ge=0, le=MAX_DESLOCAMENTO_VAGAS),
     ) -> list[VagaEncontradaJson]:
-        vagas = encontradas.listar(somente_novas=novas, limite=limite, q=q, deslocamento=deslocamento)
+        vagas = historico.listar(somente_novas=novas, limite=limite, q=q, deslocamento=deslocamento)
         return [VagaEncontradaJson.de(v) for v in vagas]
 
     @app.post("/vagas/vistas")
