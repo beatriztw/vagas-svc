@@ -62,6 +62,19 @@ class BlocosTest(unittest.TestCase):
             "LinkedIn (https://linkedin.com/in/fulana) | fulana@example.com | https://site.example | https://vazio.example",
         )
 
+    def test_url_codigo_e_nome_tecnico_passam_intactos(self):
+        casos = {
+            "- [GitHub](https://github.com/fulana/dados__2024)": "GitHub (https://github.com/fulana/dados__2024)",
+            "- veja https://exemplo.com/a__b*c_d": "veja https://exemplo.com/a__b*c_d",
+            "- Python (`__init__`, `*args`)": "Python (__init__, *args)",
+            "- tabelas snake_case e dados__2024": "tabelas snake_case e dados__2024",
+            "- **Negrito**, *itálico*, __forte__ e _leve_": "Negrito, itálico, forte e leve",
+            "- [**SAP** FI](https://sap.example/x_y)": "SAP FI (https://sap.example/x_y)",
+            "- 3 * 4 = 12 e 2*3": "3 * 4 = 12 e 2*3",
+        }
+        for md, esperado in casos.items():
+            self.assertEqual(_blocos(md)[0][1], esperado, md)
+
     def test_fora_do_latin1_vira_interrogacao_sem_quebrar(self):
         self.assertEqual(_blocos("# Nome\n\nPython 🐍 e 中文")[1][1], "Python ? e ??")
 

@@ -11,7 +11,8 @@ cabeçalho, rodapé, ícone nem cor. Entende o markdown do prompt `curriculo-v2`
     - tópico                    -> tópico com hífen e recuo
     qualquer outra linha        -> parágrafo
 
-Ênfase (`**x**`, `*x*`, `` `x` ``) vira texto puro e o link `[texto](url)` vira `texto (url)`. A fonte padrão do PDF só
+Ênfase em par (`**x**`, `*x*`, `__x__`, `_x_`) e crases (`` `x` ``) viram texto puro, e o link
+`[texto](url)` vira `texto (url)`; URL e código passam intactos (`dados__2024`, `__init__`). A fonte padrão do PDF só
 tem Latin-1, que cobre o português; travessão, aspas curvas, marcador e reticências viram equivalentes
 ASCII, e o que sobrar fora do Latin-1 vira "?".
 """
@@ -42,7 +43,15 @@ _TROCAS = str.maketrans(
     }
 )
 _LINK = re.compile(r"\[([^\]]*)\]\(([^)]*)\)")
-_ENFASE = re.compile(r"(\*\*|__|\*|`)")
+# Trechos que passam sem tirar ênfase: código entre crases (sai sem as crases), link e URL solta.
+_INTOCAVEL = re.compile(r"`(?P<codigo>[^`]*)`|(?P<link>\[[^\]]*\]\([^)]*\))|(?P<url>https?://\S+)")
+# Ênfase só em PAR delimitado e fora de palavra: `dados__2024` e `snake_case` ficam como estão.
+_ENFASES = (
+    re.compile(r"\*\*(?=\S)(.+?)(?<=\S)\*\*"),
+    re.compile(r"(?<![\w*])\*(?=\S)(.+?)(?<=\S)\*(?![\w*])"),
+    re.compile(r"(?<!\w)__(?=\S)(.+?)(?<=\S)__(?!\w)"),
+    re.compile(r"(?<!\w)_(?=\S)(.+?)(?<=\S)_(?!\w)"),
+)
 _TOPICO = re.compile(r"^\s*[-*+•]\s+")
 
 MARGEM_MM = 18
@@ -54,18 +63,36 @@ def _latin1(texto: str) -> str:
     return texto.encode("latin-1", errors="replace").decode("latin-1")
 
 
+def _sem_enfase(texto: str) -> str:
+    for padrao in _ENFASES:
+        texto = padrao.sub(r"\1", texto)
+    return texto
+
+
 def _link(achado: re.Match) -> str:
     """`[texto](url)` vira `texto (url)`: o PDF não tem link clicável, e o recrutador e o ATS
-    precisam do endereço. `mailto:`/`tel:` saem; texto igual à URL não se repete."""
-    texto, url = achado.group(1).strip(), re.sub(r"^(mailto|tel):", "", achado.group(2).strip(), flags=re.IGNORECASE)
+    precisam do endereço. `mailto:`/`tel:` saem; texto igual à URL não se repete. A URL passa intacta."""
+    texto = _sem_enfase(achado.group(1).strip())
+    url = re.sub(r"^(mailto|tel):", "", achado.group(2).strip(), flags=re.IGNORECASE)
     if not url or texto == url or texto == achado.group(2).strip():
         return texto or url
     return f"{texto} ({url})" if texto else url
 
 
 def _limpar(linha: str) -> str:
-    """Tira a marcação inline: o ATS lê o texto, não a ênfase."""
-    return _latin1(_ENFASE.sub("", _LINK.sub(_link, linha))).strip()
+    """Tira a marcação inline (o ATS lê o texto, não a ênfase), sem mexer em código, link nem URL."""
+    partes, inicio = [], 0
+    for achado in _INTOCAVEL.finditer(linha):
+        partes.append(_sem_enfase(linha[inicio : achado.start()]))
+        if achado.group("codigo") is not None:
+            partes.append(achado.group("codigo"))
+        elif achado.group("link"):
+            partes.append(_LINK.sub(_link, achado.group("link")))
+        else:
+            partes.append(achado.group("url"))
+        inicio = achado.end()
+    partes.append(_sem_enfase(linha[inicio:]))
+    return _latin1("".join(partes)).strip()
 
 
 def _blocos(conteudo_md: str) -> list[tuple[str, str]]:
