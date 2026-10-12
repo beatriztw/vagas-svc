@@ -1,0 +1,545 @@
+{
+ "meta": {
+  "total": 1424,
+  "per_page": 50,
+  "current_page": 1,
+  "last_page": 29,
+  "first_page": 1,
+  "first_page_url": "/?page=1",
+  "last_page_url": "/?page=29",
+  "next_page_url": "/?page=2",
+  "previous_page_url": null
+ },
+ "data": [
+  {
+   "id": 166020,
+   "companyId": 308,
+   "companyDisplayName": null,
+   "companyDisplayLink": null,
+   "companyDisplayAbout": null,
+   "title": "Analista de BI",
+   "subtitle": "Modelagem e análise de dados com foco em Business Intelligence e ETL/ELT.",
+   "description": "<p>A Compass UOL está em busca de um(a) Analista de BI para atuar na modelagem de repositórios de dados voltados ao suporte à tomada de decisão. O profissional será responsável por desenvolver e manter processos de extração, transformação e carga de dados (ETL/ELT), além de realizar análises de qualidade, integridade e consistência dos dados. Também participará da definição de arquiteturas analíticas e modelos de dados corporativos, apoiando áreas de negócio na definição de indicadores, métricas e visualizações gerenciais.</p><h2>Responsabilidades</h2><ul><li>Modelar repositórios de dados voltados ao suporte à tomada de decisão.</li><li>Desenvolver e manter processos de extração, transformação e carga de dados (ETL/ELT).</li><li>Realizar análises de qualidade, integridade e consistência dos dados.</li><li>Desenvolver, evoluir e sustentar dashboards, relatórios e painéis de Business Intelligence.</li><li>Participar da definição de arquiteturas analíticas e modelos de dados corporativos.</li><li>Atuar na integração de dados provenientes de múltiplas fontes e sistemas.</li><li>Apoiar áreas de negócio na definição de indicadores, métricas e visualizações gerenciais.</li><li>Propor melhorias em processos de análise de dados, governança e inteligência de negócios.</li></ul>",
+   "moreInfos": "Selecionamos as principais informações da posição. Para conferir o descritivo completo, clique em \"acessar\"",
+   "countryId": null,
+   "city": null,
+   "state": null,
+   "type": "remote",
+   "expiresAt": null,
+   "expires": false,
+   "expired": false,
+   "externalLink": "https://compass.gupy.io/job/eyJqb2JJZCI6MTI3MTA4NjAsInNvdXJjZSI6InJlbW90YXIifQ==?jobBoardSource=remotar",
+   "isExternalLink": true,
+   "isPromoted": false,
+   "active": true,
+   "ignoreCompanyBenefits": false,
+   "createdAt": "2026-10-10T16:31:53.627-03:00",
+   "updatedAt": "2026-10-10T16:31:56.225-03:00",
+   "carbonCopy": null,
+   "thumbnailUrl": "job-thumbnails/166020.png",
+   "integrationSource": "gupy",
+   "country": null,
+   "jobFeaturedInfos": [],
+   "author": null,
+   "jobSalary": {
+    "id": 153803,
+    "jobId": 166020,
+    "from": null,
+    "to": null,
+    "currency": null,
+    "type": "uninformed",
+    "createdAt": "2026-10-10T16:31:53.655-03:00",
+    "updatedAt": "2026-10-10T16:31:53.655-03:00"
+   },
+   "company": {
+    "id": 308,
+    "name": "Compass.UOL",
+    "link": "https://compass.uol/en/home/?utm_source=remotar",
+    "about": "<p>&nbsp;A Compass UOL é especialista em serviços de transformação digital. Projetamos e construímos plataformas nativas digitais usando tecnologias de ponta para ajudar empresas a inovar, transformar seus negócios e prosperar em seus setores.&nbsp;</p>\n<p>Cultivamos os melhores talentos, criando oportunidades para melhorar a vida das pessoas e focando em como as tecnologias disruptivas podem impactar positivamente a sociedade.&nbsp;</p>",
+    "active": true,
+    "createdAt": "2022-08-30T18:01:12.749-03:00",
+    "updatedAt": "2026-03-05T13:44:37.657-03:00",
+    "brandColor": "#111213",
+    "companyProfilePicture": {
+     "id": 306,
+     "companyId": 308,
+     "url": "https://s3.sa-east-1.amazonaws.com/remotar-assets-prod/company-profile-pictures/cl7godhi300lz04wgcki4gfxn.jpg",
+     "mediumUrl": "https://s3.sa-east-1.amazonaws.com/remotar-assets-prod/company-profile-pictures/V4OnXR3VrbhfZplYYGnZz8RgCGd5BWFgr-AvEuMHawe7m7iYg_S7rPi79aVmBhEpKIy3BIPWQPxvVu1c.jpeg",
+     "smallUrl": "https://s3.sa-east-1.amazonaws.com/remotar-assets-prod/company-profile-pictures/h5vpLwkreEurt5jgMG5yeMpzVQUsBFgn1MGTosOSzz74qzGry7uOqi0LCaoGK2oSMb_vBfm4LDt1Xxaf.jpeg",
+     "createdAt": "2022-08-30T18:02:02.344-03:00",
+     "updatedAt": "2022-08-30T18:02:02.344-03:00"
+    },
+    "companyProfileCover": {
+     "id": 307,
+     "companyId": 308,
+     "url": "https://s3.sa-east-1.amazonaws.com/remotar-assets-prod/company-profile-covers/cl7god9gt00lx04wg4p2a93zt.jpg",
+     "mediumUrl": "https://s3.sa-east-1.amazonaws.com/remotar-assets-prod/company-profile-covers/RB1SmCbqMjHA1q42hPK_3p6Y1yVIkKtug7P9bdbvlLYcSzeAP5_qNjA-fQjgItnNcx2LbU-NQcRm1wXj.jpeg",
+     "smallUrl": "https://s3.sa-east-1.amazonaws.com/remotar-assets-prod/company-profile-covers/Smhp8yXj4e9hdaLKaUrY0K80hawCBvhF2s_2TzwPnQskHCtKLTjsSOPiZKZ4H_YiwGpSgEby_kiKPDGg.jpeg",
+     "createdAt": "2022-08-30T18:01:52.109-03:00",
+     "updatedAt": "2022-08-30T18:01:52.109-03:00"
+    },
+    "companyJobBenefits": [],
+    "companyLinks": [
+     {
+      "id": 25509,
+      "companyId": 308,
+      "title": "Instagram",
+      "url": "https://www.instagram.com/compass.uol/",
+      "createdAt": "2026-03-05T13:44:41.447-03:00",
+      "updatedAt": "2026-03-05T13:44:41.447-03:00"
+     },
+     {
+      "id": 25510,
+      "companyId": 308,
+      "title": "Linkedin",
+      "url": "https://www.linkedin.com/company/compass-uol/",
+      "createdAt": "2026-03-05T13:44:41.449-03:00",
+      "updatedAt": "2026-03-05T13:44:41.449-03:00"
+     },
+     {
+      "id": 25511,
+      "companyId": 308,
+      "title": "Facebook",
+      "url": "https://www.facebook.com/compass.uol",
+      "createdAt": "2026-03-05T13:44:41.460-03:00",
+      "updatedAt": "2026-03-05T13:44:41.460-03:00"
+     }
+    ]
+   },
+   "jobTags": [
+    {
+     "id": 554955,
+     "jobId": 166020,
+     "tagId": 6,
+     "createdAt": "2026-10-10T16:31:53.688-03:00",
+     "updatedAt": "2026-10-10T16:31:53.688-03:00",
+     "tag": {
+      "id": 6,
+      "name": "♿ PcD",
+      "createdAt": "2022-06-14T20:58:34.934-03:00",
+      "updatedAt": "2025-12-20T16:22:03.543-03:00",
+      "type": "job"
+     }
+    },
+    {
+     "id": 554956,
+     "jobId": 166020,
+     "tagId": 1,
+     "createdAt": "2026-10-10T16:31:53.692-03:00",
+     "updatedAt": "2026-10-10T16:31:53.692-03:00",
+     "tag": {
+      "id": 1,
+      "name": "💼 CLT",
+      "createdAt": "2022-06-14T20:58:34.928-03:00",
+      "updatedAt": "2022-06-14T20:58:34.928-03:00",
+      "type": "job"
+     }
+    },
+    {
+     "id": 554957,
+     "jobId": 166020,
+     "tagId": 4,
+     "createdAt": "2026-10-10T16:31:53.694-03:00",
+     "updatedAt": "2026-10-10T16:31:53.694-03:00",
+     "tag": {
+      "id": 4,
+      "name": "🌍 100% Remoto",
+      "createdAt": "2022-06-14T20:58:34.932-03:00",
+      "updatedAt": "2022-06-14T20:58:34.932-03:00",
+      "type": "job"
+     }
+    }
+   ],
+   "jobBenefits": [],
+   "jobRequirements": [
+    {
+     "id": 143147,
+     "jobId": 166020,
+     "description": "Formação superior em Tecnologia da Informação, Ciência de Dados, Engenharia, Matemática, Estatística, Física, Química ou áreas correlatas.",
+     "mandatory": true,
+     "createdAt": "2026-10-10T16:31:53.716-03:00",
+     "updatedAt": "2026-10-10T16:31:53.716-03:00"
+    },
+    {
+     "id": 143148,
+     "jobId": 166020,
+     "description": "Experiência em modelagem de dados para ambientes analíticos.",
+     "mandatory": true,
+     "createdAt": "2026-10-10T16:31:53.718-03:00",
+     "updatedAt": "2026-10-10T16:31:53.719-03:00"
+    },
+    {
+     "id": 143149,
+     "jobId": 166020,
+     "description": "Experiência com processos de integração, transformação e carga de dados (ETL/ELT).",
+     "mandatory": true,
+     "createdAt": "2026-10-10T16:31:53.720-03:00",
+     "updatedAt": "2026-10-10T16:31:53.720-03:00"
+    },
+    {
+     "id": 143150,
+     "jobId": 166020,
+     "description": "Conhecimento avançado em SQL e bancos de dados.",
+     "mandatory": true,
+     "createdAt": "2026-10-10T16:31:53.722-03:00",
+     "updatedAt": "2026-10-10T16:31:53.722-03:00"
+    },
+    {
+     "id": 143151,
+     "jobId": 166020,
+     "description": "Experiência na construção de dashboards e relatórios executivos.",
+     "mandatory": true,
+     "createdAt": "2026-10-10T16:31:53.723-03:00",
+     "updatedAt": "2026-10-10T16:31:53.723-03:00"
+    },
+    {
+     "id": 143152,
+     "jobId": 166020,
+     "description": "Conhecimento em Business Intelligence, Analytics e Data Warehousing.",
+     "mandatory": true,
+     "createdAt": "2026-10-10T16:31:53.724-03:00",
+     "updatedAt": "2026-10-10T16:31:53.724-03:00"
+    },
+    {
+     "id": 143153,
+     "jobId": 166020,
+     "description": "Experiência em análise e tratamento da qualidade dos dados.",
+     "mandatory": true,
+     "createdAt": "2026-10-10T16:31:53.726-03:00",
+     "updatedAt": "2026-10-10T16:31:53.726-03:00"
+    },
+    {
+     "id": 143154,
+     "jobId": 166020,
+     "description": "Capacidade de transformar requisitos de negócio em soluções analíticas.",
+     "mandatory": true,
+     "createdAt": "2026-10-10T16:31:53.727-03:00",
+     "updatedAt": "2026-10-10T16:31:53.727-03:00"
+    },
+    {
+     "id": 143155,
+     "jobId": 166020,
+     "description": "Certificação Microsoft Power BI.",
+     "mandatory": false,
+     "createdAt": "2026-10-10T16:31:53.728-03:00",
+     "updatedAt": "2026-10-10T16:31:53.728-03:00"
+    },
+    {
+     "id": 143156,
+     "jobId": 166020,
+     "description": "Experiência com Microsoft Fabric.",
+     "mandatory": false,
+     "createdAt": "2026-10-10T16:31:53.730-03:00",
+     "updatedAt": "2026-10-10T16:31:53.730-03:00"
+    },
+    {
+     "id": 143157,
+     "jobId": 166020,
+     "description": "Experiência com Databricks.",
+     "mandatory": false,
+     "createdAt": "2026-10-10T16:31:53.731-03:00",
+     "updatedAt": "2026-10-10T16:31:53.731-03:00"
+    },
+    {
+     "id": 143158,
+     "jobId": 166020,
+     "description": "Conhecimento de Data Lake, Data Warehouse e governança de dados.",
+     "mandatory": false,
+     "createdAt": "2026-10-10T16:31:53.732-03:00",
+     "updatedAt": "2026-10-10T16:31:53.732-03:00"
+    },
+    {
+     "id": 143159,
+     "jobId": 166020,
+     "description": "Experiência com soluções analíticas em nuvem.",
+     "mandatory": false,
+     "createdAt": "2026-10-10T16:31:53.733-03:00",
+     "updatedAt": "2026-10-10T16:31:53.733-03:00"
+    },
+    {
+     "id": 143160,
+     "jobId": 166020,
+     "description": "Conhecimento em Python para análise e transformação de dados.",
+     "mandatory": false,
+     "createdAt": "2026-10-10T16:31:53.735-03:00",
+     "updatedAt": "2026-10-10T16:31:53.735-03:00"
+    }
+   ],
+   "jobCategories": [
+    {
+     "id": 207335,
+     "jobId": 166020,
+     "categoryId": 4,
+     "createdAt": "2026-10-10T16:31:53.702-03:00",
+     "updatedAt": "2026-10-10T16:31:53.702-03:00",
+     "category": {
+      "id": 4,
+      "name": "Data Science / Analytics",
+      "createdAt": "2022-06-14T20:58:34.908-03:00",
+      "updatedAt": "2022-06-14T20:58:34.908-03:00"
+     }
+    }
+   ]
+  },
+  {
+   "id": 165963,
+   "companyId": 468,
+   "companyDisplayName": null,
+   "companyDisplayLink": null,
+   "companyDisplayAbout": null,
+   "title": "Analista de Operações Comerciais 3 (Sênior - Marketplace B2B)",
+   "subtitle": "Atuação em operações, suporte a parceiros e análise de dados no time Supply 3P.",
+   "description": "<p>SOBRE A ÁREA E O DESAFIO</p>\n<p><strong>A área de Supply 3P gerencia a captação e a integração técnica de imóveis de imobiliárias parceiras no ecossistema do QuintoAndar. É uma célula estratégica de suporte técnico e alta performance, responsável por manter uma jornada de integração fluida para o inventário de imóveis de terceiros. O desafio é investigar causas-raiz de problemas de integração, analisar gargalos em alto volume de dados e propor melhorias que ampliem a escala da operação e a satisfação de imobiliárias e parceiros.</strong></p>\n<p><br></p>\n<p>RESPONSABILIDADES</p>\n<p><strong>• Prestar suporte a imobiliárias parceiras por tickets, WhatsApp e e-mail, acompanhando prazos e resolvendo demandas.</strong></p>\n<p><strong>• Trabalhar com o time Comercial — cerca de 40 Gerentes de Contas/Account Managers — e stakeholders internos, traduzindo questões técnicas em linguagem de negócio.</strong></p>\n<p><strong>• Monitorar métricas operacionais de Farming/Supply, identificar gargalos na jornada de integração e propor planos de ação.</strong></p>\n<p><strong>• Extrair, tratar e analisar grandes volumes de dados com SQL, Google Sheets e Excel avançado para apoiar decisões e criar relatórios e dashboards.</strong></p>\n<p><strong>• Mapear e conduzir iniciativas de melhoria contínua, otimizar fluxos e automatizar gargalos recorrentes.</strong></p>\n<p><strong>• Investigar causas-raiz de falhas de cadastro e publicação de imóveis e atuar preventivamente.</strong></p>\n<p><br></p>\n<p>REQUISITOS</p>\n<p><strong>• Experiência sólida em atendimento, relacionamento, Customer Success ou implantação B2B, ou gestão de parceiros.</strong></p>\n<p><strong>• Domínio de Google Sheets e Excel avançado, incluindo fórmulas, tratamento e análise de dados.</strong></p>\n<p><strong>• Conhecimento de SQL para extração e análise de dados operacionais.</strong></p>\n<p><strong>• Habilidade de gestão de stakeholders e comunicação entre equipes técnicas e parceiros comerciais.</strong></p>\n<p><strong>• Perfil analítico, com foco em resolução de problemas, investigação de causa-raiz e visão de processos.</strong></p>\n<p><strong>• Capacidade de priorizar, trabalhar com autonomia e organização em ambiente dinâmico.</strong></p>\n<p><br></p>\n<p>DIFERENCIAIS</p>\n<p><strong>• Experiência com integração de sistemas ou parceiros, ferramentas de CRM ou gestão de processos.</strong></p>\n<p><strong>• Vivência no mercado imobiliário, em SaaS ou marketplaces.</strong></p>\n<p><br></p>\n<p>ETAPAS DO PROCESSO SELETIVO</p>\n<p><strong>1. Triagem.</strong></p>\n<p><strong>2. Dinâmica de grupo.</strong></p>\n<p><strong>3. Entrevista com Hiring Manager.</strong></p>\n<p><strong>4. Entrevista com Stakeholder.</strong></p>\n<p><strong>5. Offer.</strong></p>\n<p><br></p>\n<p>BENEFÍCIOS</p>\n<p><strong>• Salário competitivo, participação nos lucros e resultados (PLR) para funções elegíveis e remuneração variável para funções elegíveis.</strong></p>\n<p><strong>• Plano de saúde e odontológico, seguro de vida, Wellhub (Gympass) e QuintoCare, com apoio psicológico, jurídico, social e financeiro.</strong></p>\n<p><strong>• Vale-refeição e alimentação, day off de aniversário, Dia das Mães e Dia dos Pais.</strong></p>\n<p><strong>• Auxílio home office e programa Work From Anywhere (WFA).</strong></p>\n<p><strong>• Auxílio-creche, auxílio parentalidade atípica, licença parental estendida e Kit Leiturinha.</strong></p>\n<p><strong>• Parcerias com instituições de ensino.</strong></p>",
+   "moreInfos": "<p>Modelo 100% remoto em todo o Brasil. Há preferência por pessoas residentes em Belo Horizonte/MG ou São Paulo/SP devido a encontros de integração a cada 2 ou 3 meses.</p>",
+   "countryId": null,
+   "city": "",
+   "state": "",
+   "type": "remote",
+   "expiresAt": "2026-10-24T18:33:25.000-03:00",
+   "expires": true,
+   "expired": false,
+   "externalLink": "https://job-boards.greenhouse.io/quintoandar/jobs/4380719009?source=remotar",
+   "isExternalLink": true,
+   "isPromoted": false,
+   "active": true,
+   "ignoreCompanyBenefits": true,
+   "createdAt": "2026-10-09T18:33:24.529-03:00",
+   "updatedAt": "2026-10-09T21:25:43.312-03:00",
+   "carbonCopy": null,
+   "thumbnailUrl": "job-thumbnails/165963.png",
+   "integrationSource": null,
+   "country": null,
+   "jobFeaturedInfos": [],
+   "author": {
+    "id": 5,
+    "email": "contato@exemplo.invalid",
+    "username": "usuario-exemplo",
+    "active": true,
+    "banned": false,
+    "roleId": 1,
+    "createdAt": "2022-06-14T23:04:43.116-03:00",
+    "updatedAt": "2024-07-16T21:32:43.706-03:00",
+    "hasPassword": true,
+    "dailyLimit": 0
+   },
+   "jobSalary": {
+    "id": 153746,
+    "jobId": 165963,
+    "from": 0,
+    "to": 0,
+    "currency": "BRL",
+    "type": "uninformed",
+    "createdAt": "2026-10-09T18:33:24.574-03:00",
+    "updatedAt": "2026-10-09T18:33:24.574-03:00"
+   },
+   "company": {
+    "id": 468,
+    "name": "QuintoAndar",
+    "link": "https://www.quintoandar.com.br/?utm_source=remotar",
+    "about": "<p>O QuintoAndar nasceu para fazer algo muito gratificante: abrir portas. Abrimos portas para que a tecnologia fizesse parte do morar. E, por meio dela, simplificamos e desburocratizamos a experiência de quem busca por um novo lar. Assim que nos tornamos a maior plataforma de moradia da América Latina. Já estamos presentes em mais de 50 cidades brasileiras e começamos a dar os primeiros passos no mercado internacional. A tecnologia é central em nossa essência, pois é ela que torna possível as inovações que sonhamos. E queremos ir muito além da venda ou aluguel de imóveis: queremos possibilitar e fazer parte de novas histórias. &nbsp;</p>\n<p>Nós implementamos soluções não óbvias, assumimos riscos e estimulamos um ambiente fértil para novas ideias. Nós entregamos o novo porque trabalhamos juntos. Nós colaboramos, somos honestos e inspiramos confiança uns nos outros. E é exatamente essa combinação entre inovar e jogar limpo que faz do QuintoAndar um lugar estimulante, prazeroso e leve para se trabalhar.&nbsp;</p>",
+    "active": true,
+    "createdAt": "2022-10-14T15:04:22.970-03:00",
+    "updatedAt": "2024-11-21T12:22:42.853-03:00",
+    "brandColor": "#3a57bd",
+    "companyProfilePicture": {
+     "id": 463,
+     "companyId": 468,
+     "url": "https://s3.sa-east-1.amazonaws.com/remotar-assets-prod/company-profile-pictures/cl98sufnp00cy04v072bv0szx.jpg",
+     "mediumUrl": "https://s3.sa-east-1.amazonaws.com/remotar-assets-prod/company-profile-pictures/SfoQCjKxs619LEjd-leu-QbMn-hlZvmwFAc88EDOBss25fjztRtvsPDn2y-e-7BTyv7ggOcJjYZTBJZU.jpeg",
+     "smallUrl": "https://s3.sa-east-1.amazonaws.com/remotar-assets-prod/company-profile-pictures/0dyPuq1GXXwJo0LiDUZEsR8BmuJiYgURaes4Voh2X8AyAjscyAF34gjdIAkPm46XDmOOVsMiT06Z9A6o.jpeg",
+     "createdAt": "2022-10-14T15:04:26.862-03:00",
+     "updatedAt": "2022-10-14T15:04:26.862-03:00"
+    },
+    "companyProfileCover": {
+     "id": 462,
+     "companyId": 468,
+     "url": "https://s3.sa-east-1.amazonaws.com/remotar-assets-prod/company-profile-covers/cl98sugtq00d004v081qxazi4.jpg",
+     "mediumUrl": "https://s3.sa-east-1.amazonaws.com/remotar-assets-prod/company-profile-covers/5RTG8LXVElgRQE40QXDSH_n9fbusQjkxGj9-nLGGTZml1v73-FIqqX60KhObxk6z-hlj1375F7wf4e3x.jpeg",
+     "smallUrl": "https://s3.sa-east-1.amazonaws.com/remotar-assets-prod/company-profile-covers/EEtVuYEHpBhK9D5jfFJZ4S8RxgMNA89mWdBjFZ7B7w3wGL1yaZxfuFFqIWSsUrmKYNLnKyxEAs9opb_z.jpeg",
+     "createdAt": "2022-10-14T15:04:28.344-03:00",
+     "updatedAt": "2022-10-14T15:04:28.344-03:00"
+    },
+    "companyJobBenefits": [
+     {
+      "id": 1948,
+      "companyId": 468,
+      "description": "Auxílio home office",
+      "createdAt": "2022-10-14T15:35:06.884-03:00",
+      "updatedAt": "2022-10-14T15:35:06.884-03:00"
+     },
+     {
+      "id": 1943,
+      "companyId": 468,
+      "description": "Salário competitivo (Contrato CLT);",
+      "createdAt": "2022-10-14T15:04:22.978-03:00",
+      "updatedAt": "2023-04-14T11:29:27.730-03:00"
+     },
+     {
+      "id": 1944,
+      "companyId": 468,
+      "description": "Remuneração variável;",
+      "createdAt": "2022-10-14T15:04:22.980-03:00",
+      "updatedAt": "2023-04-14T11:29:27.732-03:00"
+     },
+     {
+      "id": 1945,
+      "companyId": 468,
+      "description": "Ticket refeição (Flash Benefícios);",
+      "createdAt": "2022-10-14T15:04:22.981-03:00",
+      "updatedAt": "2023-04-14T11:29:27.735-03:00"
+     },
+     {
+      "id": 1946,
+      "companyId": 468,
+      "description": "Assistência médica;",
+      "createdAt": "2022-10-14T15:04:22.982-03:00",
+      "updatedAt": "2023-04-14T11:29:27.736-03:00"
+     },
+     {
+      "id": 1947,
+      "companyId": 468,
+      "description": "Assistência odontológica (opcional);",
+      "createdAt": "2022-10-14T15:04:22.983-03:00",
+      "updatedAt": "2023-04-14T11:29:27.738-03:00"
+     },
+     {
+      "id": 1949,
+      "companyId": 468,
+      "description": "Licença maternidade e paternidade estendidasSeguro de vida;",
+      "createdAt": "2022-10-14T15:35:06.885-03:00",
+      "updatedAt": "2023-04-14T11:29:27.738-03:00"
+     },
+     {
+      "id": 1950,
+      "companyId": 468,
+      "description": "Auxílio creche + Auxílio especial;",
+      "createdAt": "2022-10-14T15:35:06.887-03:00",
+      "updatedAt": "2023-04-14T11:29:27.741-03:00"
+     },
+     {
+      "id": 2876,
+      "companyId": 468,
+      "description": "Auxílio para prática de atividades físicas (Gympass);",
+      "createdAt": "2023-04-14T11:29:27.743-03:00",
+      "updatedAt": "2023-04-14T11:29:27.743-03:00"
+     },
+     {
+      "id": 2877,
+      "companyId": 468,
+      "description": "Auxílio home office;",
+      "createdAt": "2023-04-14T11:29:27.745-03:00",
+      "updatedAt": "2023-04-14T11:29:27.745-03:00"
+     },
+     {
+      "id": 2878,
+      "companyId": 468,
+      "description": "Programa de apoio ao empregado;",
+      "createdAt": "2023-04-14T11:29:27.746-03:00",
+      "updatedAt": "2023-04-14T11:29:27.746-03:00"
+     },
+     {
+      "id": 2879,
+      "companyId": 468,
+      "description": "Licença maternidade e paternidade estendidas;",
+      "createdAt": "2023-04-14T11:29:27.747-03:00",
+      "updatedAt": "2023-04-14T11:29:27.747-03:00"
+     }
+    ],
+    "companyLinks": [
+     {
+      "id": 17341,
+      "companyId": 468,
+      "title": "Linkedin",
+      "url": "https://www.linkedin.com/company/quintoandar-com-br/",
+      "createdAt": "2024-11-21T12:22:43.033-03:00",
+      "updatedAt": "2024-11-21T12:22:43.034-03:00"
+     },
+     {
+      "id": 17342,
+      "companyId": 468,
+      "title": "Facebook",
+      "url": "https://www.facebook.com/quintoandar.com.br",
+      "createdAt": "2024-11-21T12:22:43.036-03:00",
+      "updatedAt": "2024-11-21T12:22:43.036-03:00"
+     },
+     {
+      "id": 17343,
+      "companyId": 468,
+      "title": "Instagram",
+      "url": "https://www.instagram.com/quintoandar/",
+      "createdAt": "2024-11-21T12:22:43.038-03:00",
+      "updatedAt": "2024-11-21T12:22:43.038-03:00"
+     },
+     {
+      "id": 17344,
+      "companyId": 468,
+      "title": "Twitter",
+      "url": "https://twitter.com/quintoandar",
+      "createdAt": "2024-11-21T12:22:43.040-03:00",
+      "updatedAt": "2024-11-21T12:22:43.040-03:00"
+     }
+    ]
+   },
+   "jobTags": [
+    {
+     "id": 554803,
+     "jobId": 165963,
+     "tagId": 23,
+     "createdAt": "2026-10-09T18:33:24.559-03:00",
+     "updatedAt": "2026-10-09T18:33:24.559-03:00",
+     "tag": {
+      "id": 23,
+      "name": "🧓🏽 Sênior",
+      "createdAt": "2022-12-13T12:05:35.999-03:00",
+      "updatedAt": "2022-12-13T12:05:35.999-03:00",
+      "type": "job"
+     }
+    },
+    {
+     "id": 554804,
+     "jobId": 165963,
+     "tagId": 4,
+     "createdAt": "2026-10-09T18:33:24.565-03:00",
+     "updatedAt": "2026-10-09T18:33:24.565-03:00",
+     "tag": {
+      "id": 4,
+      "name": "🌍 100% Remoto",
+      "createdAt": "2022-06-14T20:58:34.932-03:00",
+      "updatedAt": "2022-06-14T20:58:34.932-03:00",
+      "type": "job"
+     }
+    }
+   ],
+   "jobBenefits": [],
+   "jobRequirements": [],
+   "jobCategories": [
+    {
+     "id": 207274,
+     "jobId": 165963,
+     "categoryId": 18,
+     "createdAt": "2026-10-09T18:33:24.568-03:00",
+     "updatedAt": "2026-10-09T18:33:24.568-03:00",
+     "category": {
+      "id": 18,
+      "name": "Administrativo / Financeiro / Operações",
+      "createdAt": "2022-07-11T22:23:04.352-03:00",
+      "updatedAt": "2025-08-21T11:51:32.573-03:00"
+     }
+    },
+    {
+     "id": 207275,
+     "jobId": 165963,
+     "categoryId": 2,
+     "createdAt": "2026-10-09T18:33:24.571-03:00",
+     "updatedAt": "2026-10-09T18:33:24.571-03:00",
+     "category": {
+      "id": 2,
+      "name": "Atendimento & Suporte",
+      "createdAt": "2022-06-14T20:58:34.905-03:00",
+      "updatedAt": "2022-06-14T20:58:34.905-03:00"
+     }
+    }
+   ]
+  }
+ ]
+}

@@ -1,0 +1,21 @@
+/* Currículo adaptado no detalhe da vaga (frente F). */
+.curriculo-adaptado:empty { display: none; }
+.curriculo-bloco {
+  margin: 16px 0;
+  padding: 12px 16px;
+  background: #FFFFFF;
+  border: 1px solid var(--borda);
+  border-radius: var(--raio-md);
+}
+.curriculo-cabeca { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
+.curriculo-titulo { margin: 0; font-size: 15px; flex: 1 1 auto; overflow-wrap: anywhere; }
+.curriculo-texto {
+  margin: 12px 0 0;
+  max-height: 360px;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font: 13px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
+  color: var(--texto);
+}
+.curriculo-cabeca .botao { text-decoration: none; display: inline-flex; align-items: center; }
