@@ -12,6 +12,7 @@ COPY requirements.txt .
 RUN pip install -r requirements.txt
 
 COPY src ./src
+COPY migrations ./migrations
 
 USER vagas
 EXPOSE 8000

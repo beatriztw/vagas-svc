@@ -1,0 +1,11 @@
+{# O markdown sai como TEXTO (autoescape, sem |safe, sem render): `<pre>` com pre-wrap. #}
+{% if curriculo %}
+<section class="curriculo-bloco" aria-labelledby="t-curriculo">
+  <div class="curriculo-cabeca">
+    <h3 id="t-curriculo" class="curriculo-titulo">{{ curriculo.titulo }}</h3>
+    <span class="mono">{{ curriculo.criado_em | data_curriculo }}</span>
+    <a class="botao" href="/tela/curriculos/{{ curriculo.id }}.md" download>Baixar .md</a>
+  </div>
+  <pre class="curriculo-texto">{{ curriculo.conteudo_md }}</pre>
+</section>
+{% endif %}
