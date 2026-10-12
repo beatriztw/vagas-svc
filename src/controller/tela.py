@@ -10,6 +10,7 @@ from src.model.erros import DadoInvalido
 from src.repository.base import MAX_DESLOCAMENTO_VAGAS, MAX_TAMANHO_BUSCA, VagaEncontradaRepository, validar_deslocamento
 from src.service.candidatura_service import CandidaturaService
 from src.service.coleta_service import ColetaService
+from src.service.detalhe_service import DetalheService, VagaAberta
 from src.service.historico_service import HistoricoService
 
 # D11: 50 por vez; o resto vem pelo "carregar mais".
@@ -56,16 +57,21 @@ def criar_router_tela(
     historico: HistoricoService,
     coleta: ColetaService,
     candidaturas: CandidaturaService,
+    servico_detalhe: DetalheService | None = None,
 ) -> APIRouter:
     """Recebe o que `criar_app` já tem: os repositories (na produção, os `_PorChamada`), o MESMO
     `HistoricoService` da rota JSON (a lista com o perfil salvo aplicado), o MESMO `ColetaService`
     (com a mesma trava de uma coleta por vez da API e do cron) e o serviço de candidaturas."""
     router = APIRouter(prefix=PREFIXO_TELA, include_in_schema=False)
+    # Sem o serviço (testes antigos) nada sai para a rede: a vaga abre só com o que já está guardado.
+    servico_detalhe = servico_detalhe if servico_detalhe is not None else DetalheService(encontradas)
 
-    def obter(url: str | None):
+    def obter(url: str | None) -> VagaAberta | None:
+        """A vaga aberta como está guardada, SEM falar com o provider (a página não espera ninguém); a
+        expirada também abre."""
         if not url or len(url) > MAX_TAMANHO_URL:
             return None
-        return encontradas.obter(url)
+        return servico_detalhe.abrir(url)
 
     def candidatura_da(vaga):
         """A candidatura da vaga aberta, para o detalhe mostrar "Aplicada em dd/mm" em vez do botão."""
@@ -94,13 +100,19 @@ def criar_router_tela(
             "max_busca": MAX_TAMANHO_BUSCA,
         }
 
-    def pagina(request: Request, q: str | None, novas: bool, vaga, pedida: bool):
-        """A página inteira. `vaga` é a selecionada; `pedida` sem vaga é um link para o que não existe."""
+    def pagina(request: Request, q: str | None, novas: bool, aberta: VagaAberta | None, pedida: bool):
+        """A página inteira. `aberta` é a selecionada; `pedida` sem vaga é um link para o que não existe."""
         contexto = contexto_lista(q, novas, 0)
-        nao_encontrada = pedida and vaga is None
+        nao_encontrada = pedida and aberta is None
         if not pedida and contexto["vagas"]:
-            vaga = contexto["vagas"][0]
-        contexto.update(selecionada=vaga, nao_encontrada=nao_encontrada, candidatura=candidatura_da(vaga))
+            aberta = obter(contexto["vagas"][0].url)
+        vaga = aberta.vaga if aberta else None
+        contexto.update(
+            selecionada=vaga,
+            aberta=aberta,
+            nao_encontrada=nao_encontrada,
+            candidatura=candidatura_da(vaga),
+        )
         # "Vagas aplicadas" entra na página inteira com o mesmo contexto das rotas de /tela/candidaturas.
         contexto.update(contexto_aplicadas(candidaturas))
         # 404 também na página inteira: o recurso pedido não existe, e o aviso aparece no detalhe
@@ -109,7 +121,8 @@ def criar_router_tela(
             request, "tela/index.html", contexto, status_code=404 if nao_encontrada else 200
         )
 
-    def detalhe_partial(request: Request, vaga, nao_encontrada: bool):
+    def detalhe_partial(request: Request, aberta: VagaAberta | None):
+        vaga = aberta.vaga if aberta else None
         return templates.TemplateResponse(
             request,
             "tela/_detalhe.html",
@@ -117,11 +130,12 @@ def criar_router_tela(
             # (abrir, F5, deep link, 1ª vaga automática) não marca nada.
             {
                 "selecionada": vaga,
-                "nao_encontrada": nao_encontrada,
+                "aberta": aberta,
+                "nao_encontrada": aberta is None,
                 "candidatura": candidatura_da(vaga),
                 "marcar_vista": True,
             },
-            status_code=404 if nao_encontrada else 200,
+            status_code=404 if aberta is None else 200,
         )
 
     @router.get("")
@@ -156,11 +170,23 @@ def criar_router_tela(
 
     @router.get("/vagas/detalhe")
     def detalhe(request: Request, url: str | None = None, q: str | None = None, novas: str | None = None):
-        vaga = obter(url)
-        busca, somente_novas = _busca(q), _novas(novas)  # validados também no partial
+        busca, somente_novas = _busca(q), _novas(novas)  # validados antes de buscar no provider
+        aberta = obter(url)
         if not eh_htmx(request):
-            return pagina(request, busca, somente_novas, vaga, True)
-        return detalhe_partial(request, vaga, vaga is None)
+            return pagina(request, busca, somente_novas, aberta, True)
+        return detalhe_partial(request, aberta)
+
+    @router.get("/vagas/secoes")
+    def secoes(request: Request, url: str | None = None):
+        """As seções do detalhe, para a vaga que ainda não tem o detalhe gravado: aqui (e só aqui) pode
+        esperar o provider (5 s). Falha vira aviso no lugar das seções, 404 do provider marca expirada."""
+        aberta = servico_detalhe.carregar(url) if url and len(url) <= MAX_TAMANHO_URL else None
+        return templates.TemplateResponse(
+            request,
+            "tela/_detalhe_conteudo.html",
+            {"vaga": aberta.vaga if aberta else None, "aberta": aberta, "recarregar": False},
+            status_code=404 if aberta is None else 200,
+        )
 
     @router.post("/vagas/vista", dependencies=[Depends(exigir_mutacao_da_tela)])
     def vista(url: str = Form("")):
