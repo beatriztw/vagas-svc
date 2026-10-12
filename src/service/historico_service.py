@@ -78,6 +78,15 @@ class HistoricoService:
         visiveis = ordenar_por_match(filtrar_pelo_perfil(janela, perfil, hoje or date.today()), perfil)
         return PaginaHistorico(vagas=visiveis[deslocamento : deslocamento + limite], total=len(visiveis))
 
+    def visiveis(self, hoje: date | None = None) -> list[VagaEncontrada]:
+        """A lista inteira, sem busca e sem o filtro de novas, na ordem da tela: com perfil, as que
+        passam nele, por match; sem perfil, as mais recentes. Nunca as expiradas. Teto da varredura."""
+        janela = self.vagas.listar_recentes(somente_novas=False, teto=TETO_VARREDURA_HISTORICO, q=None)
+        perfil = self.perfis.obter()
+        if perfil is None:
+            return janela
+        return ordenar_por_match(filtrar_pelo_perfil(janela, perfil, hoje or date.today()), perfil)
+
     def listar(
         self, somente_novas: bool, limite: int, q: str | None = None, deslocamento: int = 0, hoje: date | None = None
     ) -> list[VagaEncontrada]:

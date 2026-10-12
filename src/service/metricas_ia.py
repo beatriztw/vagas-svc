@@ -6,7 +6,7 @@ Os cortes 70/40 da faixa são provisórios e estas métricas servem para calibr�
 
 import math
 import re
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 
 from src.model.pedido_ia import PedidoIA
 
@@ -96,14 +96,19 @@ def estabilidade(prontos_por_vaga: Mapping[str, Sequence[PedidoIA]]) -> dict:
     }
 
 
+def maior_versao(versoes: Iterable[str | None]) -> str | None:
+    """A maior `compatibilidade-vN` (comparada como número: v10 > v9); fora do padrão é ignorada."""
+    numeros = {}
+    for versao in versoes:
+        achado = PADRAO_VERSAO.match(versao or "")
+        if achado:
+            numeros[int(achado.group(1))] = versao
+    return numeros[max(numeros)] if numeros else None
+
+
 def versao_mais_recente(prontos: Sequence[PedidoIA]) -> str | None:
     """A maior `compatibilidade-vN` (comparada como número: v10 > v9) entre os prontos."""
-    numeros = {}
-    for p in prontos:
-        achado = PADRAO_VERSAO.match(p.prompt_versao or "")
-        if achado:
-            numeros[int(achado.group(1))] = p.prompt_versao
-    return numeros[max(numeros)] if numeros else None
+    return maior_versao(p.prompt_versao for p in prontos)
 
 
 def calcular(prontos: Sequence[PedidoIA], rotulos: Mapping[str, str], prompt_versao: str | None) -> dict:

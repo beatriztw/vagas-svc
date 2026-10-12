@@ -11,17 +11,26 @@ from src.model.pedido_ia import (
     MAX_ERRO,
     MAX_TENTATIVAS,
     PRAZO_RODANDO,
+    PRIORIDADE_LOTE,
+    PRIORIDADE_PESSOA,
     EstadoPedidoIA,
     Faixa,
+    NotaIA,
     PedidoIA,
     TipoPedidoIA,
 )
 from src.repository.candidatura import validar_vaga_url
-from src.repository.pedido_ia import PedidoIARepository, id_possivel, validar_faixa, validar_tipo
+from src.repository.pedido_ia import (
+    PedidoIARepository,
+    id_possivel,
+    validar_faixa,
+    validar_prioridade,
+    validar_tipo,
+)
 
 _COLUNAS = (
     "id, tipo, vaga_url, estado, tentativas, resultado, erro, prompt_versao, modelo, nota, faixa, "
-    "curriculo_id, criado_em, reivindicado_em, terminado_em"
+    "curriculo_id, prioridade, curriculo_base_id, criado_em, reivindicado_em, terminado_em"
 )
 # `AGORA` é o parâmetro do relógio; sem ele, o now() da transação.
 _AGORA = "COALESCE(%(agora)s::timestamptz, now())"
@@ -49,9 +58,16 @@ class PedidoIARepositoryPostgres(PedidoIARepository):
             linha = cur.fetchone()
         return _pedido(linha) if linha else None
 
-    def criar(self, vaga_url: str, tipo: TipoPedidoIA | str) -> tuple[PedidoIA, bool]:
+    def criar(
+        self,
+        vaga_url: str,
+        tipo: TipoPedidoIA | str,
+        prioridade: int = PRIORIDADE_PESSOA,
+        curriculo_base_id: int | None = None,
+    ) -> tuple[PedidoIA, bool]:
         vaga_url = validar_vaga_url(vaga_url)
         tipo = validar_tipo(tipo)
+        prioridade = validar_prioridade(prioridade)
         # Se o ativo termina entre o INSERT que não gravou e a leitura, tenta de novo.
         for _ in range(3):
             try:
@@ -59,20 +75,28 @@ class PedidoIARepositoryPostgres(PedidoIARepository):
                     # O índice parcial pedido_ia_ativo_uq garante um ativo por (vaga, tipo); o ON CONFLICT
                     # espera a transação concorrente que gravou o mesmo par.
                     cur.execute(
-                        "INSERT INTO pedido_ia (vaga_url, tipo) VALUES (%s, %s) "
+                        "INSERT INTO pedido_ia (vaga_url, tipo, prioridade, curriculo_base_id) VALUES (%s, %s, %s, %s) "
                         "ON CONFLICT (vaga_url, tipo) WHERE estado IN ('pendente', 'rodando') DO NOTHING "
                         f"RETURNING {_COLUNAS}",
-                        (vaga_url, tipo.value),
+                        (vaga_url, tipo.value, prioridade, curriculo_base_id),
                     )
                     linha = cur.fetchone()
             except errors.ForeignKeyViolation:
-                # Só a vaga inexistente (a única chave estrangeira que o INSERT preenche).
+                # A vaga inexistente; ou a base, que só chega aqui apagada entre a leitura e o INSERT.
                 raise DadoInvalido(f"vaga não encontrada no histórico: {vaga_url}") from None
             if linha is not None:
                 return _pedido(linha), True
-            ativo = self._um("vaga_url = %s AND tipo = %s AND estado IN ('pendente', 'rodando')", (vaga_url, tipo.value))
-            if ativo is not None:
-                return ativo, False
+            # O ativo do lote pedido pela pessoa sobe para a prioridade dela: o clique não espera o lote.
+            with self._conn.cursor(row_factory=dict_row) as cur:
+                cur.execute(
+                    "UPDATE pedido_ia SET prioridade = LEAST(prioridade, %s) "
+                    "WHERE vaga_url = %s AND tipo = %s AND estado IN ('pendente', 'rodando') "
+                    f"RETURNING {_COLUNAS}",
+                    (prioridade, vaga_url, tipo.value),
+                )
+                linha = cur.fetchone()
+            if linha is not None:
+                return _pedido(linha), False
         raise RuntimeError("não foi possível criar nem achar o pedido ativo")
 
     def obter(self, id: int) -> PedidoIA | None:
@@ -99,12 +123,12 @@ class PedidoIARepositoryPostgres(PedidoIARepository):
                 f"WHERE estado = 'rodando' AND reivindicado_em < {_PRAZO} AND tentativas >= %(max)s",
                 params,
             )
-            # 2. Pendente antes de preso; dentro de cada grupo, o mais antigo. SKIP LOCKED: dois workers
-            # simultâneos nunca pegam o mesmo pedido.
+            # 2. Pendente antes de preso; dentro de cada grupo, a prioridade (a pessoa antes do lote) e
+            # depois o mais antigo. SKIP LOCKED: dois workers simultâneos nunca pegam o mesmo pedido.
             cur.execute(
                 "SELECT id FROM pedido_ia "
                 f"WHERE estado = 'pendente' OR (estado = 'rodando' AND reivindicado_em < {_PRAZO}) "
-                "ORDER BY (estado = 'rodando'), criado_em, id LIMIT 1 FOR UPDATE SKIP LOCKED",
+                "ORDER BY (estado = 'rodando'), prioridade, criado_em, id LIMIT 1 FOR UPDATE SKIP LOCKED",
                 params,
             )
             escolhido = cur.fetchone()
@@ -176,6 +200,41 @@ class PedidoIARepositoryPostgres(PedidoIARepository):
                 {"versao": prompt_versao},
             )
             return [_pedido(linha) for linha in cur.fetchall()]
+
+    def versoes_compatibilidade(self) -> set[str]:
+        with self._conn.cursor() as cur:
+            cur.execute(
+                "SELECT DISTINCT prompt_versao FROM pedido_ia "
+                "WHERE tipo = 'compatibilidade' AND estado = 'pronto' AND prompt_versao IS NOT NULL"
+            )
+            return {versao for (versao,) in cur.fetchall()}
+
+    def notas_compatibilidade(self, curriculo_base_id: int, prompt_versao: str | None) -> dict[str, NotaIA]:
+        with self._conn.cursor() as cur:
+            cur.execute(
+                "SELECT DISTINCT ON (vaga_url) vaga_url, nota, faixa FROM pedido_ia "
+                "WHERE tipo = 'compatibilidade' AND estado = 'pronto' AND curriculo_base_id = %(base)s "
+                "AND nota IS NOT NULL AND faixa IS NOT NULL "
+                "AND (%(versao)s::text IS NULL OR prompt_versao = %(versao)s::text) "
+                "ORDER BY vaga_url, id DESC",
+                {"base": curriculo_base_id, "versao": prompt_versao},
+            )
+            return {url: NotaIA(nota, Faixa(faixa)) for url, nota, faixa in cur.fetchall()}
+
+    def urls_ativas(self, tipo: TipoPedidoIA | str) -> set[str]:
+        tipo = validar_tipo(tipo)
+        with self._conn.cursor() as cur:
+            cur.execute(
+                "SELECT vaga_url FROM pedido_ia WHERE tipo = %s AND estado IN ('pendente', 'rodando')", (tipo.value,)
+            )
+            return {url for (url,) in cur.fetchall()}
+
+    def contar_lote_desde(self, desde: datetime) -> int:
+        with self._conn.cursor() as cur:
+            cur.execute(
+                "SELECT count(*) FROM pedido_ia WHERE prioridade = %s AND criado_em >= %s", (PRIORIDADE_LOTE, desde)
+            )
+            return cur.fetchone()[0]
 
     def gravar_rotulo(self, vaga_url: str, faixa: Faixa | str | None) -> Faixa | None:
         vaga_url = validar_vaga_url(vaga_url)

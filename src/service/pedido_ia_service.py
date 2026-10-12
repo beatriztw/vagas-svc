@@ -5,6 +5,9 @@ O log traz só id, tipo, estado e tentativa: nunca resultado, erro, currículo n
 
 import json
 import logging
+import os
+from collections.abc import Callable, Iterable, Mapping
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from src.model.erros import DadoInvalido
@@ -12,6 +15,8 @@ from src.model.pedido_ia import (
     ERRO_SEM_BASE,
     MAX_ERRO,
     MAX_RESULTADO_BYTES,
+    PRIORIDADE_LOTE,
+    NotaIA,
     PedidoEmConflito,
     PedidoIA,
     PedidoInexistente,
@@ -26,6 +31,7 @@ from src.model.resultado_ia import (
 from src.repository.base import CurriculoRepository, PerfilBuscaRepository, VagaEncontradaRepository
 from src.repository.candidatura import validar_vaga_url
 from src.repository.pedido_ia import PedidoIARepository, validar_faixa, validar_tipo
+from src.service.metricas_ia import maior_versao
 
 log = logging.getLogger(__name__)
 
@@ -33,6 +39,19 @@ MAX_URL = 2048
 MSG_SEM_BASE = "Salve um currículo base antes de usar a IA"
 # Teto de pedidos sem base descartados numa só chamada de `proximo`: a próxima chamada continua.
 _MAX_DESCARTES = 100
+# Lote: no máximo tantos pedidos de prioridade 1 criados em 24 h (a cota do Pro da Beatriz é curta).
+LOTE_MAX_POR_DIA_PADRAO = 40
+_JANELA_LOTE = timedelta(hours=24)
+
+
+def lote_max_por_dia(env: Mapping[str, str] | None = None) -> int:
+    """IA_LOTE_MAX_POR_DIA: inteiro >= 0 (0 desliga o lote). Inválido cai no padrão, sem derrubar a app."""
+    bruto = (os.environ if env is None else env).get("IA_LOTE_MAX_POR_DIA", "").strip()
+    try:
+        valor = int(bruto)
+    except ValueError:
+        return LOTE_MAX_POR_DIA_PADRAO
+    return valor if valor >= 0 else LOTE_MAX_POR_DIA_PADRAO
 
 
 def _log(pedido: PedidoIA) -> None:
@@ -57,11 +76,15 @@ class PedidoIAService:
         encontradas: VagaEncontradaRepository,
         perfis: PerfilBuscaRepository,
         curriculos: CurriculoRepository,
+        max_lote_por_dia: int | None = None,
+        relogio: Callable[[], datetime] | None = None,
     ):
         self.pedidos = pedidos
         self.encontradas = encontradas
         self.perfis = perfis
         self.curriculos = curriculos
+        self.max_lote_por_dia = lote_max_por_dia() if max_lote_por_dia is None else max_lote_por_dia
+        self._relogio = relogio or (lambda: datetime.now(timezone.utc))
 
     def pedir(self, vaga_url: str, tipo: TipoPedidoIA | str) -> tuple[PedidoIA, bool]:
         """(pedido, criado). Já havendo um ativo para (vaga, tipo), devolve o ativo com criado=False."""
@@ -71,12 +94,68 @@ class PedidoIAService:
             raise DadoInvalido(f"vaga_url passa de {MAX_URL} caracteres")
         if self.encontradas.obter(vaga_url) is None:
             raise DadoInvalido("vaga não encontrada no histórico")
-        if self.curriculos.obter_base() is None:
+        base = self.curriculos.obter_base()
+        if base is None:
             raise DadoInvalido(MSG_SEM_BASE)
-        pedido, criado = self.pedidos.criar(vaga_url, tipo)
+        pedido, criado = self.pedidos.criar(vaga_url, tipo, curriculo_base_id=base.id)
         if criado:
             _log(pedido)
         return pedido, criado
+
+    def versao_compatibilidade(self) -> str | None:
+        """A versão do prompt de compatibilidade que vale: a maior `compatibilidade-vN` já vista nos
+        prontos. O vagas-svc não sabe qual o worker usa; ele só vê o que volta."""
+        return maior_versao(self.pedidos.versoes_compatibilidade())
+
+    def notas_validas(self) -> dict[str, NotaIA]:
+        """vaga_url -> nota que vale para a base vigente e a versão atual do prompt. Sem base, nenhuma."""
+        base = self.curriculos.obter_base()
+        if base is None:
+            return {}
+        return self.pedidos.notas_compatibilidade(base.id, self.versao_compatibilidade())
+
+    def enfileirar_lote(self, candidatas: Iterable, limite: int | None = None) -> int:
+        """Cria pedidos de compatibilidade do lote (prioridade 1) para as `candidatas`, na ordem dada,
+        pulando as que já têm pedido ativo ou nota válida. Devolve quantos criou.
+
+        Respeita o teto diário (`max_lote_por_dia` pedidos do lote criados nas últimas 24 h) e, se
+        informado, `limite`. Sem currículo base não enfileira nada.
+        """
+        base = self.curriculos.obter_base()
+        if base is None:
+            return 0
+        restante = self.max_lote_por_dia - self.pedidos.contar_lote_desde(self._relogio() - _JANELA_LOTE)
+        if limite is not None:
+            restante = min(restante, limite)
+        if restante <= 0:
+            return 0
+        pular = self.pedidos.urls_ativas(TipoPedidoIA.COMPATIBILIDADE)
+        pular |= set(self.pedidos.notas_compatibilidade(base.id, self.versao_compatibilidade()))
+        criados = 0
+        for vaga in candidatas:
+            if criados >= restante:
+                break
+            if vaga.url in pular:
+                continue
+            pular.add(vaga.url)
+            try:
+                pedido, criado = self.pedidos.criar(
+                    vaga.url, TipoPedidoIA.COMPATIBILIDADE, prioridade=PRIORIDADE_LOTE, curriculo_base_id=base.id
+                )
+            except DadoInvalido:
+                continue  # a vaga saiu do histórico entre a leitura e o pedido
+            if criado:
+                criados += 1
+                _log(pedido)
+        log.info("pedido_ia lote criados=%s", criados)
+        return criados
+
+    def progresso_lote(self, candidatas: Iterable) -> tuple[int, int]:
+        """(avaliadas, na_fila) entre as `candidatas`: com nota válida e com compatibilidade ativa."""
+        urls = {v.url for v in candidatas}
+        avaliadas = len(urls & set(self.notas_validas()))
+        na_fila = len(urls & self.pedidos.urls_ativas(TipoPedidoIA.COMPATIBILIDADE))
+        return avaliadas, na_fila
 
     def obter(self, id: int) -> PedidoIA | None:
         return self.pedidos.obter(id)
