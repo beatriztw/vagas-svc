@@ -123,10 +123,22 @@ class OrdenarTest(unittest.TestCase):
     def test_sem_perfil_a_ordem_pela_nota_usa_as_mais_recentes_como_desempate(self):
         servico = HistoricoService(self.repo, PerfilBuscaRepositoryMemoria())
         recentes = urls(servico.pagina(False, 500, hoje=HOJE).vagas)
-        ranqueadas = urls(servico.pagina(False, 500, hoje=HOJE, notas=NOTAS).vagas)
+        # Sem perfil o padrão não muda por causa das notas: só a ordem pedida de propósito ranqueia.
+        self.assertEqual(urls(servico.pagina(False, 500, hoje=HOJE, notas=NOTAS).vagas), recentes)
+        ranqueadas = urls(servico.pagina(False, 500, hoje=HOJE, notas=NOTAS, ordem=Ordem.IA).vagas)
         self.assertEqual(ranqueadas[:4], ["m4"] + [u for u in recentes if u in ("m2", "m5")] + ["m3"])
         self.assertEqual(ranqueadas[4:], ["m1"])
         self.assertEqual(urls(servico.pagina(False, 500, hoje=HOJE, notas=NOTAS, faixa_minima=FaixaMinima.ALTA).vagas), ["m4"])
+
+    def test_sem_perfil_uma_nota_nao_corta_o_historico_na_janela_de_varredura(self):
+        from unittest import mock
+
+        servico = HistoricoService(self.repo, PerfilBuscaRepositoryMemoria())
+        total = servico.pagina(False, 500, hoje=HOJE).total
+        with mock.patch("src.service.historico_service.TETO_VARREDURA_HISTORICO", 2):
+            pagina = servico.pagina(False, 500, hoje=HOJE, notas=NOTAS)
+        self.assertEqual((pagina.total, len(pagina.vagas)), (total, total))
+        self.assertGreater(total, 2)
 
     def test_validar_ordem_e_faixa(self):
         self.assertEqual((validar_ordem(None), validar_ordem(""), validar_ordem("IA")), (None, None, Ordem.IA))

@@ -109,7 +109,9 @@ class HistoricoService:
     Com perfil salvo: lê a janela de varredura (`TETO_VARREDURA_HISTORICO` mais recentes, com o
     filtro novas e o `q`), aplica os MESMOS filtros da busca ao vivo (`filtrar_pelo_perfil`),
     ordena por match e só então pagina e conta, então contador, páginas e "carregar mais" batem.
-    Sem perfil salvo: o repositório direto, como antes (mais recentes primeiro, paginação no SQL).
+    Sem perfil salvo: o repositório direto, como antes (mais recentes primeiro, paginação no SQL),
+    mesmo com notas da IA; só a ordem "Compatibilidade (IA)" ou o filtro de faixa pedidos de propósito
+    leem a janela de varredura.
     """
 
     def __init__(self, vagas: VagaEncontradaRepository, perfis: PerfilBuscaRepository):
@@ -128,13 +130,15 @@ class HistoricoService:
         faixa_minima: FaixaMinima | None = None,
     ) -> PaginaHistorico:
         """`notas` (vaga_url -> nota válida da IA) liga a ordem por IA, que vira a padrão quando há
-        alguma nota; `ordem` força uma das duas. `faixa_minima` deixa só as avaliadas na faixa ou acima."""
+        alguma nota E perfil salvo; `ordem` força uma das duas. `faixa_minima` deixa só as avaliadas
+        na faixa ou acima. Sem perfil, o padrão continua a paginação no SQL: uma nota avaliada não pode
+        cortar o histórico e o contador na janela de varredura."""
         limite = validar_limite(limite)
         deslocamento = validar_deslocamento(deslocamento)
         notas = notas or {}
-        ordem = ordem or (Ordem.IA if notas else Ordem.PERFIL)
         # Um perfil lido uma vez por leitura: a página e o total saem do mesmo perfil.
         perfil = self.perfis.obter()
+        ordem = ordem or (Ordem.IA if notas and perfil is not None else Ordem.PERFIL)
         if perfil is None and ordem == Ordem.PERFIL and faixa_minima is None:
             return PaginaHistorico(
                 vagas=self.vagas.listar(somente_novas=somente_novas, limite=limite, q=q, deslocamento=deslocamento),
