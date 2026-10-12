@@ -35,20 +35,27 @@ def nivel_do_titulo(titulo: str) -> Nivel | None:
     return achados[0] if len(achados) == 1 else None
 
 
+_SO_PAIS = {"brasil", "brazil"}
+
+
 def _cidade(localidade: str) -> str:
     # "Rio de Janeiro, RJ", "Rio de Janeiro - RJ", "Rio de Janeiro-RJ" e "Rio de Janeiro, Rio de Janeiro, Brasil"
     # comparam pela cidade, e por igualdade: "Vitória" não casa com "Vitória da Conquista".
     # "-RJ" colado no fim também é UF; "Embu-Guaçu" segue sendo uma cidade só.
-    return " ".join(palavras(re.split(r",|\s[-–]\s|/|\(|[-–](?=\s*[A-Za-z]{2}\s*$)", localidade)[0]))
+    cidade = " ".join(palavras(re.split(r",|\s[-–]\s|/|\(|[-–](?=\s*[A-Za-z]{2}\s*$)", localidade)[0]))
+    # O LinkedIn marca a região metropolitana: "Rio de Janeiro e Região", "Greater São Paulo Area".
+    cidade = re.sub(r"^(regiao metropolitana de|grande|greater) ", "", cidade)
+    return re.sub(r" (e regiao|metropolitan area|area)$", "", cidade)
 
 
 def _no_lugar(vaga: VagaExterna, cidades: set[str]) -> bool:
     if vaga.remoto or contem(vaga.local, "remot"):
         return True
-    if not vaga.local:
-        # Sem local informado não dá para saber: a vaga fica.
+    cidade = _cidade(vaga.local or "")
+    if not cidade or cidade in _SO_PAIS:
+        # Sem local, ou só o país: não dá para saber a cidade, então a vaga fica.
         return True
-    return _cidade(vaga.local) in cidades
+    return cidade in cidades
 
 
 def pontuar(vaga: VagaExterna, skills: list[str]) -> int:

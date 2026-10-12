@@ -156,6 +156,19 @@ class LocalidadeTest(unittest.TestCase):
 
         self.assertEqual([v.titulo for v in filtradas], ["b", "b2"])
 
+    def test_regiao_metropolitana_e_so_o_pais(self):
+        vagas = [
+            vaga("a", local="Rio de Janeiro e Região", remoto=False),
+            vaga("b", local="Greater Rio de Janeiro Area", remoto=False),
+            vaga("c", local="Região Metropolitana de Rio de Janeiro", remoto=False),
+            vaga("d", local="Brasil"),
+            vaga("e", local="São Paulo e Região", remoto=False),
+        ]
+
+        filtradas = aplicar_perfil(vagas, Perfil(localidades=["Rio de Janeiro, RJ"]), HOJE)
+
+        self.assertEqual([v.titulo for v in filtradas], ["a", "b", "c", "d"])
+
     def test_sem_localidade_no_perfil_nada_e_cortado(self):
         vagas = [vaga("f", local="São Paulo, SP", remoto=False)]
 
