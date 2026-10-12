@@ -56,8 +56,10 @@ class ResultadoDoWorker(BaseModel):
 
     tentativa: StrictInt = Field(ge=1)
     estado: Literal["pronto", "erro"]
-    prompt_versao: str = Field(pattern=r"^[a-z]+-v[0-9]+$")
-    modelo: str = Field(min_length=1, max_length=100)
+    # Versão com até 6 dígitos: as métricas convertem o número com int().
+    prompt_versao: str = Field(pattern=r"^[a-z]+-v[0-9]{1,6}$")
+    # Sem caractere de controle: o Postgres recusa NUL em text, e isso viraria 500 em vez de 422.
+    modelo: str = Field(min_length=1, max_length=100, pattern=r"^[^\x00-\x1f\x7f]+$")
     resultado: dict[str, Any] | None = None
     erro: str | None = None
 

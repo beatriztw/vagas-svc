@@ -575,6 +575,9 @@ class PutTest(ComToken):
             self.corpo_pronto(tentativa=True),
             self.corpo_pronto(modelo=""),
             self.corpo_pronto(modelo="m" * 101),
+            self.corpo_pronto(modelo="claude\x00x"),  # NUL estouraria no Postgres (500)
+            self.corpo_pronto(modelo="claude\nx"),
+            self.corpo_pronto(prompt_versao="compatibilidade-v" + "9" * 7),
             self.corpo_pronto(prompt_versao="Compat-1"),
             self.corpo_pronto(estado="rodando"),
         ):
