@@ -1,0 +1,4 @@
+{# Carrega o currículo adaptado da vaga depois que o detalhe abre (não mexe no contexto de tela.py).
+   `vaga.url` entra no `hx-get` com `|urlencode`, que escapa `&`, `#`, espaço e acento. #}
+<div id="curriculo-adaptado" class="curriculo-adaptado"
+     hx-get="/tela/curriculos/da-vaga?url={{ vaga.url | urlencode }}" hx-trigger="load" hx-swap="innerHTML"></div>

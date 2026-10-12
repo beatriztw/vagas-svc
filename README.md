@@ -44,11 +44,12 @@ resultado = BuscaService([GreenhouseClient(["stone"]), RemotarClient()]).buscar(
 
 ## Banco
 
-O estado (perfil de busca e currículos) fica num Postgres. O schema está em `migrations/001_curriculo_perfil.sql`, idempotente (`CREATE TABLE IF NOT EXISTS`), aplicado à mão:
+O estado (perfil de busca e currículos) fica num Postgres. O schema está em `migrations/*.sql` (de `001_curriculo_perfil.sql` até `004_detalhe_vaga.sql`, descritas nas seções de coleta, candidaturas e "Detalhe e expiração") e **é aplicado sozinho na subida da app**: as pendentes, em ordem lexicográfica do nome (`001_...`, `002_...`; numere com largura fixa), cada uma numa transação junto com o registro em `schema_migrations` e sob `pg_advisory_lock` (réplicas subindo juntas não aplicam duas vezes; quem chega depois espera).
 
-```bash
-psql -f migrations/001_curriculo_perfil.sql
-```
+- Migration com erro é desfeita (nada fica, nem registro) e a app **não sobe**: o erro aparece no log. Banco inacessível na subida é tentado de novo com backoff por ~60 s; depois disso a subida falha (o orquestrador reinicia o container). Por isso `/saude` só responde com o banco no ar.
+- Escreva migration idempotente (`IF NOT EXISTS`), sem `BEGIN`/`COMMIT` e sem `CREATE INDEX CONCURRENTLY` (rodam dentro de uma transação). Não edite uma migration já publicada: crie outra.
+- As 001–003 foram aplicadas à mão antes desta regra; no primeiro boot rodam de novo sem erro e passam a constar em `schema_migrations`. A coleta por linha de comando (`python -m src.controller.coleta`) não aplica migrations: só a app.
+- Aplicar à mão só serve para um banco que a app ainda não tocou: `psql -f migrations/001_curriculo_perfil.sql`.
 
 - `perfil_busca`: uma linha só (id = 1), gravada por upsert. Os CHECK de `modalidades` e `niveis` espelham `Modalidade` e `Nivel` de `src/model/vaga.py`.
 - `curriculo`: `tipo` é `base` ou `adaptado`; adaptado sempre aponta para uma base (`base_id`). A base vigente é a base mais recente; as anteriores ficam como histórico.
@@ -78,7 +79,7 @@ A app de produção lê o Postgres pelas variáveis `PG*` (`PGHOST`, `PGPORT`, `
 
 ## Coleta
 
-`GET /vagas` busca ao vivo a cada chamada. A coleta roda a mesma recomendação para cada termo do perfil salvo (termos repetidos por grafia, como `Front-end` e `front end`, rodam uma vez) e guarda as vagas na tabela `vaga_encontrada` de `migrations/002_vaga_encontrada.sql` (idempotente, aplicada à mão como a 001: `psql -f migrations/002_vaga_encontrada.sql`). A chave é a URL: a mesma vaga achada por dois termos é uma linha só, com os dois em `termos`; uma coleta seguinte atualiza `ultima_vez_em` e os campos que vieram preenchidos, sem contar a vaga como nova e sem mexer em `primeira_vez_em` nem em `vista_em`. Nova = ainda não marcada como vista.
+`GET /vagas` busca ao vivo a cada chamada. A coleta roda a mesma recomendação para cada termo do perfil salvo (termos repetidos por grafia, como `Front-end` e `front end`, rodam uma vez) e guarda as vagas na tabela `vaga_encontrada` de `migrations/002_vaga_encontrada.sql` (idempotente, aplicada sozinha na subida). A chave é a URL: a mesma vaga achada por dois termos é uma linha só, com os dois em `termos`; uma coleta seguinte atualiza `ultima_vez_em` e os campos que vieram preenchidos, sem contar a vaga como nova e sem mexer em `primeira_vez_em` nem em `vista_em`. Nova = ainda não marcada como vista.
 
 | Método e rota | O que faz |
 |---|---|
@@ -110,7 +111,7 @@ A imagem é construída pelo `Dockerfile` da raiz (`docker build -t vagas-svc .`
 
 ## Candidaturas
 
-As vagas em que a pessoa aplicou ficam na tabela `candidatura` de `migrations/003_candidatura.sql` (idempotente, aplicada à mão depois da 002: `psql -f migrations/003_candidatura.sql`). A chave é a URL da vaga, que tem que existir em `vaga_encontrada` (chave estrangeira): marcar de novo a mesma vaga devolve a candidatura que já existe. O status é um de `enviada` (padrão), `em_analise`, `entrevista`, `recusada`, `oferta`; fora disso, 422. Aplicada pode ser desfeita (`DELETE`).
+As vagas em que a pessoa aplicou ficam na tabela `candidatura` de `migrations/003_candidatura.sql` (idempotente, aplicada sozinha na subida, depois da 002). A chave é a URL da vaga, que tem que existir em `vaga_encontrada` (chave estrangeira): marcar de novo a mesma vaga devolve a candidatura que já existe. O status é um de `enviada` (padrão), `em_analise`, `entrevista`, `recusada`, `oferta`; fora disso, 422. Aplicada pode ser desfeita (`DELETE`).
 
 | Método e rota | O que faz |
 |---|---|
@@ -128,6 +129,17 @@ As vagas em que a pessoa aplicou ficam na tabela `candidatura` de `migrations/00
 - `src/controller/tela_seguranca.py` guarda o que as rotas de `/tela` compartilham: o `Jinja2Templates` (autoescape ligado), o filtro `url_segura` (só `http`/`https` com host vira `href`) e a dependência de CSRF das rotas que mudam estado (`HX-Request: true` e `Origin` igual ao host, ou, sem `Origin`, `Sec-Fetch-Site: same-origin`; senão 403).
 - Respostas de `/tela` e `/static` levam `Content-Security-Policy: default-src 'self'; ...`, `X-Content-Type-Options: nosniff` e `Referrer-Policy: same-origin`; `/tela` também `Cache-Control: no-store`. Por isso não há JS nem CSS inline.
 - `DadoInvalido` em rota de `/tela` vira 422 com o partial `_erro.html`; nas rotas JSON continua `{"detail": ...}`. Qualquer outro erro é 500.
+
+## Detalhe e expiração
+
+`migrations/004_detalhe_vaga.sql` (idempotente, `ADD COLUMN IF NOT EXISTS`) acrescenta a `vaga_encontrada`: `descricao`, `requisitos`, `salario`, `beneficios`, `subtitulo`, `expirada_em` e `detalhada_em`. Sem a 004 aplicada a coleta e a tela quebram: ela é aplicada sozinha na subida se o PR das migrations automáticas estiver na main; senão, à mão antes do merge (`psql -f migrations/004_detalhe_vaga.sql`).
+
+- **Gravado na coleta**: a listagem do Remotar já traz descrição, requisitos, salário, benefícios, `expired` e `expiresAt`. `registrar` grava (e atualiza no conflito) esses campos, já sanitizados, e `detalhada_em`. Vaga de outro provider não apaga o que já está gravado.
+- **Sob demanda (reserva)**: só quando `detalhada_em` é nulo. `GET /tela` e o clique no card NUNCA chamam o provider: o detalhe sai na hora com "Carregando a descrição…" e a seção pede `GET /tela/vagas/secoes?url=` (`hx-trigger="load"`), que busca `GET https://api.remotar.com.br/jobs/{id}` (timeout 5 s), grava e troca as seções. Falha vira aviso no lugar das seções, nunca 500; 404/410 grava `expirada_em`.
+- **Só o id certo chega ao provider**: a URL da vaga tem que ser exatamente `https://remotar.com.br/job/{dígitos}` e a plataforma `Remotar`; outro host, caminho, query ou fragmento nunca chamam o provider.
+- **Texto puro**: tudo passa por `src/client/sanitizar.py` (`html.parser` da stdlib): tags somem (`<script>`/`<style>` com o conteúdo), `<a>` fica só com o texto, parágrafos e `<br>` viram quebra de linha, `<li>` vira "• ", até 20 mil caracteres. A tela imprime com autoescape e `white-space: pre-line`, sem `|safe`. Campo de resposta com forma errada descarta só o campo; qualquer erro de parsing vira `ErroProvider`.
+- **Salário** em centavos (confirmado em 2026-10-12 na página pública da vaga 164153: 900000 a 1300000 aparece como "R$ 9,000.00 a R$ 13,000.00"). `from`/`to` nulo ou 0 e `type: "uninformed"` = não informado; só um lado positivo vira "a partir de" ou "até".
+- **Expiração (só Remotar)**: `expirada_em` = `expiresAt` (mesmo futuro) ou, com `expired: true`, agora. A vaga some de `listar`, `contar` e `listar_recentes` quando `expirada_em <= now()` (`expirada_em IS NULL OR expirada_em > now()`), sem nova coleta. `obter(url)` ainda a acha e o link direto mostra "Vaga expirada" (só quando já venceu); candidaturas continuam visíveis. Quem já expirou não ressuscita com um prazo novo nem com "sem prazo"; o prazo futuro pode mudar ou ser removido na coleta seguinte: com `expires: false` (e sem `expiresAt` nem `expired: true`) o prazo futuro gravado antes é apagado e a vaga segue no ar. Campo ausente ou torto mantém a data que estava.
 
 ## Testes
 
