@@ -44,7 +44,7 @@ resultado = BuscaService([GreenhouseClient(["stone"]), RemotarClient()]).buscar(
 
 ## Banco
 
-O estado (perfil de busca e currículos) fica num Postgres. O schema está em `migrations/*.sql` e **é aplicado sozinho na subida da app**: as pendentes, em ordem lexicográfica do nome (`001_...`, `002_...`; numere com largura fixa), cada uma numa transação junto com o registro em `schema_migrations` e sob `pg_advisory_lock` (réplicas subindo juntas não aplicam duas vezes; quem chega depois espera).
+O estado (perfil de busca e currículos) fica num Postgres. O schema está em `migrations/*.sql` (de `001_curriculo_perfil.sql` até `004_detalhe_vaga.sql`, descritas nas seções de coleta, candidaturas e "Detalhe e expiração") e **é aplicado sozinho na subida da app**: as pendentes, em ordem lexicográfica do nome (`001_...`, `002_...`; numere com largura fixa), cada uma numa transação junto com o registro em `schema_migrations` e sob `pg_advisory_lock` (réplicas subindo juntas não aplicam duas vezes; quem chega depois espera).
 
 - Migration com erro é desfeita (nada fica, nem registro) e a app **não sobe**: o erro aparece no log. Banco inacessível na subida é tentado de novo com backoff por ~60 s; depois disso a subida falha (o orquestrador reinicia o container). Por isso `/saude` só responde com o banco no ar.
 - Escreva migration idempotente (`IF NOT EXISTS`), sem `BEGIN`/`COMMIT` e sem `CREATE INDEX CONCURRENTLY` (rodam dentro de uma transação). Não edite uma migration já publicada: crie outra.
@@ -127,6 +127,17 @@ As vagas em que a pessoa aplicou ficam na tabela `candidatura` de `migrations/00
 - `src/controller/tela_seguranca.py` guarda o que as rotas de `/tela` compartilham: o `Jinja2Templates` (autoescape ligado), o filtro `url_segura` (só `http`/`https` com host vira `href`) e a dependência de CSRF das rotas que mudam estado (`HX-Request: true` e `Origin` igual ao host, ou, sem `Origin`, `Sec-Fetch-Site: same-origin`; senão 403).
 - Respostas de `/tela` e `/static` levam `Content-Security-Policy: default-src 'self'; ...`, `X-Content-Type-Options: nosniff` e `Referrer-Policy: same-origin`; `/tela` também `Cache-Control: no-store`. Por isso não há JS nem CSS inline.
 - `DadoInvalido` em rota de `/tela` vira 422 com o partial `_erro.html`; nas rotas JSON continua `{"detail": ...}`. Qualquer outro erro é 500.
+
+## Detalhe e expiração
+
+`migrations/004_detalhe_vaga.sql` (idempotente, `ADD COLUMN IF NOT EXISTS`) acrescenta a `vaga_encontrada`: `descricao`, `requisitos`, `salario`, `beneficios`, `subtitulo`, `expirada_em` e `detalhada_em`. Sem a 004 aplicada a coleta e a tela quebram: ela é aplicada sozinha na subida se o PR das migrations automáticas estiver na main; senão, à mão antes do merge (`psql -f migrations/004_detalhe_vaga.sql`).
+
+- **Gravado na coleta**: a listagem do Remotar já traz descrição, requisitos, salário, benefícios, `expired` e `expiresAt`. `registrar` grava (e atualiza no conflito) esses campos, já sanitizados, e `detalhada_em`. Vaga de outro provider não apaga o que já está gravado.
+- **Sob demanda (reserva)**: só quando `detalhada_em` é nulo. `GET /tela` e o clique no card NUNCA chamam o provider: o detalhe sai na hora com "Carregando a descrição…" e a seção pede `GET /tela/vagas/secoes?url=` (`hx-trigger="load"`), que busca `GET https://api.remotar.com.br/jobs/{id}` (timeout 5 s), grava e troca as seções. Falha vira aviso no lugar das seções, nunca 500; 404/410 grava `expirada_em`.
+- **Só o id certo chega ao provider**: a URL da vaga tem que ser exatamente `https://remotar.com.br/job/{dígitos}` e a plataforma `Remotar`; outro host, caminho, query ou fragmento nunca chamam o provider.
+- **Texto puro**: tudo passa por `src/client/sanitizar.py` (`html.parser` da stdlib): tags somem (`<script>`/`<style>` com o conteúdo), `<a>` fica só com o texto, parágrafos e `<br>` viram quebra de linha, `<li>` vira "• ", até 20 mil caracteres. A tela imprime com autoescape e `white-space: pre-line`, sem `|safe`. Campo de resposta com forma errada descarta só o campo; qualquer erro de parsing vira `ErroProvider`.
+- **Salário** em centavos (confirmado em 2026-10-12 na página pública da vaga 164153: 900000 a 1300000 aparece como "R$ 9,000.00 a R$ 13,000.00"). `from`/`to` nulo ou 0 e `type: "uninformed"` = não informado; só um lado positivo vira "a partir de" ou "até".
+- **Expiração (só Remotar)**: `expirada_em` = `expiresAt` (mesmo futuro) ou, com `expired: true`, agora. A vaga some de `listar`, `contar` e `listar_recentes` quando `expirada_em <= now()` (`expirada_em IS NULL OR expirada_em > now()`), sem nova coleta. `obter(url)` ainda a acha e o link direto mostra "Vaga expirada" (só quando já venceu); candidaturas continuam visíveis. Quem já expirou não ressuscita com um prazo novo nem com "sem prazo"; o prazo futuro pode mudar ou ser removido na coleta seguinte: com `expires: false` (e sem `expiresAt` nem `expired: true`) o prazo futuro gravado antes é apagado e a vaga segue no ar. Campo ausente ou torto mantém a data que estava.
 
 ## Testes
 
