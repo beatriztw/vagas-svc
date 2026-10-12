@@ -15,14 +15,19 @@ from src.model.curriculo import Curriculo
 from src.model.erros import DadoInvalido
 from src.model.perfil import Perfil
 from src.model.vaga import Modalidade, Nivel
+from src.model.vaga_encontrada import VagaEncontrada
 from src.model.vaga_externa import VagaExterna
 from src.repository.base import (
+    MAX_LIMITE_VAGAS,
     MAX_PUBLICADA_DESDE_DIAS,
     CurriculoRepository,
     PerfilBuscaRepository,
+    VagaEncontradaRepository,
+    VagaEncontradaRepositoryMemoria,
     validar_perfil,
 )
 from src.service.busca_service import BuscaService
+from src.service.coleta_service import ColetaService
 from src.service.recomendacao_service import RecomendacaoService
 
 
@@ -98,15 +103,63 @@ class ResultadoJson(BaseModel):
     erros: dict[str, str]
 
 
+class VagaEncontradaJson(BaseModel):
+    url: str
+    titulo: str
+    empresa: str
+    plataforma: str
+    local: str | None
+    remoto: bool | None
+    publicada_em: date | None
+    termos: list[str]
+    primeira_vez_em: datetime | None
+    ultima_vez_em: datetime | None
+    vista_em: datetime | None
+
+    @classmethod
+    def de(cls, vaga: VagaEncontrada) -> "VagaEncontradaJson":
+        return cls(**vars(vaga))
+
+
+class ColetaDoTermoJson(BaseModel):
+    termo: str
+    encontradas: int
+    novas: int
+    erros: dict[str, str]
+
+
+class ResultadoColetaJson(BaseModel):
+    termos: list[ColetaDoTermoJson]
+    novas: int
+
+
+# Teto do corpo de POST /vagas/vistas: uma página de GET /vagas/encontradas por vez.
+MAX_URLS_VISTAS = MAX_LIMITE_VAGAS
+
+
+class VagasVistas(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    urls: list[str] = Field(max_length=MAX_URLS_VISTAS)
+
+
+class VistasJson(BaseModel):
+    marcadas: int
+
+
 def criar_app(
     perfis: PerfilBuscaRepository,
     curriculos: CurriculoRepository,
     busca: BuscaService,
     armazenamento: Armazenamento | None = None,
+    encontradas: VagaEncontradaRepository | None = None,
 ) -> FastAPI:
+    """Sem `encontradas`, o histórico da coleta fica em memória (testes); a produção passa o do Postgres."""
     app = FastAPI(title="vagas-svc")
     app.state.armazenamento = armazenamento
     recomendacao = RecomendacaoService(busca)
+    encontradas = encontradas if encontradas is not None else VagaEncontradaRepositoryMemoria()
+    coleta = ColetaService(recomendacao, perfis, encontradas)
 
     @app.exception_handler(DadoInvalido)
     def valor_invalido(_: Request, erro: DadoInvalido) -> JSONResponse:
@@ -172,6 +225,24 @@ def criar_app(
     def buscar_vagas(termo: str = Query(min_length=1)) -> ResultadoJson:
         resultado = recomendacao.recomendar(termo, perfis.obter())
         return ResultadoJson(vagas=[VagaJson.de(v) for v in resultado.vagas], erros=resultado.erros)
+
+    @app.post("/coletas")
+    def coletar() -> ResultadoColetaJson:
+        # Sem perfil ou sem termos: DadoInvalido do serviço, 422.
+        resultado = coleta.coletar()
+        return ResultadoColetaJson(
+            termos=[ColetaDoTermoJson(**vars(t)) for t in resultado.termos], novas=resultado.novas
+        )
+
+    @app.get("/vagas/encontradas")
+    def listar_encontradas(
+        novas: bool = True, limite: int = Query(default=50, ge=1, le=MAX_LIMITE_VAGAS)
+    ) -> list[VagaEncontradaJson]:
+        return [VagaEncontradaJson.de(v) for v in encontradas.listar(somente_novas=novas, limite=limite)]
+
+    @app.post("/vagas/vistas")
+    def marcar_vistas(corpo: VagasVistas) -> VistasJson:
+        return VistasJson(marcadas=encontradas.marcar_vistas(corpo.urls))
 
     return app
 
@@ -275,6 +346,12 @@ def _curriculos_postgres() -> type:
     return CurriculoRepositoryPostgres
 
 
+def _encontradas_postgres() -> type:
+    from src.repository.postgres import VagaEncontradaRepositoryPostgres
+
+    return VagaEncontradaRepositoryPostgres
+
+
 def criar_app_producao() -> FastAPI:
     pool = _PoolPreguicoso()
     return criar_app(
@@ -282,6 +359,7 @@ def criar_app_producao() -> FastAPI:
         curriculos=_PorChamada(pool, _curriculos_postgres),
         busca=BuscaService(providers_padrao()),
         armazenamento=Armazenamento(),
+        encontradas=_PorChamada(pool, _encontradas_postgres),
     )
 
 
