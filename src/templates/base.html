@@ -3,10 +3,11 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="htmx-config" content='{"includeIndicatorStyles":false}'>
+<meta name="htmx-config" content='{"includeIndicatorStyles":false,"allowEval":false,"responseHandling":[{"code":"204","swap":false},{"code":"[23]..","swap":true},{"code":"404","swap":true,"error":false},{"code":"422","swap":true,"error":false},{"code":"[45]..","swap":false,"error":true}]}'>
 <title>{% block titulo %}vagas-svc{% endblock %}</title>
 <link rel="stylesheet" href="/static/tela.css">
 <script src="/static/htmx.min.js" defer></script>
+<script src="/static/tela.js" defer></script>
 </head>
 <body>
 <header class="topo">
@@ -20,6 +21,7 @@
     <button type="button" class="botao" disabled title="em breve">Meu perfil</button>
   </div>
 </header>
+<div id="aviso" class="erro" role="alert" hidden></div>
 <main class="pagina">
 {% block conteudo %}{% endblock %}
 </main>

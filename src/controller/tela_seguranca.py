@@ -46,6 +46,9 @@ def caminho_da_tela(caminho: str) -> bool:
 
 
 def eh_htmx(request: Request) -> bool:
+    # Restaurar o histórico do navegador (voltar) pede a página inteira, mesmo com HX-Request.
+    if request.headers.get("HX-History-Restore-Request", "").lower() == "true":
+        return False
     return request.headers.get("HX-Request", "").lower() == "true"
 
 
