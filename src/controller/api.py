@@ -26,6 +26,7 @@ from src.repository.base import (
     VagaEncontradaRepositoryMemoria,
     validar_perfil,
 )
+from src.repository.trava import ColetaEmAndamento, TravaColeta, TravaColetaPostgres
 from src.service.busca_service import BuscaService
 from src.service.coleta_service import ColetaService
 from src.service.recomendacao_service import RecomendacaoService
@@ -153,19 +154,25 @@ def criar_app(
     busca: BuscaService,
     armazenamento: Armazenamento | None = None,
     encontradas: VagaEncontradaRepository | None = None,
+    trava: TravaColeta | None = None,
 ) -> FastAPI:
     """Sem `encontradas`, o histórico da coleta fica em memória (testes); a produção passa o do Postgres."""
     app = FastAPI(title="vagas-svc")
     app.state.armazenamento = armazenamento
     recomendacao = RecomendacaoService(busca)
     encontradas = encontradas if encontradas is not None else VagaEncontradaRepositoryMemoria()
-    coleta = ColetaService(recomendacao, perfis, encontradas)
+    coleta = ColetaService(recomendacao, perfis, encontradas, trava)
 
     @app.exception_handler(DadoInvalido)
     def valor_invalido(_: Request, erro: DadoInvalido) -> JSONResponse:
         # Só a validação do domínio vira 422; um ValueError qualquer (PGPORT inválido, dado
         # inesperado do banco) é falha do servidor e sai como 500.
         return JSONResponse(status_code=422, content={"detail": str(erro)})
+
+    @app.exception_handler(ColetaEmAndamento)
+    def coleta_em_andamento(_: Request, erro: ColetaEmAndamento) -> JSONResponse:
+        # Conflito, não validação nem falha: quem chamou tenta de novo quando a outra terminar.
+        return JSONResponse(status_code=409, content={"detail": str(erro)})
 
     @app.get("/saude")
     def saude() -> dict[str, bool]:
@@ -228,7 +235,7 @@ def criar_app(
 
     @app.post("/coletas")
     def coletar() -> ResultadoColetaJson:
-        # Sem perfil ou sem termos: DadoInvalido do serviço, 422.
+        # Sem perfil ou sem termos: DadoInvalido do serviço, 422; outra coleta rodando: 409.
         resultado = coleta.coletar()
         return ResultadoColetaJson(
             termos=[ColetaDoTermoJson(**vars(t)) for t in resultado.termos], novas=resultado.novas
@@ -360,6 +367,7 @@ def criar_app_producao() -> FastAPI:
         busca=BuscaService(providers_padrao()),
         armazenamento=Armazenamento(),
         encontradas=_PorChamada(pool, _encontradas_postgres),
+        trava=TravaColetaPostgres(),
     )
 
 
