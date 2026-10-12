@@ -11,7 +11,7 @@ cabeçalho, rodapé, ícone nem cor. Entende o markdown do prompt `curriculo-v2`
     - tópico                    -> tópico com hífen e recuo
     qualquer outra linha        -> parágrafo
 
-Ênfase (`**x**`, `*x*`, `` `x` ``) e links (`[texto](url)`) viram texto puro. A fonte padrão do PDF só
+Ênfase (`**x**`, `*x*`, `` `x` ``) vira texto puro e o link `[texto](url)` vira `texto (url)`. A fonte padrão do PDF só
 tem Latin-1, que cobre o português; travessão, aspas curvas, marcador e reticências viram equivalentes
 ASCII, e o que sobrar fora do Latin-1 vira "?".
 """
@@ -41,7 +41,7 @@ _TROCAS = str.maketrans(
         "\u200b": "",
     }
 )
-_LINK = re.compile(r"\[([^\]]*)\]\([^)]*\)")
+_LINK = re.compile(r"\[([^\]]*)\]\(([^)]*)\)")
 _ENFASE = re.compile(r"(\*\*|__|\*|`)")
 _TOPICO = re.compile(r"^\s*[-*+•]\s+")
 
@@ -54,9 +54,18 @@ def _latin1(texto: str) -> str:
     return texto.encode("latin-1", errors="replace").decode("latin-1")
 
 
+def _link(achado: re.Match) -> str:
+    """`[texto](url)` vira `texto (url)`: o PDF não tem link clicável, e o recrutador e o ATS
+    precisam do endereço. `mailto:`/`tel:` saem; texto igual à URL não se repete."""
+    texto, url = achado.group(1).strip(), re.sub(r"^(mailto|tel):", "", achado.group(2).strip(), flags=re.IGNORECASE)
+    if not url or texto == url or texto == achado.group(2).strip():
+        return texto or url
+    return f"{texto} ({url})" if texto else url
+
+
 def _limpar(linha: str) -> str:
     """Tira a marcação inline: o ATS lê o texto, não a ênfase."""
-    return _latin1(_ENFASE.sub("", _LINK.sub(r"\1", linha))).strip()
+    return _latin1(_ENFASE.sub("", _LINK.sub(_link, linha))).strip()
 
 
 def _blocos(conteudo_md: str) -> list[tuple[str, str]]:

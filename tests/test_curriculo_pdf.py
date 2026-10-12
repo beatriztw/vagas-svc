@@ -48,9 +48,19 @@ class BlocosTest(unittest.TestCase):
         textos = dict(enumerate(t for _, t in _blocos(MD)))
         self.assertEqual(textos[3], 'Analista fiscal com 5 anos em apuração de ICMS - e "conciliação".')
         self.assertEqual(textos[5], "Analista Fiscal Pleno - Empresa Fictícia")
-        self.assertEqual(textos[8], "Conciliei contas no SAP")
+        self.assertEqual(textos[8], "Conciliei contas no SAP (https://example.com)")
         self.assertEqual(textos[10], "SQL, Excel, Power BI, SPED")
         self.assertTrue(textos[7].endswith("filiais..."))
+
+    def test_link_guarda_a_url_sem_mailto_e_sem_repetir(self):
+        linha = (
+            "[LinkedIn](https://linkedin.com/in/fulana) | [fulana@example.com](mailto:fulana@example.com)"
+            " | [https://site.example](https://site.example) | [](https://vazio.example)"
+        )
+        self.assertEqual(
+            _blocos("# Nome\n" + linha)[1][1],
+            "LinkedIn (https://linkedin.com/in/fulana) | fulana@example.com | https://site.example | https://vazio.example",
+        )
 
     def test_fora_do_latin1_vira_interrogacao_sem_quebrar(self):
         self.assertEqual(_blocos("# Nome\n\nPython 🐍 e 中文")[1][1], "Python ? e ??")
