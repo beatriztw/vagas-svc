@@ -314,6 +314,19 @@ class ApiCandidaturaTest(unittest.TestCase):
             with self.subTest(corpo=corpo):
                 self.assertEqual(self.api.post("/candidaturas", json=corpo).status_code, 422)
 
+    def test_post_sem_content_type_json_e_415_e_nao_grava(self):
+        # Blob sem tipo (fetch no-cors de outro site) não manda Content-Type.
+        corpo = '{"vaga_url": "%s"}' % URL_A
+        for cabecalhos in ({}, {"Content-Type": "text/plain"}, {"Content-Type": "application/x-www-form-urlencoded"}):
+            with self.subTest(cabecalhos=cabecalhos):
+                resposta = self.api.post("/candidaturas", content=corpo, headers=cabecalhos)
+                self.assertEqual(resposta.status_code, 415)
+        self.assertEqual(self.api.get("/candidaturas").json(), [])
+        ok = self.api.post(
+            "/candidaturas", content=corpo, headers={"Content-Type": "application/json; charset=utf-8"}
+        )
+        self.assertEqual(ok.status_code, 201)
+
     def test_get_lista_mais_recentes_primeiro(self):
         self.api.post("/candidaturas", json={"vaga_url": URL_A})
         self.api.post("/candidaturas", json={"vaga_url": URL_B})
