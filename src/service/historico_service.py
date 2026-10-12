@@ -124,12 +124,15 @@ class HistoricoService:
         vagas: VagaEncontradaRepository,
         perfis: PerfilBuscaRepository,
         candidatadas: Callable[[], Iterable] | None = None,
+        agora: Callable[[], datetime] = lambda: datetime.now(timezone.utc),
     ):
         # `candidatadas` devolve as candidaturas (com `vaga_url`, `titulo` e `empresa`), lidas a cada
         # leitura; sem ele, `ocultar_candidatadas` não tem o que esconder.
         self.vagas = vagas
         self.perfis = perfis
         self.candidatadas = candidatadas
+        # Relógio da foto do instante (quando `ate` não vem): injetável para teste com relógio fixo.
+        self.agora = agora
 
     def _sem_candidatadas(self, vagas: list[VagaEncontrada], perfil: Perfil) -> list[VagaEncontrada]:
         """Com `ocultar_candidatadas`, tira as vagas em que a pessoa aplicou E os outros anúncios do mesmo
@@ -153,7 +156,7 @@ class HistoricoService:
         """Sem `ate` (primeira página) a foto é tirada agora; com `ate` (as seguintes), a mesma da primeira."""
         limite = validar_limite(limite)
         deslocamento = validar_deslocamento(deslocamento)
-        ate = validar_ate(ate) or datetime.now(timezone.utc)
+        ate = validar_ate(ate) or validar_ate(self.agora())
         # Um perfil lido uma vez por leitura: a página e o total saem do mesmo perfil.
         perfil = self.perfis.obter()
         janela = self.vagas.listar_recentes(

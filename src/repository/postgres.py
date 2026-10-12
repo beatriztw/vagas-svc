@@ -218,6 +218,7 @@ class VagaEncontradaRepositoryPostgres(VagaEncontradaRepository):
         else:
             # Foto do instante: o que já existia em `ate` e, em Novas, ainda não visto em `ate`.
             filtro, params = "WHERE primeira_vez_em <= %s ", (ate,)
+            # TODO (merge com a frente C): aqui entra `AND (expirada_em IS NULL OR expirada_em > %s)` com `ate`.
             if somente_novas:
                 filtro += "AND (vista_em IS NULL OR vista_em > %s) "
                 params += (ate,)

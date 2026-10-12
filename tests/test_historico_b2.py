@@ -343,6 +343,18 @@ class ContratoFoto:
         self.assertEqual(self.servico.pagina(False, 10, hoje=HOJE, ate=pagina.ate).ate, pagina.ate)
 
 
+    def test_a_foto_sem_ate_usa_o_relogio_injetado(self):
+        registrar_um_a_um(self.repo, self.distintas(2, "a"))
+        futuro = self.agora() + timedelta(days=30)
+        passado = self.agora() - timedelta(days=30)
+
+        com_futuro = HistoricoService(self.repo, self.perfis, agora=lambda: futuro).pagina(False, 10, hoje=HOJE)
+        com_passado = HistoricoService(self.repo, self.perfis, agora=lambda: passado).pagina(False, 10, hoje=HOJE)
+
+        self.assertEqual((com_futuro.ate, len(com_futuro.vagas)), (futuro, 2))
+        self.assertEqual((com_passado.ate, com_passado.vagas), (passado, []), "relógio fixo antes da coleta: nada entra")
+
+
 class FotoMemoriaTest(ContratoFoto, unittest.TestCase):
     def criar(self):
         self.repo = VagaEncontradaRepositoryMemoria()
