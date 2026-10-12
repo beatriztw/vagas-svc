@@ -162,6 +162,36 @@ class MudarStatusTest(unittest.TestCase):
         self.assertEqual(resposta.status_code, 404)
         self.assertIn("Candidatura não encontrada", resposta.text)
 
+    def test_404_vai_para_o_aviso_e_nao_troca_a_linha(self):
+        for resposta in (
+            self.api.patch("/tela/candidaturas/999", data={"status": "oferta"}, headers=HX),
+            self.api.delete("/tela/candidaturas/999", headers=HX),
+        ):
+            with self.subTest(metodo=resposta.request.method):
+                self.assertEqual(resposta.status_code, 404)
+                self.assertEqual(resposta.headers["HX-Retarget"], "#aviso")
+                self.assertEqual(resposta.headers["HX-Reswap"], "outerHTML")
+                self.assertIn('id="aviso"', resposta.text)
+                self.assertNotIn("<tr", resposta.text)
+
+    def test_id_nao_numerico_e_422_html_no_aviso(self):
+        for id in ("abc", "1.5", "-1", "%C2%B2"):
+            for resposta in (
+                self.api.patch(f"/tela/candidaturas/{id}", data={"status": "oferta"}, headers=HX),
+                self.api.delete(f"/tela/candidaturas/{id}", headers=HX),
+            ):
+                with self.subTest(id=id, metodo=resposta.request.method):
+                    self.assertEqual(resposta.status_code, 422)
+                    self.assertIn("text/html", resposta.headers["content-type"])
+                    self.assertEqual(resposta.headers["HX-Retarget"], "#aviso")
+                    self.assertIn('id="aviso"', resposta.text)
+        self.assertEqual(self.servico.contar(), 1)
+
+    def test_422_de_status_tambem_vai_para_o_aviso(self):
+        resposta = self.api.patch(f"/tela/candidaturas/{self.c.id}", data={"status": "x"}, headers=HX)
+
+        self.assertEqual((resposta.status_code, resposta.headers["HX-Retarget"]), (422, "#aviso"))
+
     def test_mutacao_sem_hx_request_ou_com_origem_de_outro_host_e_403(self):
         casos = {
             "sem HX-Request": {"Origin": "http://testserver"},
@@ -207,6 +237,13 @@ class DesfazerTest(unittest.TestCase):
 
 
 class FiacaoTest(unittest.TestCase):
+    def test_router_da_tela_recebe_o_servico_explicito(self):
+        import inspect
+
+        from src.controller.tela import criar_router_tela
+
+        self.assertIn("candidaturas", inspect.signature(criar_router_tela).parameters)
+
     def test_json_e_tela_usam_o_mesmo_servico(self):
         api, servico = cliente()
         api.post("/candidaturas", json={"vaga_url": URL_A})

@@ -8,6 +8,7 @@ from src.controller.tela_candidaturas import contexto_aplicadas
 from src.controller.tela_seguranca import PREFIXO_TELA, eh_htmx, templates
 from src.model.erros import DadoInvalido
 from src.repository.base import MAX_DESLOCAMENTO_VAGAS, MAX_TAMANHO_BUSCA, VagaEncontradaRepository, validar_deslocamento
+from src.service.candidatura_service import CandidaturaService
 
 # D11: 50 por vez; o resto vem pelo "carregar mais".
 TAMANHO_PAGINA = 50
@@ -30,8 +31,8 @@ def _busca(q: str | None) -> str | None:
     return q
 
 
-def criar_router_tela(encontradas: VagaEncontradaRepository) -> APIRouter:
-    """Recebe os repositories que `criar_app` já tem (na produção, os `_PorChamada`)."""
+def criar_router_tela(encontradas: VagaEncontradaRepository, candidaturas: CandidaturaService) -> APIRouter:
+    """Recebe os repositories e o serviço que `criar_app` já tem (na produção, os `_PorChamada`)."""
     router = APIRouter(prefix=PREFIXO_TELA, include_in_schema=False)
 
     def obter(url: str | None):
@@ -59,7 +60,7 @@ def criar_router_tela(encontradas: VagaEncontradaRepository) -> APIRouter:
             vaga = contexto["vagas"][0]
         contexto.update(selecionada=vaga, nao_encontrada=nao_encontrada)
         # "Vagas aplicadas" entra na página inteira com o mesmo contexto das rotas de /tela/candidaturas.
-        contexto.update(contexto_aplicadas(request.app.state.candidaturas))
+        contexto.update(contexto_aplicadas(candidaturas))
         # 404 também na página inteira: o recurso pedido não existe, e o aviso aparece no detalhe
         # junto com a lista (o link de um favorito antigo continua útil).
         return templates.TemplateResponse(
