@@ -80,7 +80,7 @@ class ColetaService:
         """Uma coleta por vez: com outra em andamento levanta `ColetaEmAndamento` sem esperar."""
         with self.trava.segurar():
             resultado = self._coletar(hoje)
-        if self.ao_terminar is not None:
+        if self.ao_terminar is not None and not resultado.falhou:
             try:
                 self.ao_terminar(resultado)
             except Exception as e:  # noqa: BLE001 - o pós-coleta nunca derruba a coleta
