@@ -76,6 +76,9 @@ class BlocosTest(unittest.TestCase):
             "- **[Portfólio](https://x.dev)**": "Portfólio (https://x.dev)",
             "- **GitHub: https://github.com/f**": "GitHub: https://github.com/f",
             "- _veja https://a.dev/x_y_": "veja https://a.dev/x_y",
+            "- **GitHub: https://github.com/f**.": "GitHub: https://github.com/f.",
+            "- (*site: https://a.dev*), ok": "(site: https://a.dev), ok",
+            "- https://a.dev/fim.": "https://a.dev/fim.",
             "- `a\x00b` e \x000\x00": "ab e 0",
         }
         for md, esperado in casos.items():

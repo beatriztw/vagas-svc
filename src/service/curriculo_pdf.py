@@ -96,7 +96,8 @@ def _limpar(linha: str) -> str:
             trechos.append(_LINK.sub(_link, achado.group("link")))
             return f"\x00{len(trechos) - 1}\x00"
         url = achado.group("url")
-        sobra = re.search(r"[*_]+$", url)
+        # O `*`/`_` de fechamento colado na URL, mesmo com pontuação depois (`url**.`, `url_),`).
+        sobra = re.search(r"[*_]+[.,;:!?)\]]*$", url)
         fecho = sobra.group(0) if sobra else ""
         trechos.append(url[: len(url) - len(fecho)])
         return f"\x00{len(trechos) - 1}\x00{fecho}"
