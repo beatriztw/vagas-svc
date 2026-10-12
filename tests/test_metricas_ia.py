@@ -97,6 +97,12 @@ class FuncoesPurasTest(unittest.TestCase):
         self.assertEqual(m.versao_mais_recente(ps), "compatibilidade-v10")
         self.assertIsNone(m.versao_mais_recente([]))
 
+    def test_versao_com_digitos_demais_e_ignorada_sem_estourar(self):
+        # int() recusa string com mais de 4300 dígitos; a versão gigante nem entra na conta.
+        gigante = "compatibilidade-v" + "9" * 5000
+        ps = [pronto(1, "a", 50, gigante), pronto(2, "a", 50, "compatibilidade-v2")]
+        self.assertEqual(m.versao_mais_recente(ps), "compatibilidade-v2")
+
 
 class RotaMetricasTest(unittest.TestCase):
     def setUp(self):
@@ -135,7 +141,7 @@ class RotaMetricasTest(unittest.TestCase):
         self.assertEqual(self.client.get("/ia/metricas", params={"prompt_versao": V1}).json()["prompt_versao"], V1)
 
     def test_versao_invalida_e_422(self):
-        for ruim in ("curriculo-v1", "compatibilidade-v", "compatibilidade-v1x", "", "x"):
+        for ruim in ("curriculo-v1", "compatibilidade-v", "compatibilidade-v1x", "", "x", "compatibilidade-v" + "9" * 7):
             self.assertEqual(
                 self.client.get("/ia/metricas", params={"prompt_versao": ruim}).status_code, 422, ruim
             )

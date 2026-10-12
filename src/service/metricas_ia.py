@@ -11,7 +11,8 @@ from collections.abc import Mapping, Sequence
 from src.model.pedido_ia import PedidoIA
 
 FAIXAS = ("baixa", "média", "alta")
-PADRAO_VERSAO = re.compile(r"^compatibilidade-v([0-9]+)$")
+# Até 6 dígitos, como o PUT do worker aceita: o int() da versão nunca estoura.
+PADRAO_VERSAO = re.compile(r"^compatibilidade-v([0-9]{1,6})$")
 CASAS = 4
 
 
