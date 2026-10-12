@@ -2,7 +2,12 @@
 
 import unittest
 
-from src.service.curriculo_pdf import _blocos, gerar_pdf, nome_do_arquivo
+from src.service.curriculo_pdf import (
+    _blocos,
+    gerar_pdf,
+    nome_do_arquivo,
+    nome_utf8_do_arquivo,
+)
 
 MD = """# Fulana de Tal
 São Paulo, SP | fulana@example.com | (11) 90000-0000
@@ -96,6 +101,14 @@ class GerarPdfTest(unittest.TestCase):
 
 
 class NomeDoArquivoTest(unittest.TestCase):
+    def test_nome_utf8_guarda_os_acentos_sem_controle_nem_barra(self):
+        self.assertEqual(
+            nome_utf8_do_arquivo("Analista Fiscal Pl - Albiéri & Associados"),
+            "Curriculo - Analista Fiscal Pl - Albiéri & Associados.pdf",
+        )
+        self.assertEqual(nome_utf8_do_arquivo('a\r\nb/c\\d"e\x00f'), "Curriculo - a b c d e f.pdf")
+        self.assertEqual(nome_utf8_do_arquivo(" \n "), "Curriculo.pdf")
+
     def test_ascii_seguro(self):
         self.assertEqual(
             nome_do_arquivo("Analista Fiscal Pl - Albiéri & Associados"), "Curriculo - Analista Fiscal Pl - Albieri Associados.pdf"

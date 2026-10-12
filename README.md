@@ -195,7 +195,7 @@ As rotas `/pedidos-ia/*` não aparecem no `/docs`. Respondem com `Cache-Control:
 
 ### Currículo em PDF (ATS)
 
-`GET /tela/vagas/ia/{id}/curriculo.pdf` gera o PDF do currículo adaptado na hora, a partir do `conteudo_md` (`src/service/curriculo_pdf.py`, `fpdf2`). O layout é o que os ATS leem sem errar: A4, uma coluna, Helvetica, texto selecionável (nada de imagem), nome no topo, contato na linha de baixo, seções em maiúsculas com uma linha fina, cargo em negrito e tópicos com hífen; sem tabela, cabeçalho, rodapé, ícone nem cor. Ênfase e links do markdown viram texto puro; a fonte padrão do PDF só tem Latin-1 (cobre o português), e travessão, aspas curvas e marcador viram equivalentes ASCII. O nome do arquivo é `Curriculo - <título>.pdf` em ASCII (`filename*` leva o título em UTF-8). O `.md` continua disponível.
+`GET /tela/vagas/ia/{id}/curriculo.pdf` gera o PDF do currículo adaptado na hora, a partir do `conteudo_md` (`src/service/curriculo_pdf.py`, `fpdf2`). O layout é o que os ATS leem sem errar: A4, uma coluna, Helvetica, texto selecionável (nada de imagem), nome no topo, contato na linha de baixo, seções em maiúsculas com uma linha fina, cargo em negrito e tópicos com hífen; sem tabela, cabeçalho, rodapé, ícone nem cor. Ênfase e links do markdown viram texto puro; a fonte padrão do PDF só tem Latin-1 (cobre o português), e travessão, aspas curvas e marcador viram equivalentes ASCII. O nome do arquivo é `Curriculo - <título>.pdf` em ASCII (o `filename*` leva o título com acentos, em UTF-8, sem caractere de controle nem barra). O `.md` continua disponível.
 
 ### Pedido preso
 

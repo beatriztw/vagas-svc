@@ -9,7 +9,7 @@ from src.controller.tela_seguranca import PREFIXO_TELA, eh_htmx, exigir_mutacao_
 from src.model.erros import DadoInvalido
 from src.model.pedido_ia import EstadoPedidoIA, PedidoIA, TipoPedidoIA
 from src.repository.pedido_ia import id_possivel
-from src.service.curriculo_pdf import gerar_pdf, nome_do_arquivo
+from src.service.curriculo_pdf import gerar_pdf, nome_do_arquivo, nome_utf8_do_arquivo
 from src.service.pedido_ia_service import MAX_URL, PedidoIAService
 
 # Código do htmx que troca o conteúdo e PARA o polling.
@@ -87,16 +87,16 @@ def criar_router_tela_ia(servico: PedidoIAService) -> APIRouter:
 
     @router.get("/{id}/curriculo.pdf")
     def baixar_pdf(id: str):
-        p, adaptado = adaptado_do(id)
+        _, adaptado = adaptado_do(id)
         if adaptado is None:
             return nao_encontrado()
-        nome = nome_do_arquivo(adaptado.titulo)
+        nome, nome_utf8 = nome_do_arquivo(adaptado.titulo), nome_utf8_do_arquivo(adaptado.titulo)
         return Response(
             gerar_pdf(adaptado.conteudo_md, adaptado.titulo),
             media_type="application/pdf",
             headers={
                 # `filename` em ASCII para qualquer navegador; `filename*` com o título acentuado (RFC 6266).
-                "Content-Disposition": f"attachment; filename=\"{nome}\"; filename*=UTF-8''{quote(nome)}",
+                "Content-Disposition": f"attachment; filename=\"{nome}\"; filename*=UTF-8''{quote(nome_utf8, safe='')}",
                 **SEM_CACHE,
             },
         )

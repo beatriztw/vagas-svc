@@ -126,6 +126,14 @@ def gerar_pdf(conteudo_md: str, titulo: str) -> bytes:
     return bytes(pdf.output())
 
 
+def nome_utf8_do_arquivo(titulo: str) -> str:
+    """`Curriculo - <titulo>.pdf` com os acentos, para o `filename*` (RFC 6266). Sem caractere de
+    controle (quebra de linha viraria outro cabeçalho) nem barra (o navegador trataria como pasta)."""
+    base = "".join(" " if unicodedata.category(c).startswith("C") or c in '/\\"' else c for c in titulo)
+    base = re.sub(r"\s+", " ", unicodedata.normalize("NFC", base)).strip(" .")[:80].strip()
+    return f"Curriculo - {base}.pdf" if base else "Curriculo.pdf"
+
+
 def nome_do_arquivo(titulo: str) -> str:
     """`Curriculo - <titulo>.pdf` só com ASCII seguro para o Content-Disposition."""
     base = unicodedata.normalize("NFKD", titulo).encode("ascii", "ignore").decode("ascii")

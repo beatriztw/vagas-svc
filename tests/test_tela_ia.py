@@ -220,11 +220,11 @@ class AcompanharTest(unittest.TestCase):
 
 
 class CurriculoTest(unittest.TestCase):
-    def pronto(self, api, servico, curriculos, base):
+    def pronto(self, api, servico, curriculos, base, titulo="Analista - Empresa Teste"):
         id = id_do(pedir(api, "curriculo"))
         pedido = servico.proximo()
         adaptado = curriculos.salvar(
-            Curriculo(tipo="adaptado", titulo="Analista - Empresa Teste", conteudo_md="# Adaptado\nTexto", base_id=base.id, vaga_url=URL)
+            Curriculo(tipo="adaptado", titulo=titulo, conteudo_md="# Adaptado\nTexto", base_id=base.id, vaga_url=URL)
         )
         resultado = {"curriculo_id": adaptado.id, "titulo": adaptado.titulo, "o_que_mudou": ["Reordenei <i>SQL</i>"], "lacunas": ["Airflow"]}
         servico.concluir(pedido["id"], pedido["tentativa"], resultado, "curriculo-v1", "m")
@@ -279,6 +279,19 @@ class CurriculoTest(unittest.TestCase):
         texto = PdfReader(io.BytesIO(resposta.content)).pages[0].extract_text()
         self.assertIn("Adaptado", texto)
         self.assertIn("Texto", texto)
+
+    def test_pdf_com_titulo_acentuado_leva_o_acento_no_filename_estrela(self):
+        from urllib.parse import unquote
+
+        api, servico, curriculos, base = montar()
+        id = self.pronto(api, servico, curriculos, base, titulo="Analista Fiscal Pl - Albiéri & Associados")
+
+        cabecalho = api.get(f"/tela/vagas/ia/{id}/curriculo.pdf").headers["content-disposition"]
+
+        ascii_, utf8 = cabecalho.split("; filename*=UTF-8''")
+        self.assertEqual(ascii_, 'attachment; filename="Curriculo - Analista Fiscal Pl - Albieri Associados.pdf"')
+        self.assertEqual(unquote(utf8), "Curriculo - Analista Fiscal Pl - Albiéri & Associados.pdf")
+        self.assertNotIn("&", utf8)  # tudo fora do conjunto seguro vai codificado
 
     def test_download_e_404_para_compatibilidade_pendente_e_inexistente(self):
         api, servico, *_ = montar()
