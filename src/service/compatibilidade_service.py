@@ -220,19 +220,20 @@ def compatibilidade(
 def requisitos_da_vaga(vaga) -> list[tuple[str, bool]] | None:
     """Requisitos guardados na vaga como (texto, obrigatório), ou None se ela não tem.
 
-    A frente do detalhe (migration 004) guarda `requisitos` como lista de objetos do Remotar
-    (`{"description": ..., "mandatory": ...}`); aceita também pares. Enquanto a vaga não tem o
-    atributo, devolve None e a compatibilidade sai parcial.
+    A frente do detalhe guarda `vaga.requisitos` como lista de objetos com `.texto` (str) e
+    `.obrigatorio` (bool); aqui é duck typing, sem importar o tipo. Item sem esses atributos ou
+    com tipo errado é descartado. Sem o atributo, ou sem item válido, devolve None e a
+    compatibilidade sai parcial.
     """
     brutos = getattr(vaga, "requisitos", None)
     if not isinstance(brutos, (list, tuple)):
         return None
     saida = []
     for item in brutos:
-        if isinstance(item, dict):
-            saida.append((item.get("description"), bool(item.get("mandatory"))))
-        else:
-            saida.append(item)
+        texto = getattr(item, "texto", None)
+        obrigatorio = getattr(item, "obrigatorio", None)
+        if isinstance(texto, str) and isinstance(obrigatorio, bool):
+            saida.append((texto, obrigatorio))
     return saida or None
 
 

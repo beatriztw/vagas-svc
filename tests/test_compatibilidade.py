@@ -192,9 +192,27 @@ class ListasETest(unittest.TestCase):
 
 
 class RequisitosDaVagaTest(unittest.TestCase):
-    def test_formato_do_remotar_e_pares(self):
-        v = SimpleNamespace(titulo="Analista", requisitos=[{"description": "SQL", "mandatory": True}, ("Go", False)])
+    def test_objetos_com_texto_e_obrigatorio(self):
+        # Objeto simples escrito à mão: imita o `Requisito` da frente do detalhe, que não existe aqui.
+        Req = SimpleNamespace
+        v = SimpleNamespace(titulo="Analista", requisitos=[Req(texto="SQL", obrigatorio=True), Req(texto="Go", obrigatorio=False)])
         self.assertEqual(requisitos_da_vaga(v), [("SQL", True), ("Go", False)])
+
+    def test_item_sem_atributos_ou_com_tipo_errado_e_descartado(self):
+        Req = SimpleNamespace
+        v = SimpleNamespace(requisitos=[
+            Req(texto="SQL", obrigatorio=True), Req(texto="Go"), Req(obrigatorio=True), Req(texto=1, obrigatorio=True),
+            Req(texto="Rust", obrigatorio="sim"), {"texto": "X", "obrigatorio": True}, ("Y", True), None,
+        ])
+        self.assertEqual(requisitos_da_vaga(v), [("SQL", True)])
+        self.assertIsNone(requisitos_da_vaga(SimpleNamespace(requisitos=[{"description": "SQL", "mandatory": True}])))
+
+    def test_compatibilidade_da_vaga_usa_os_requisitos(self):
+        Req = SimpleNamespace
+        v = SimpleNamespace(titulo="x", requisitos=[Req(texto="SQL", obrigatorio=True), Req(texto="Go", obrigatorio=True)])
+        r = compatibilidade_da_vaga(v, perfil(termos=[], niveis=[], skills=["SQL"]))
+        self.assertFalse(r.parcial)
+        self.assertEqual((r.percentual, r.lacunas), (50, ["Go (obrigatório)"]))
 
     def test_sem_atributo_ou_vazio(self):
         self.assertIsNone(requisitos_da_vaga(SimpleNamespace(titulo="x")))
