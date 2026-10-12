@@ -40,6 +40,10 @@ def criar_router_tela(encontradas: VagaEncontradaRepository, candidaturas: Candi
             return None
         return encontradas.obter(url)
 
+    def candidatura_da(vaga):
+        """A candidatura da vaga aberta, para o detalhe mostrar "Aplicada em dd/mm" em vez do botão."""
+        return candidaturas.obter_por_url(vaga.url) if vaga is not None else None
+
     def contexto_lista(q: str | None, deslocamento: int) -> dict:
         """O que `_lista.html` e `_cards.html` precisam; a contagem vem de `contar`, nunca do tamanho da página."""
         total = encontradas.contar(somente_novas=False, q=q)
@@ -58,7 +62,7 @@ def criar_router_tela(encontradas: VagaEncontradaRepository, candidaturas: Candi
         nao_encontrada = pedida and vaga is None
         if not pedida and contexto["vagas"]:
             vaga = contexto["vagas"][0]
-        contexto.update(selecionada=vaga, nao_encontrada=nao_encontrada)
+        contexto.update(selecionada=vaga, nao_encontrada=nao_encontrada, candidatura=candidatura_da(vaga))
         # "Vagas aplicadas" entra na página inteira com o mesmo contexto das rotas de /tela/candidaturas.
         contexto.update(contexto_aplicadas(candidaturas))
         # 404 também na página inteira: o recurso pedido não existe, e o aviso aparece no detalhe
@@ -71,7 +75,7 @@ def criar_router_tela(encontradas: VagaEncontradaRepository, candidaturas: Candi
         return templates.TemplateResponse(
             request,
             "tela/_detalhe.html",
-            {"selecionada": vaga, "nao_encontrada": nao_encontrada},
+            {"selecionada": vaga, "nao_encontrada": nao_encontrada, "candidatura": candidatura_da(vaga)},
             status_code=404 if nao_encontrada else 200,
         )
 

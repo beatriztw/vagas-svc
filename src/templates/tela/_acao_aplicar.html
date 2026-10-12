@@ -1,0 +1,11 @@
+{# Área do botão no detalhe. Com `oob`, a resposta de POST/DELETE a troca (hx-swap-oob) sem mexer no resto do detalhe. #}
+<div id="acao-aplicar" class="acao-aplicar"{% if oob %} hx-swap-oob="outerHTML"{% endif %}>
+  {% if candidatura %}
+  <span class="chip st-aplicada">Aplicada em <time datetime="{{ candidatura.aplicada_em.isoformat() }}">{{ candidatura.aplicada_em|data_curta }}</time></span>
+  {% else %}
+  <form hx-post="/tela/candidaturas" hx-target="#aplicadas" hx-swap="outerHTML" hx-disabled-elt="find button">
+    <input type="hidden" name="url" value="{{ vaga_url }}">
+    <button type="submit" class="botao">Marcar como aplicada</button>
+  </form>
+  {% endif %}
+</div>

@@ -213,3 +213,7 @@ input[type="search"], input[type="text"], select {
 
 .busca { display: flex; flex-direction: column; gap: 8px; }
 .busca label { font-size: 13px; font-weight: 500; color: #34413F; }
+
+.acao-aplicar { display: flex; align-items: center; }
+.acao-aplicar form { margin: 0; }
+.st-aplicada { background: #E1F3E8; color: #1B5E3A; }

@@ -14,7 +14,7 @@
     </select>
   </td>
   <td>
-    <button type="button" class="botao" hx-delete="/tela/candidaturas/{{ c.id }}" hx-target="#aplicadas" hx-swap="outerHTML"
+    <button type="button" class="botao" hx-delete="/tela/candidaturas/{{ c.id }}" hx-include="#detalhe-url" hx-target="#aplicadas" hx-swap="outerHTML"
             hx-confirm="Desfazer esta candidatura?">Desfazer</button>
   </td>
 </tr>
