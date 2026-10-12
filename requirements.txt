@@ -2,3 +2,4 @@ fastapi[standard]>=0.141.1
 boto3>=1.43.103
 psycopg[binary,pool]>=3.3.6
 tzdata>=2025.2
+fpdf2>=2.8.3

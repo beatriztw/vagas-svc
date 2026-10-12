@@ -22,6 +22,7 @@ from src.repository.pedido_ia import PedidoIARepositoryMemoria
 from src.service.busca_service import BuscaService
 from src.service.coleta_service import ColetaService
 from src.service.recomendacao_service import RecomendacaoService
+from tests.test_busca_service import ClientQuebrado
 from tests.test_coleta import ClientPorTermo, vaga
 from tests.test_tela_lista import HX, Pagina
 
@@ -102,7 +103,12 @@ class PosColetaTest(unittest.TestCase):
         self.assertEqual(m.cliente.post("/tela/coletas", headers=MUTACAO).status_code, 200)
         self.assertEqual(len(m.lote()), 2)
 
-    def test_cli_imprime_quantas_foram_para_a_fila(self):
+    def _servico(self, providers):
+        perfis, vagas = PerfilBuscaRepositoryMemoria(), VagaEncontradaRepositoryMemoria()
+        perfis.salvar(Perfil(termos=["python", "sql"]))
+        return ColetaService(RecomendacaoService(BuscaService(providers)), perfis, vagas)
+
+    def test_cli_imprime_a_fila_depois_das_linhas_dos_termos_no_stream_dado(self):
         class IA:
             def enfileirar_lote(self, candidatas):
                 return len(list(candidatas))
@@ -111,19 +117,42 @@ class PosColetaTest(unittest.TestCase):
             def visiveis(self):
                 return ["a", "b", "c"]
 
-        self.assertEqual(enfileirar_lote(IA(), Historico()), 3)
-
-        perfis, vagas = PerfilBuscaRepositoryMemoria(), VagaEncontradaRepositoryMemoria()
-        perfis.salvar(Perfil(termos=["python"]))
         saida, erro = io.StringIO(), io.StringIO()
-        servico = ColetaService(
-            RecomendacaoService(BuscaService([ClientPorTermo("A", {"python": [vaga("u1")]})])),
-            perfis,
-            vagas,
-            ao_terminar=lambda _: print("ia: 3 vagas na fila", file=saida),
-        )
-        self.assertEqual(rodar(lambda: servico, saida, erro), 0)
-        self.assertIn("ia: 3 vagas na fila", saida.getvalue())
+        servico = self._servico([ClientPorTermo("A", {"python": [vaga("u1")], "sql": [vaga("u2")]})])
+
+        codigo = rodar(lambda: servico, saida, erro, pos_coleta=lambda: enfileirar_lote(IA(), Historico()))
+
+        self.assertEqual(codigo, 0)
+        linhas = saida.getvalue().splitlines()
+        self.assertEqual(linhas[-1], "ia: 3 vagas na fila")
+        self.assertEqual(len(linhas), 3)  # dois termos e, por último, a fila
+        self.assertEqual(erro.getvalue(), "")
+
+    def test_cli_com_a_coleta_falhando_nao_roda_o_lote(self):
+        chamadas = []
+        saida, erro = io.StringIO(), io.StringIO()
+        servico = self._servico([ClientQuebrado()])
+
+        self.assertEqual(rodar(lambda: servico, saida, erro, pos_coleta=lambda: chamadas.append(1) or 1), 1)
+        self.assertEqual(chamadas, [])
+        self.assertNotIn("ia:", saida.getvalue())
+
+    def test_lote_que_falha_vai_para_o_stderr_e_a_cli_sai_com_0(self):
+        def quebra():
+            raise RuntimeError("banco fora")
+
+        saida, erro = io.StringIO(), io.StringIO()
+        servico = self._servico([ClientPorTermo("A", {"python": [vaga("u1")]})])
+
+        self.assertEqual(rodar(lambda: servico, saida, erro, pos_coleta=quebra), 0)
+        self.assertEqual(erro.getvalue().strip(), "ia: lote falhou: RuntimeError")
+
+    def test_servico_nao_chama_o_pos_coleta_quando_a_coleta_falhou(self):
+        chamadas = []
+        servico = self._servico([ClientQuebrado()])
+        servico.ao_terminar = chamadas.append
+        self.assertTrue(servico.coletar().falhou)
+        self.assertEqual(chamadas, [])
 
 
 class BotaoDaTelaTest(unittest.TestCase):

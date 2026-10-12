@@ -41,7 +41,7 @@
 {% set r = p.resultado %}
 <div id="ia-pedido-{{ p.id }}" class="ia-pedido ia-pronto">
   <p class="ia-curriculo-titulo">{{ r["titulo"] }}</p>
-  <p><a href="/tela/vagas/ia/{{ p.id }}/curriculo.md" download>Baixar currículo (.md)</a></p>
+  <p><a href="/tela/vagas/ia/{{ p.id }}/curriculo.pdf" download>Baixar currículo (PDF)</a> · <a class="ia-secundario" href="/tela/vagas/ia/{{ p.id }}/curriculo.md" download>.md</a></p>
   {% if r["o_que_mudou"] %}
   <h4>O que mudou</h4>
   <ul class="ia-lista">

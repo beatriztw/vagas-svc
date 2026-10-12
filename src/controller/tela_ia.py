@@ -1,5 +1,7 @@
 """Rotas HTML da IA da vaga (`/tela/vagas/ia`): pedir, acompanhar por polling, baixar o currículo e rotular."""
 
+from urllib.parse import quote
+
 from fastapi import APIRouter, Depends, Form, Request, Response
 from fastapi.responses import RedirectResponse
 
@@ -7,6 +9,7 @@ from src.controller.tela_seguranca import PREFIXO_TELA, eh_htmx, exigir_mutacao_
 from src.model.erros import DadoInvalido
 from src.model.pedido_ia import EstadoPedidoIA, PedidoIA, TipoPedidoIA
 from src.repository.pedido_ia import id_possivel
+from src.service.curriculo_pdf import gerar_pdf, nome_do_arquivo, nome_utf8_do_arquivo
 from src.service.pedido_ia_service import MAX_URL, PedidoIAService
 
 # Código do htmx que troca o conteúdo e PARA o polling.
@@ -73,14 +76,36 @@ def criar_router_tela_ia(servico: PedidoIAService) -> APIRouter:
             )
         return pedido(request, p, 200 if p.ativo else PARAR_POLLING)
 
+    def adaptado_do(id: str):
+        p = buscar(id)
+        if p is not None and p.tipo == TipoPedidoIA.CURRICULO and p.estado == EstadoPedidoIA.PRONTO and p.curriculo_id:
+            return p, servico.curriculos.obter(p.curriculo_id)
+        return p, None
+
+    def nao_encontrado():
+        return Response("Currículo não encontrado", status_code=404, media_type="text/plain; charset=utf-8", headers=SEM_CACHE)
+
+    @router.get("/{id}/curriculo.pdf")
+    def baixar_pdf(id: str):
+        _, adaptado = adaptado_do(id)
+        if adaptado is None:
+            return nao_encontrado()
+        nome, nome_utf8 = nome_do_arquivo(adaptado.titulo), nome_utf8_do_arquivo(adaptado.titulo)
+        return Response(
+            gerar_pdf(adaptado.conteudo_md, adaptado.titulo),
+            media_type="application/pdf",
+            headers={
+                # `filename` em ASCII para qualquer navegador; `filename*` com o título acentuado (RFC 6266).
+                "Content-Disposition": f"attachment; filename=\"{nome}\"; filename*=UTF-8''{quote(nome_utf8, safe='')}",
+                **SEM_CACHE,
+            },
+        )
+
     @router.get("/{id}/curriculo.md")
     def baixar(id: str):
-        p = buscar(id)
-        adaptado = None
-        if p is not None and p.tipo == TipoPedidoIA.CURRICULO and p.estado == EstadoPedidoIA.PRONTO and p.curriculo_id:
-            adaptado = servico.curriculos.obter(p.curriculo_id)
+        p, adaptado = adaptado_do(id)
         if adaptado is None:
-            return Response("Currículo não encontrado", status_code=404, media_type="text/plain; charset=utf-8", headers=SEM_CACHE)
+            return nao_encontrado()
         return Response(
             adaptado.conteudo_md,
             media_type="text/markdown; charset=utf-8",

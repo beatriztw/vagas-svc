@@ -80,6 +80,11 @@ class PedidoIARepository(ABC):
         """rodando -> erro (o texto é cortado em MAX_ERRO). None nas mesmas condições de `concluir`."""
 
     @abstractmethod
+    def marcar_base(self, id: int, tentativa: int, curriculo_base_id: int) -> PedidoIA | None:
+        """Grava a base que vai para o worker nesta tentativa (a da criação pode ter mudado até ele pegar).
+        None nas mesmas condições de `concluir`."""
+
+    @abstractmethod
     def listar_prontos_compatibilidade(self, prompt_versao: str | None = None) -> list[PedidoIA]:
         """Pedidos de compatibilidade `pronto` (da versão, se informada), do mais antigo ao mais novo (id)."""
 
@@ -95,6 +100,10 @@ class PedidoIARepository(ABC):
     @abstractmethod
     def urls_ativas(self, tipo: TipoPedidoIA | str) -> set[str]:
         """Vagas com pedido pendente ou rodando do tipo."""
+
+    @abstractmethod
+    def urls_com_erro_desde(self, curriculo_base_id: int, desde: datetime) -> set[str]:
+        """Vagas com compatibilidade em `erro` para a base, terminada em `desde` ou depois."""
 
     @abstractmethod
     def contar_lote_desde(self, desde: datetime) -> int:
@@ -236,6 +245,14 @@ class PedidoIARepositoryMemoria(PedidoIARepository):
             return None
         return linha
 
+    def marcar_base(self, id: int, tentativa: int, curriculo_base_id: int) -> PedidoIA | None:
+        with self._lock:
+            linha = self._rodando(id, tentativa)
+            if linha is None:
+                return None
+            linha.curriculo_base_id = curriculo_base_id
+            return replace(linha)
+
     def concluir(
         self,
         id: int,
@@ -313,6 +330,18 @@ class PedidoIARepositoryMemoria(PedidoIARepository):
         tipo = validar_tipo(tipo)
         with self._lock:
             return {p.vaga_url for p in self._linhas.values() if p.tipo == tipo and p.ativo}
+
+    def urls_com_erro_desde(self, curriculo_base_id: int, desde: datetime) -> set[str]:
+        with self._lock:
+            return {
+                p.vaga_url
+                for p in self._linhas.values()
+                if p.tipo == TipoPedidoIA.COMPATIBILIDADE
+                and p.estado == EstadoPedidoIA.ERRO
+                and p.curriculo_base_id == curriculo_base_id
+                and p.terminado_em is not None
+                and p.terminado_em >= desde
+            }
 
     def contar_lote_desde(self, desde: datetime) -> int:
         with self._lock:

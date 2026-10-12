@@ -28,8 +28,17 @@ def enfileirar_lote(ia, historico) -> int:
     return ia.enfileirar_lote(historico.visiveis())
 
 
-def rodar(criar_servico: Callable[[], ColetaService], saida: TextIO, erro: TextIO) -> int:
-    """Roda uma coleta e imprime o resumo; devolve o código de saída."""
+def rodar(
+    criar_servico: Callable[[], ColetaService],
+    saida: TextIO,
+    erro: TextIO,
+    pos_coleta: Callable[[], int] | None = None,
+) -> int:
+    """Roda uma coleta e imprime o resumo; devolve o código de saída.
+
+    `pos_coleta` (o lote da IA) roda só depois de uma coleta bem-sucedida, DEPOIS das linhas dos
+    termos, e imprime em `saida` quantas vagas foram para a fila. Falha nele vai para `erro` e não
+    muda o código de saída: a coleta já gravou."""
     try:
         resultado = criar_servico().coletar()
     except ColetaEmAndamento as e:
@@ -43,13 +52,18 @@ def rodar(criar_servico: Callable[[], ColetaService], saida: TextIO, erro: TextI
     if resultado.falhou:
         print("coleta falhou: todos os providers deram erro em todos os termos", file=erro)
         return 1
+    if pos_coleta is not None:
+        try:
+            print(f"ia: {pos_coleta()} vagas na fila", file=saida)
+        except Exception as e:  # noqa: BLE001 - o lote nunca derruba a coleta
+            print(f"ia: lote falhou: {type(e).__name__}", file=erro)
     return 0
 
 
 def main() -> int:
     from src.controller.api import providers_padrao
     from src.repository.conexao import conectar
-    from src.repository.trava import TravaColetaPostgres
+    from src.repository.trava import CHAVE_TRAVA_LOTE_IA, TravaColetaPostgres
     from src.repository.pedido_ia_postgres import PedidoIARepositoryPostgres
     from src.repository.postgres import (
         CurriculoRepositoryPostgres,
@@ -62,6 +76,7 @@ def main() -> int:
     from src.service.recomendacao_service import RecomendacaoService
 
     conexoes = []
+    lote = []
 
     def criar_servico() -> ColetaService:
         # Processo de uma thread só, uma chamada de repositório por vez: uma conexão basta.
@@ -69,19 +84,18 @@ def main() -> int:
         conn = conectar()
         conexoes.append(conn)
         perfis, vagas = PerfilBuscaRepositoryPostgres(conn), VagaEncontradaRepositoryPostgres(conn)
-        ia = PedidoIAService(PedidoIARepositoryPostgres(conn), vagas, perfis, CurriculoRepositoryPostgres(conn))
-        return ColetaService(
-            RecomendacaoService(BuscaService(providers_padrao())),
-            perfis,
+        ia = PedidoIAService(
+            PedidoIARepositoryPostgres(conn),
             vagas,
-            TravaColetaPostgres(),
-            ao_terminar=lambda _: print(
-                f"ia: {enfileirar_lote(ia, HistoricoService(vagas, perfis))} vagas na fila", file=sys.stdout
-            ),
+            perfis,
+            CurriculoRepositoryPostgres(conn),
+            trava_lote=TravaColetaPostgres(chave=CHAVE_TRAVA_LOTE_IA),
         )
+        lote.append(lambda: enfileirar_lote(ia, HistoricoService(vagas, perfis)))
+        return ColetaService(RecomendacaoService(BuscaService(providers_padrao())), perfis, vagas, TravaColetaPostgres())
 
     try:
-        return rodar(criar_servico, sys.stdout, sys.stderr)
+        return rodar(criar_servico, sys.stdout, sys.stderr, pos_coleta=lambda: lote[-1]())
     finally:
         for conn in conexoes:
             conn.close()

@@ -16,21 +16,26 @@ from src.model.pedido_ia import (
     MAX_ERRO,
     MAX_RESULTADO_BYTES,
     PRIORIDADE_LOTE,
+    Faixa,
     NotaIA,
     PedidoEmConflito,
     PedidoIA,
     PedidoInexistente,
     TipoPedidoIA,
-    Faixa,
 )
 from src.model.resultado_ia import (
     validar_prompt_versao,
     validar_resultado_compatibilidade,
     validar_resultado_curriculo,
 )
-from src.repository.base import CurriculoRepository, PerfilBuscaRepository, VagaEncontradaRepository
+from src.repository.base import (
+    CurriculoRepository,
+    PerfilBuscaRepository,
+    VagaEncontradaRepository,
+)
 from src.repository.candidatura import validar_vaga_url
 from src.repository.pedido_ia import PedidoIARepository, validar_faixa, validar_tipo
+from src.repository.trava import ColetaEmAndamento, TravaColeta, TravaColetaMemoria
 from src.service.metricas_ia import maior_versao
 
 log = logging.getLogger(__name__)
@@ -42,6 +47,10 @@ _MAX_DESCARTES = 100
 # Lote: no máximo tantos pedidos de prioridade 1 criados em 24 h (a cota da assinatura do worker é curta).
 LOTE_MAX_POR_DIA_PADRAO = 40
 _JANELA_LOTE = timedelta(hours=24)
+# Vaga cuja avaliação deu erro com a base atual fica fora do lote por este tempo: sem isso ela voltaria
+# em toda coleta e gastaria o teto diário (e a cota) com o mesmo erro. O clique da pessoa ainda pede.
+_ESPERA_ERRO_LOTE = timedelta(days=7)
+ESPERA_TRAVA_LOTE_S = 30
 
 
 def lote_max_por_dia(env: Mapping[str, str] | None = None) -> int:
@@ -78,6 +87,7 @@ class PedidoIAService:
         curriculos: CurriculoRepository,
         max_lote_por_dia: int | None = None,
         relogio: Callable[[], datetime] | None = None,
+        trava_lote: TravaColeta | None = None,
     ):
         self.pedidos = pedidos
         self.encontradas = encontradas
@@ -85,6 +95,9 @@ class PedidoIAService:
         self.curriculos = curriculos
         self.max_lote_por_dia = lote_max_por_dia() if max_lote_por_dia is None else max_lote_por_dia
         self._relogio = relogio or (lambda: datetime.now(timezone.utc))
+        # Um enfileiramento por vez (coleta do timer, botão, duas abas): sem isso as chamadas leriam
+        # a mesma contagem do teto diário e cada uma criaria até o teto. Produção usa a do Postgres.
+        self.trava_lote = trava_lote if trava_lote is not None else TravaColetaMemoria()
 
     def pedir(self, vaga_url: str, tipo: TipoPedidoIA | str) -> tuple[PedidoIA, bool]:
         """(pedido, criado). Já havendo um ativo para (vaga, tipo), devolve o ativo com criado=False."""
@@ -115,6 +128,19 @@ class PedidoIAService:
         return self.pedidos.notas_compatibilidade(base.id, self.versao_compatibilidade())
 
     def enfileirar_lote(self, candidatas: Iterable, limite: int | None = None) -> int:
+        """`_enfileirar_lote` sob a trava do lote. Com outro enfileiramento rodando, ESPERA a vez
+        (até `ESPERA_TRAVA_LOTE_S`; o normal é levar milissegundos) em vez de desistir: assim as
+        vagas novas da coleta não ficam para o disparo seguinte, e o teto é relido dentro da trava.
+        Só se a espera estourar devolve 0."""
+        candidatas = list(candidatas)
+        try:
+            with self.trava_lote.segurar(esperar_s=ESPERA_TRAVA_LOTE_S):
+                return self._enfileirar_lote(candidatas, limite)
+        except ColetaEmAndamento:
+            log.warning("pedido_ia lote: outro enfileiramento passou de %ss; nada enfileirado", ESPERA_TRAVA_LOTE_S)
+            return 0
+
+    def _enfileirar_lote(self, candidatas: Iterable, limite: int | None = None) -> int:
         """Cria pedidos de compatibilidade do lote (prioridade 1) para as `candidatas`, na ordem dada,
         pulando as que já têm pedido ativo ou nota válida. Devolve quantos criou.
 
@@ -131,6 +157,7 @@ class PedidoIAService:
             return 0
         pular = self.pedidos.urls_ativas(TipoPedidoIA.COMPATIBILIDADE)
         pular |= set(self.pedidos.notas_compatibilidade(base.id, self.versao_compatibilidade()))
+        pular |= self.pedidos.urls_com_erro_desde(base.id, self._relogio() - _ESPERA_ERRO_LOTE)
         criados = 0
         for vaga in candidatas:
             if criados >= restante:
@@ -183,6 +210,9 @@ class PedidoIAService:
                 if falho is not None:
                     _log(falho)
                 continue
+            if pedido.curriculo_base_id != base.id:
+                # A nota vale para a base que o worker recebe agora, não a da criação do pedido.
+                pedido = self.pedidos.marcar_base(pedido.id, pedido.tentativas, base.id) or pedido
             return self._montar(pedido, vaga, base)
         return None
 

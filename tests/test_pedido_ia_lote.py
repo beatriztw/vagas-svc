@@ -20,7 +20,11 @@ from src.repository.base import (
 from src.repository.candidatura import vaga_por_url_em
 from src.repository.pedido_ia import PedidoIARepositoryMemoria
 from src.service.historico_service import HistoricoService
-from src.service.pedido_ia_service import LOTE_MAX_POR_DIA_PADRAO, PedidoIAService, lote_max_por_dia
+from src.service.pedido_ia_service import (
+    LOTE_MAX_POR_DIA_PADRAO,
+    PedidoIAService,
+    lote_max_por_dia,
+)
 
 INICIO = datetime(2026, 1, 1, 12, 0, tzinfo=timezone.utc)
 URLS = [f"https://exemplo.com/vaga-{i}" for i in range(6)]
@@ -202,6 +206,97 @@ class LoteTest(unittest.TestCase):
         m = Montagem()
         pedido, _ = m.servico.pedir(URLS[0], "compatibilidade")
         self.assertEqual((pedido.curriculo_base_id, pedido.prioridade), (m.base.id, 0))
+
+    def test_base_trocada_antes_do_worker_pegar_fica_gravada_a_que_ele_recebeu(self):
+        m = Montagem()
+        m.servico.pedir(URLS[0], "compatibilidade")
+        nova = m.curriculos.salvar(Curriculo(tipo="base", titulo="Base 2", conteudo_md="# Base 2"))
+
+        entregue = m.servico.proximo()
+
+        self.assertEqual(entregue["curriculo_base"]["id"], nova.id)
+        self.assertEqual(m.pedidos.obter(entregue["id"]).curriculo_base_id, nova.id)
+
+    def test_marcar_base_so_vale_para_o_rodando_da_tentativa_atual(self):
+        m = Montagem()
+        pedido, _ = m.servico.pedir(URLS[0], "compatibilidade")
+        self.assertIsNone(m.pedidos.marcar_base(pedido.id, 1, m.base.id))  # ainda pendente
+        rodando = m.pedidos.proximo()
+        self.assertIsNone(m.pedidos.marcar_base(rodando.id, rodando.tentativas + 1, m.base.id))
+        self.assertEqual(m.pedidos.marcar_base(rodando.id, rodando.tentativas, m.base.id).curriculo_base_id, m.base.id)
+
+    def test_vaga_que_deu_erro_fica_fora_do_lote_por_7_dias(self):
+        m = Montagem()
+        m.servico.enfileirar_lote(m.vagas(0))
+        p = m.pedidos.proximo()
+        m.pedidos.falhar(p.id, p.tentativas, "tempo esgotado (420 s)")
+
+        m.relogio.agora += timedelta(days=1)  # coleta do dia seguinte
+        self.assertEqual(m.servico.enfileirar_lote(m.vagas(0, 1)), 1)
+        self.assertEqual(m.pedidos.urls_ativas("compatibilidade"), {URLS[1]})
+
+        m.relogio.agora += timedelta(days=7)  # passou a espera: volta
+        self.assertEqual(m.servico.enfileirar_lote(m.vagas(0)), 1)
+
+    def test_erro_com_outra_base_nao_segura_a_vaga(self):
+        m = Montagem()
+        m.servico.enfileirar_lote(m.vagas(0))
+        p = m.pedidos.proximo()
+        m.pedidos.falhar(p.id, p.tentativas, "x")
+        m.curriculos.salvar(Curriculo(tipo="base", titulo="Base 2", conteudo_md="# Base 2"))
+        m.relogio.agora += timedelta(days=1)
+        self.assertEqual(m.servico.enfileirar_lote(m.vagas(0)), 1)
+
+    def test_disparo_que_chega_com_o_lote_ocupado_espera_e_enfileira_as_vagas_dele(self):
+        # O botão enfileira [0, 1] e, no meio, a coleta termina com a vaga nova 2: ela não pode se perder.
+        import threading
+
+        m = Montagem(max_por_dia=10)
+        no_meio, pode_seguir, resultado = threading.Event(), threading.Event(), {}
+        criar = m.pedidos.criar
+
+        def criar_devagar(*args, **kwargs):
+            no_meio.set()
+            pode_seguir.wait(5)
+            return criar(*args, **kwargs)
+
+        m.pedidos.criar = criar_devagar
+        botao = threading.Thread(target=lambda: resultado.setdefault("botao", m.servico.enfileirar_lote(m.vagas(0, 1))))
+        botao.start()
+        no_meio.wait(5)
+        m.pedidos.criar = criar
+        coleta = threading.Thread(target=lambda: resultado.setdefault("coleta", m.servico.enfileirar_lote(m.vagas(2))))
+        coleta.start()
+        pode_seguir.set()
+        botao.join(5)
+        coleta.join(5)
+
+        self.assertEqual(resultado, {"botao": 2, "coleta": 1})
+        self.assertEqual(m.pedidos.urls_ativas("compatibilidade"), {URLS[0], URLS[1], URLS[2]})
+
+    def test_dois_enfileiramentos_juntos_nao_passam_do_teto(self):
+        # O segundo disparo (botão, outra aba, a coleta do timer) chega com o primeiro no meio.
+        m = Montagem(max_por_dia=2)
+        segundo = []
+        criar = m.pedidos.criar
+
+        import threading
+
+        outro = []
+
+        def criar_e_disparar_outro(*args, **kwargs):
+            if not segundo:
+                segundo.append(None)  # só um disparo concorrente, em outra thread (o botão)
+                t = threading.Thread(target=lambda: segundo.__setitem__(0, m.servico.enfileirar_lote(m.vagas(2, 3))))
+                t.start()
+                outro.append(t)
+            return criar(*args, **kwargs)
+
+        m.pedidos.criar = criar_e_disparar_outro
+        self.assertEqual(m.servico.enfileirar_lote(m.vagas(0, 1, 2, 3)), 2)
+        outro[0].join(5)
+        self.assertEqual(segundo, [0])  # esperou a vez e encontrou o teto cheio
+        self.assertEqual(m.pedidos.contar_lote_desde(m.relogio() - timedelta(hours=24)), 2)
 
     def test_candidatas_do_historico_seguem_o_perfil(self):
         m = Montagem()

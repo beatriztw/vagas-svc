@@ -14,8 +14,10 @@ Projeto Python organizado em camadas dentro de `src/`:
 ```bash
 python -m venv .venv
 .venv\Scripts\activate
-pip install -r requirements.txt
+pip install -r requirements.txt -r requirements-dev.txt
 ```
+
+`requirements-dev.txt` só tem o que os testes usam (o `pypdf`, que lê o texto do PDF do currículo); a imagem instala só o `requirements.txt`.
 
 ## Providers de vagas
 
@@ -161,7 +163,7 @@ Fluxo: `pendente` → (`POST /pedidos-ia/proximo`) → `rodando` → (`PUT /pedi
 | `PUT /pedidos-ia/{id}` | worker (Bearer) | devolve o resultado ou o erro: `200 {id, estado}`, `404`, `409` (não está rodando ou a tentativa não é a atual), `422` (nada muda) |
 | `PUT /vagas/rotulo-ia` | JSON aberto | `{"vaga_url", "faixa": "alta"\|"média"\|"baixa"\|null}`: grava o rótulo da pessoa (`null` apaga); `422` com `media` sem acento ou vaga fora do histórico |
 | `GET /ia/metricas?prompt_versao=` | JSON aberto | concordância de faixa, correlação de ordem e estabilidade de reexecução (chega com o PR das métricas) |
-| `GET/POST /tela/vagas/ia`, `GET /tela/vagas/ia/{id}`, `GET /tela/vagas/ia/{id}/curriculo.md`, `POST /tela/vagas/ia/rotulo` | tela (HTMX, CSRF) | botões Compatibilidade e Gerar currículo, polling de 3 s, resultado e rótulo (chegam com o PR da tela) |
+| `GET/POST /tela/vagas/ia`, `GET /tela/vagas/ia/{id}`, `GET /tela/vagas/ia/{id}/curriculo.pdf`, `GET /tela/vagas/ia/{id}/curriculo.md`, `POST /tela/vagas/ia/rotulo` | tela (HTMX, CSRF) | botões Compatibilidade e Gerar currículo, polling de 3 s, resultado, download do currículo (PDF para ATS ou .md) e rótulo |
 
 As rotas `/pedidos-ia/*` não aparecem no `/docs`. Respondem com `Cache-Control: no-store`, e o servidor nunca loga `resultado`, `erro`, currículo nem descrição: só id, tipo, estado e tentativa. Toda escrita da API usa `Content-Type: application/json` (`415` sem ele).
 
@@ -193,6 +195,10 @@ As rotas `/pedidos-ia/*` não aparecem no `/docs`. Respondem com `Cache-Control:
 - `compatibilidade-v1`: `{nota 0-100 (inteiro; bool não vale), faixa, atende[{requisito, evidencia_no_curriculo}], falta[{requisito, obrigatorio}], eliminatorios[], resumo}`, sem chaves extras, com até 30 `atende`, 30 `falta` e 20 `eliminatorios`, textos sem espaço nas pontas e não vazios. A faixa tem que bater com a nota: `alta` 70-100, `média` 40-69, `baixa` 0-39 (cortes provisórios, a calibrar pelas métricas; mudá-los exige um prompt `-v2`). A grafia é sempre `média`; só o worker normaliza `media`. O servidor grava `nota` e `faixa` nas colunas. Que cada `evidencia_no_curriculo` seja um trecho literal do currículo é regra só do worker: o servidor não tem o currículo da época.
 - `curriculo-v1`: o worker grava o adaptado em `POST /curriculos/adaptados` e manda `resultado = {curriculo_id, titulo, o_que_mudou, lacunas}` (sem o `conteudo_md`). O servidor confere que `curriculo_id` existe, é `adaptado` e tem a mesma `vaga_url` do pedido (senão `422`) e grava `curriculo_id`. Se o worker morrer entre o `POST` e o `PUT`, a reentrega cria um segundo adaptado (duplicata aceita no v1).
 
+### Currículo em PDF (ATS)
+
+`GET /tela/vagas/ia/{id}/curriculo.pdf` gera o PDF do currículo adaptado na hora, a partir do `conteudo_md` (`src/service/curriculo_pdf.py`, `fpdf2`). O layout é o que os ATS leem sem errar: A4, uma coluna, Helvetica, texto selecionável (nada de imagem), nome no topo, contato na linha de baixo, seções em maiúsculas com uma linha fina, cargo em negrito e tópicos com hífen; sem tabela, cabeçalho, rodapé, ícone nem cor. Ênfase em par e crases viram texto puro, o link `[texto](url)` vira `texto (url)` (sem `mailto:`), e URL e código passam intactos; a fonte padrão do PDF só tem Latin-1 (cobre o português), e travessão, aspas curvas e marcador viram equivalentes ASCII. O nome do arquivo é `Curriculo - <título>.pdf` em ASCII (o `filename*` leva o título com acentos, em UTF-8, sem caractere de controle nem barra). O `.md` continua disponível.
+
 ### Pedido preso
 
 Rodando há mais de 15 minutos (`reivindicado_em`) é pedido preso: o worker morreu. O `proximo`, numa transação, (1) marca como `erro` ("O worker não terminou depois de 3 tentativas") o preso que já gastou 3 tentativas, (2) escolhe um pendente ou preso (pendente primeiro, depois o mais antigo; `FOR UPDATE SKIP LOCKED`, então dois workers nunca pegam o mesmo) e (3) marca `rodando`, soma 1 em `tentativas` e grava `reivindicado_em`. A tentativa antiga que chegar depois no `PUT` recebe `409`.
@@ -201,7 +207,7 @@ Rodando há mais de 15 minutos (`reivindicado_em`) é pedido preso: o worker mor
 
 Além do clique da pessoa, a compatibilidade roda em lote, uma vaga por vez, pela mesma fila e pelo mesmo worker (`migrations/007_pedido_ia_lote.sql`).
 
-- **Quem dispara**: o fim de toda coleta (`POST /coletas`, o botão da tela e `python -m src.controller.coleta`, que o timer do Pi roda às 08:00 e 18:00; a CLI imprime `ia: N vagas na fila`) e o botão "Avaliar vagas com IA" da tela (`POST /tela/ia/lote`, com o CSRF da tela). Falha ao enfileirar só vai para o log: a coleta não falha por causa disso.
+- **Quem dispara**: o fim de toda coleta bem-sucedida (`POST /coletas`, o botão da tela e `python -m src.controller.coleta`, que o timer do Pi roda às 08:00 e 18:00; a CLI imprime `ia: N vagas na fila` depois das linhas dos termos, e falha do lote vai para o stderr sem mudar o código de saída) e o botão "Avaliar vagas com IA" da tela (`POST /tela/ia/lote`, com o CSRF da tela). Falha ao enfileirar só vai para o log: a coleta não falha por causa disso. Um enfileiramento por vez (trava no Postgres): quem chega com outro rodando espera a vez (até 30 s) e então enfileira as vagas dele, com o teto relido dentro da trava.
 - **Quais vagas**: as da lista da tela (as que passam no perfil, sem as expiradas, na mesma ordem), menos as que já têm pedido de compatibilidade ativo e as que já têm nota válida.
 - **Nota válida**: pronto de compatibilidade feito com o currículo base vigente (`curriculo_base_id`, gravado quando o pedido é criado) e com a versão atual do prompt (a maior `compatibilidade-vN` já vista nos prontos). Trocou a base ou subiu a versão, a vaga volta para o lote. Pedido de antes da 007 não tem base gravada e não conta.
 - **Prioridade**: o clique da pessoa (`prioridade` 0) passa na frente do lote (1) na fila; pedir pela tela uma vaga que já está no lote sobe o pedido para a prioridade da pessoa.
