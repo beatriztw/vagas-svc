@@ -1,0 +1,20 @@
+{% from "tela/_macros.html" import status_chip %}
+<tr id="candidatura-{{ c.id }}">
+  <td>{{ c.titulo }}</td>
+  <td>{{ c.empresa }}</td>
+  <td><time datetime="{{ c.aplicada_em.isoformat() }}">{{ c.aplicada_em|data_curta }}</time></td>
+  <td></td>
+  <td>
+    {{ status_chip(c.status) }}
+    <select name="status" aria-label="Alterar o status de {{ c.titulo }}"
+            hx-patch="/tela/candidaturas/{{ c.id }}" hx-trigger="change" hx-target="closest tr" hx-swap="outerHTML">
+      {% for s in status_opcoes %}
+      <option value="{{ s.value }}"{% if s == c.status %} selected{% endif %}>{{ s.rotulo }}</option>
+      {% endfor %}
+    </select>
+  </td>
+  <td>
+    <button type="button" class="botao" hx-delete="/tela/candidaturas/{{ c.id }}" hx-target="#aplicadas" hx-swap="outerHTML"
+            hx-confirm="Desfazer esta candidatura?">Desfazer</button>
+  </td>
+</tr>
