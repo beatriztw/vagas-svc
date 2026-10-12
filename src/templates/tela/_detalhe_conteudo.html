@@ -1,0 +1,55 @@
+{# Seções do detalhe, em #secoes-detalhe (alvo do swap outerHTML). Tudo é texto puro (já sanitizado) e passa #}
+{# pelo autoescape; nada de |safe. Contexto: `vaga`, `aberta` (VagaAberta) e, no primeiro desenho, `recarregar`. #}
+<div id="secoes-detalhe" class="secoes-detalhe"
+{%- if aberta and aberta.carregar and recarregar is not false %}
+     hx-get="/tela/vagas/secoes?url={{ vaga.url | urlencode }}" hx-trigger="load" hx-swap="outerHTML"
+     aria-busy="true"{% endif %}>
+{% if vaga is none %}
+<p class="aviso-detalhe" role="status">Vaga não encontrada.</p>
+{% elif aberta and aberta.carregar and recarregar is not false %}
+<p class="aviso-detalhe" role="status">Carregando a descrição…</p>
+{% else %}
+{% if aberta and aberta.expirada %}
+<p class="aviso-expirada" role="status">Vaga expirada: o anunciante tirou a vaga do ar.</p>
+{% endif %}
+{% if aberta and aberta.aviso %}
+<p class="aviso-detalhe" role="status">{{ aberta.aviso }}</p>
+{% endif %}
+{% if vaga.subtitulo %}
+<p class="detalhe-subtitulo">{{ vaga.subtitulo }}</p>
+{% endif %}
+{% if vaga.salario and vaga.salario.texto() %}
+<section class="secao-detalhe" aria-labelledby="t-salario">
+  <h3 id="t-salario">Salário</h3>
+  <p>{{ vaga.salario.texto() }}</p>
+</section>
+{% endif %}
+{% if vaga.descricao %}
+<section class="secao-detalhe" aria-labelledby="t-descricao">
+  <h3 id="t-descricao">Descrição</h3>
+  <p class="texto-longo">{{ vaga.descricao }}</p>
+</section>
+{% endif %}
+{% set obrigatorios = vaga.requisitos | selectattr("obrigatorio") | list %}
+{% set desejaveis = vaga.requisitos | rejectattr("obrigatorio") | list %}
+{% if obrigatorios or desejaveis %}
+<section class="secao-detalhe" aria-labelledby="t-requisitos">
+  <h3 id="t-requisitos">Requisitos</h3>
+  {% if obrigatorios %}
+  <h4>Obrigatórios</h4>
+  <ul class="lista-detalhe">{% for r in obrigatorios %}<li>{{ r.texto }}</li>{% endfor %}</ul>
+  {% endif %}
+  {% if desejaveis %}
+  <h4>Desejáveis</h4>
+  <ul class="lista-detalhe">{% for r in desejaveis %}<li>{{ r.texto }}</li>{% endfor %}</ul>
+  {% endif %}
+</section>
+{% endif %}
+{% if vaga.beneficios %}
+<section class="secao-detalhe" aria-labelledby="t-beneficios">
+  <h3 id="t-beneficios">Benefícios</h3>
+  <ul class="lista-detalhe">{% for b in vaga.beneficios %}<li>{{ b }}</li>{% endfor %}</ul>
+</section>
+{% endif %}
+{% endif %}
+</div>
