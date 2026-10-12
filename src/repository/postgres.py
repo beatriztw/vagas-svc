@@ -1,7 +1,16 @@
 import psycopg
 from psycopg.rows import dict_row
+from psycopg.types.json import Jsonb
 
 from src.model.curriculo import Curriculo
+from src.model.detalhe_vaga import (
+    DetalheVaga,
+    beneficios_de_json,
+    requisitos_de_json,
+    requisitos_para_json,
+    salario_de_json,
+    salario_para_json,
+)
 from src.model.erros import DadoInvalido
 from src.model.perfil import Perfil
 from src.model.vaga import Modalidade, Nivel
@@ -12,6 +21,7 @@ from src.repository.base import (
     PerfilBuscaRepository,
     VagaEncontradaRepository,
     casa_busca,
+    detalhe_valido,
     exigidas_da_busca,
     normalizar_perfil,
     vagas_validas,
@@ -25,9 +35,12 @@ from src.repository.base import (
 
 _LISTAS = ("termos", "excluir", "localidades", "plataformas", "skills")
 _COLUNAS_CURRICULO = "id, tipo, titulo, conteudo_md, base_id, vaga_url, arquivo_s3, criado_em"
+# A lista não lê o detalhe (descrição de até 20 mil caracteres vezes milhares de linhas); só `obter` lê.
 _COLUNAS_VAGA = (
-    "url, titulo, empresa, plataforma, local, remoto, publicada_em, termos, primeira_vez_em, ultima_vez_em, vista_em"
+    "url, titulo, empresa, plataforma, local, remoto, publicada_em, termos, primeira_vez_em, ultima_vez_em, "
+    "vista_em, expirada_em, detalhada_em"
 )
+_COLUNAS_VAGA_DETALHE = f"{_COLUNAS_VAGA}, descricao, requisitos, salario, beneficios, subtitulo"
 
 
 def perfil_para_linha(perfil: Perfil) -> dict:
@@ -131,6 +144,23 @@ class CurriculoRepositoryPostgres(CurriculoRepository):
             return [Curriculo(**linha) for linha in cur.fetchall()]
 
 
+# O que a listagem do provider preenche direto (o detalhe vai por `_parametros_do_detalhe`).
+_CAMPOS_DA_LISTAGEM = ("url", "titulo", "empresa", "plataforma", "local", "remoto", "publicada_em", "expirada_em")
+
+
+def _parametros_do_detalhe(detalhe: DetalheVaga | None) -> dict:
+    """Parâmetros das colunas do detalhe; `tem_detalhe` False = a vaga não trouxe (não apaga o que há)."""
+    limpo = detalhe_valido(detalhe) if detalhe is not None else None
+    return {
+        "tem_detalhe": limpo is not None,
+        "descricao": limpo.descricao if limpo else None,
+        "requisitos": Jsonb(requisitos_para_json(limpo.requisitos)) if limpo else None,
+        "salario": Jsonb(salario_para_json(limpo.salario)) if limpo and limpo.salario else None,
+        "beneficios": Jsonb(list(limpo.beneficios)) if limpo else None,
+        "subtitulo": limpo.subtitulo if limpo else None,
+    }
+
+
 _ORDEM = 'ORDER BY primeira_vez_em DESC, publicada_em DESC NULLS LAST, url COLLATE "C"'
 
 
@@ -144,14 +174,23 @@ class VagaEncontradaRepositoryPostgres(VagaEncontradaRepository):
         novas = 0
         with self._conn.transaction(), self._conn.cursor() as cur:
             for vaga in validas:
-                params = {**vars(vaga), "termo": termo}
+                params = {
+                    **{c: getattr(vaga, c) for c in _CAMPOS_DA_LISTAGEM},
+                    "termo": termo,
+                    **_parametros_do_detalhe(vaga.detalhe),
+                    # O provider disse que não há prazo: um prazo futuro sai (o vencido fica, pelo CASE).
+                    "limpar_prazo": vaga.tem_prazo is False,
+                }
                 # ON CONFLICT DO NOTHING espera a transação concorrente que gravou a mesma URL;
                 # sem linha devolvida, a vaga já existia e cai no UPDATE abaixo.
                 cur.execute(
                     "INSERT INTO vaga_encontrada "
-                    "(url, titulo, empresa, plataforma, local, remoto, publicada_em, termos) "
+                    "(url, titulo, empresa, plataforma, local, remoto, publicada_em, termos, expirada_em, "
+                    "descricao, requisitos, salario, beneficios, subtitulo, detalhada_em) "
                     "VALUES (%(url)s, %(titulo)s, %(empresa)s, %(plataforma)s, %(local)s, %(remoto)s, "
-                    "%(publicada_em)s, ARRAY[%(termo)s::text]) "
+                    "%(publicada_em)s, ARRAY[%(termo)s::text], %(expirada_em)s::timestamptz, "
+                    "%(descricao)s, %(requisitos)s, %(salario)s, %(beneficios)s, %(subtitulo)s, "
+                    "CASE WHEN %(tem_detalhe)s THEN now() END) "
                     "ON CONFLICT (url) DO NOTHING RETURNING url",
                     params,
                 )
@@ -169,6 +208,18 @@ class VagaEncontradaRepositoryPostgres(VagaEncontradaRepository):
                     "publicada_em = COALESCE(%(publicada_em)s::date, publicada_em), "
                     "termos = CASE WHEN %(termo)s::text = ANY(termos) THEN termos "
                     "ELSE array_append(termos, %(termo)s::text) END, "
+                    # Quem já expirou continua expirado; senão vale o prazo novo (pode mudar), nenhum se o provider
+                    # disse que não há prazo, ou o que estava.
+                    "expirada_em = CASE WHEN expirada_em IS NOT NULL AND expirada_em <= now() THEN expirada_em "
+                    "ELSE COALESCE(%(expirada_em)s::timestamptz, "
+                    "CASE WHEN %(limpar_prazo)s::boolean THEN NULL ELSE expirada_em END) END, "
+                    # A listagem do Remotar traz o detalhe: sobrescreve; sem detalhe (outros providers), fica.
+                    "descricao = CASE WHEN %(tem_detalhe)s THEN %(descricao)s ELSE descricao END, "
+                    "requisitos = CASE WHEN %(tem_detalhe)s THEN %(requisitos)s ELSE requisitos END, "
+                    "salario = CASE WHEN %(tem_detalhe)s THEN %(salario)s ELSE salario END, "
+                    "beneficios = CASE WHEN %(tem_detalhe)s THEN %(beneficios)s ELSE beneficios END, "
+                    "subtitulo = CASE WHEN %(tem_detalhe)s THEN %(subtitulo)s ELSE subtitulo END, "
+                    "detalhada_em = CASE WHEN %(tem_detalhe)s THEN now() ELSE detalhada_em END, "
                     "ultima_vez_em = now() "
                     "WHERE url = %(url)s",
                     params,
@@ -218,14 +269,63 @@ class VagaEncontradaRepositoryPostgres(VagaEncontradaRepository):
     def obter(self, url: str) -> VagaEncontrada | None:
         if not isinstance(url, str) or "\x00" in url:
             return None
+        # `obter` acha também a vaga expirada (link direto mostra "vaga expirada").
         with self._conn.cursor(row_factory=dict_row) as cur:
-            cur.execute(f"SELECT {_COLUNAS_VAGA} FROM vaga_encontrada WHERE url = %s", (url,))
+            cur.execute(f"SELECT {_COLUNAS_VAGA_DETALHE} FROM vaga_encontrada WHERE url = %s", (url,))
             linha = cur.fetchone()
-        return VagaEncontrada(**{**linha, "termos": list(linha["termos"])}) if linha else None
+        if not linha:
+            return None
+        # O CHECK da 004 garante a forma de cada coluna; o item torto dentro dela é descartado sozinho.
+        return VagaEncontrada(
+            **{
+                **linha,
+                "termos": list(linha["termos"]),
+                "requisitos": requisitos_de_json(linha["requisitos"]),
+                "salario": salario_de_json(linha["salario"]),
+                "beneficios": beneficios_de_json(linha["beneficios"]),
+            }
+        )
+
+    def gravar_detalhe(self, url: str, detalhe: DetalheVaga) -> bool:
+        limpo = detalhe_valido(detalhe)
+        if limpo is None or not isinstance(url, str) or "\x00" in url:
+            return False
+        parametros = {
+            **_parametros_do_detalhe(limpo),
+            "url": url,
+            "expirada_em": limpo.expirada_em,
+            "limpar_prazo": limpo.tem_prazo is False,
+        }
+        with self._conn.transaction(), self._conn.cursor() as cur:
+            cur.execute(
+                "UPDATE vaga_encontrada SET descricao = %(descricao)s, requisitos = %(requisitos)s, "
+                "salario = %(salario)s, beneficios = %(beneficios)s, subtitulo = %(subtitulo)s, "
+                "detalhada_em = now(), "
+                "expirada_em = CASE WHEN expirada_em IS NOT NULL AND expirada_em <= now() THEN expirada_em "
+                "ELSE COALESCE(%(expirada_em)s::timestamptz, "
+                "CASE WHEN %(limpar_prazo)s::boolean THEN NULL ELSE expirada_em END) END "
+                "WHERE url = %(url)s",
+                parametros,
+            )
+            return cur.rowcount > 0
+
+    def marcar_expirada(self, url: str) -> bool:
+        if not isinstance(url, str) or "\x00" in url:
+            return False
+        with self._conn.transaction(), self._conn.cursor() as cur:
+            cur.execute(
+                "UPDATE vaga_encontrada SET expirada_em = CASE WHEN expirada_em IS NOT NULL AND expirada_em <= now() "
+                "THEN expirada_em ELSE now() END WHERE url = %s",
+                (url,),
+            )
+            return cur.rowcount > 0
 
     @staticmethod
     def _filtro(somente_novas: bool) -> str:
-        return "WHERE vista_em IS NULL " if somente_novas else ""
+        # A vaga com o prazo vencido some da lista e do contador (`obter` ainda a acha); com o prazo
+        # por vir, aparece até o prazo passar, sem nova coleta.
+        no_ar = "(expirada_em IS NULL OR expirada_em > now())"
+        return f"WHERE {no_ar} AND vista_em IS NULL " if somente_novas else f"WHERE {no_ar} "
 
     def marcar_vistas(self, urls: list[str]) -> int:
         urls = validar_urls(urls)
