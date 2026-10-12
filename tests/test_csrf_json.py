@@ -136,10 +136,19 @@ class CsrfJsonTest(unittest.TestCase):
         self.assertEqual(self.api.post(url, headers={**JSON, "Sec-Fetch-Site": "cross-site"}).status_code, 403)
         self.assertEqual(self.api.post(url, headers=JSON).status_code, 200)
 
-    def test_tela_e_interno_ficam_fora(self):
-        # /tela tem a própria proteção (403 do HTMX, não 415); /interno é isento (aqui, 404: ainda não existe).
+    def test_tela_fica_fora(self):
+        # /tela tem a própria proteção (403 do HTMX, não 415).
         self.assertEqual(self.api.post("/tela/coletas", headers={"Origin": "http://testserver"}).status_code, 403)
-        self.assertEqual(self.api.post("/interno/x").status_code, 404)
+
+    def test_interno_fica_fora(self):
+        # /interno é isento (Bearer). A rota precisa existir: as dependências do app só rodam em rota que
+        # casou, e um 404 do roteamento passaria com ou sem a isenção.
+        @self.app.post("/interno/x")
+        def interna() -> dict[str, bool]:
+            return {"ok": True}
+
+        self.assertEqual(self.api.post("/interno/x").status_code, 200)
+        self.assertEqual(self.api.post("/interno/x", headers={"Content-Type": "text/plain"}).status_code, 200)
 
 
 if __name__ == "__main__":
