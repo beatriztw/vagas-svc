@@ -33,9 +33,12 @@ def normalizar(texto: str) -> str:
 
 
 def palavras(texto: str | None) -> list[str]:
-    """Palavras normalizadas, na ordem; hífen entre letras junta ("Back-end" vira "backend")."""
+    """Palavras normalizadas, na ordem; hífen entre letras junta ("Back-end" vira "backend").
+
+    "++" e "#" ficam grudados na palavra: "C++", "C#" e "C" são linguagens diferentes.
+    """
     sem_hifen = re.sub(r"(?<=[a-z0-9])[-‐‑](?=[a-z0-9])", "", normalizar(texto or ""))
-    return re.findall(r"[a-z0-9]+", sem_hifen)
+    return re.findall(r"[a-z0-9]+(?:\+\+|#)?", sem_hifen)
 
 
 # Palavras que não ajudam a dizer se o título é da vaga procurada ("analista DE dados").

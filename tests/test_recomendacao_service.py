@@ -5,7 +5,7 @@ from src.model.perfil import Perfil
 from src.model.vaga import Modalidade, Nivel
 from src.model.vaga_externa import VagaExterna
 from src.service.busca_service import BuscaService
-from src.service.recomendacao_service import RecomendacaoService, aplicar_perfil, nivel_do_titulo
+from src.service.recomendacao_service import RecomendacaoService, aplicar_perfil, nivel_do_titulo, pontuar
 from tests.test_busca_service import ClientFixo, ClientQuebrado
 
 HOJE = date(2026, 10, 11)
@@ -169,6 +169,14 @@ class LocalidadeTest(unittest.TestCase):
 
         self.assertEqual([v.titulo for v in filtradas], ["a", "b", "c", "d"])
 
+    def test_localidade_do_perfil_so_com_o_pais_nao_corta_cidade(self):
+        vagas = [vaga("a", local="São Paulo, SP", remoto=False), vaga("b", local="Rio de Janeiro, RJ", remoto=False)]
+
+        self.assertEqual(aplicar_perfil(vagas, Perfil(localidades=["Brasil"]), HOJE), vagas)
+        self.assertEqual(
+            [v.titulo for v in aplicar_perfil(vagas, Perfil(localidades=["Rio de Janeiro, RJ", "Brazil"]), HOJE)], ["b"]
+        )
+
     def test_sem_localidade_no_perfil_nada_e_cortado(self):
         vagas = [vaga("f", local="São Paulo, SP", remoto=False)]
 
@@ -184,6 +192,13 @@ class OrdenacaoPorSkillsTest(unittest.TestCase):
         self.assertEqual(
             [v.titulo for v in filtradas], ["Analista SQL e Power BI", "Analista Power BI", "Analista 1", "Analista 2"]
         )
+
+    def test_skill_com_composto_genero_idioma_e_simbolo(self):
+        vagas = [vaga("Dev C++"), vaga("Desenvolvedor Front End"), vaga("Data Analyst"), vaga("Dev C#")]
+
+        self.assertEqual(aplicar_perfil([vagas[1]], Perfil(skills=["front-end"]), HOJE), [vagas[1]])
+        pontos = {v.titulo: pontuar(v, ["front-end", "Dados", "C#"]) for v in vagas}
+        self.assertEqual(pontos, {"Dev C++": 0, "Desenvolvedor Front End": 1, "Data Analyst": 1, "Dev C#": 1})
 
     def test_skill_compara_palavra_inteira(self):
         vagas = [vaga("Dev JavaScript"), vaga("Analista NoSQL"), vaga("Coordenador Agro"), vaga("Dev Java")]

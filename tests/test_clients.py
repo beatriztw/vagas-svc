@@ -107,6 +107,13 @@ class RelevanciaTermoTest(unittest.TestCase):
         self.assertEqual(relevancia_termo("Database Administrator", "dados"), 0)
         self.assertEqual(relevancia_termo("Analista de Conciliações", "analista de conciliação"), 1)
 
+    def test_linguagens_com_simbolo_sao_diferentes(self):
+        from src.client.base import relevancia_termo
+
+        self.assertEqual(relevancia_termo("Desenvolvedor C++", "c#"), 0)
+        self.assertEqual(relevancia_termo("Desenvolvedor C", "c++"), 0)
+        self.assertEqual(relevancia_termo("Dev C# Pleno", "c#"), 1)
+
     def test_traducao_nos_dois_sentidos(self):
         from src.client.base import relevancia_termo
 

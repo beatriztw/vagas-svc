@@ -60,19 +60,13 @@ def _no_lugar(vaga: VagaExterna, cidades: set[str]) -> bool:
 
 
 def pontuar(vaga: VagaExterna, skills: list[str]) -> int:
-    """Quantas skills do perfil aparecem no título, palavra a palavra (o provider não traz a descrição).
+    """Quantas skills do perfil aparecem no título (o provider não traz a descrição).
 
-    "Java" não pontua em "JavaScript", "SQL" não pontua em "NoSQL", e "Power BI" exige as
-    duas palavras em sequência.
+    Mesma comparação de `relevancia_termo`: palavra inteira por radical, compostos juntos
+    ("front-end" = "Front End") e cargo nos dois idiomas. "Java" não pontua em
+    "JavaScript", "SQL" em "NoSQL", nem "C#" em "C++".
     """
-    do_titulo = palavras(vaga.titulo)
-    pontos = 0
-    for skill in skills:
-        da_skill = palavras(skill)
-        n = len(da_skill)
-        if n and any(do_titulo[i : i + n] == da_skill for i in range(len(do_titulo) - n + 1)):
-            pontos += 1
-    return pontos
+    return sum(1 for skill in skills if palavras(skill) and relevancia_termo(vaga.titulo, skill) == 1)
 
 
 def aplicar_perfil(vagas: list[VagaExterna], perfil: Perfil, hoje: date) -> list[VagaExterna]:
@@ -90,7 +84,8 @@ def aplicar_perfil(vagas: list[VagaExterna], perfil: Perfil, hoje: date) -> list
     if perfil.niveis:
         aceitos = set(perfil.niveis)
         filtradas = [v for v in filtradas if (nivel := nivel_do_titulo(v.titulo)) is None or nivel in aceitos]
-    cidades = {c for c in (_cidade(loc) for loc in perfil.localidades) if c}
+    # Localidade que é só o país ("Brasil") não restringe cidade nenhuma.
+    cidades = {c for c in (_cidade(loc) for loc in perfil.localidades) if c and c not in _SO_PAIS}
     if cidades:
         filtradas = [v for v in filtradas if _no_lugar(v, cidades)]
     # sorted é estável: entre vagas com a mesma pontuação fica a ordem do BuscaService (mais nova antes).

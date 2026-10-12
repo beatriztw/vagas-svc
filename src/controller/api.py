@@ -256,7 +256,9 @@ def providers_padrao() -> list:
 
         # Cada busca custa até APIFY_LIMITE vagas no Apify (US$ 0,001–0,002 cada em out/2026).
         providers.append(
-            ApifyLinkedInClient(local=os.environ.get("APIFY_LOCAL", "Brasil"), limite=_limite_apify())
+            # Vazio (APIFY_LOCAL=${APIFY_LOCAL} sem valor no compose) cai no padrão: sem país, a
+            # busca paga traria vagas do mundo todo.
+            ApifyLinkedInClient(local=os.environ.get("APIFY_LOCAL", "").strip() or "Brasil", limite=_limite_apify())
         )
     return providers
 
