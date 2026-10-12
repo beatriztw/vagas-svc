@@ -5,6 +5,7 @@ from src.client.base import palavras, radical
 from src.model.erros import DadoInvalido
 from src.repository.base import PerfilBuscaRepository, VagaEncontradaRepository
 from src.repository.trava import TravaColeta, TravaColetaMemoria
+from src.service.busca_service import plataformas_uteis
 from src.service.recomendacao_service import RecomendacaoService
 
 
@@ -80,10 +81,16 @@ class ColetaService:
         termos = termos_da_coleta(perfil.termos)
         if not termos:
             raise DadoInvalido("O perfil salvo não tem termos de busca: inclua pelo menos um em `termos`")
+        # Só os providers que as `plataformas` do perfil deixam: os outros nem são chamados.
+        consultados = self.recomendacao.busca.clients_para(perfil.plataformas)
+        if not consultados and plataformas_uteis(perfil.plataformas):
+            raise DadoInvalido(
+                "Nenhum provider configurado casa com `plataformas` do perfil: ajuste a lista ou deixe vazia"
+            )
         resultado = []
         for termo in termos:
             # A falha de um provider já vem em `erros` (BuscaService); a coleta segue.
             busca = self.recomendacao.recomendar(termo, perfil, hoje)
             novas = self.vagas.registrar(busca.vagas, termo)
             resultado.append(ColetaDoTermo(termo, len(busca.vagas), novas, dict(busca.erros)))
-        return ResultadoColeta(resultado, providers=len(self.recomendacao.busca.clients))
+        return ResultadoColeta(resultado, providers=len(consultados))

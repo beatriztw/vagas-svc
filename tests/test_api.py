@@ -171,7 +171,8 @@ class ApiTest(unittest.TestCase):
 
         self.assertEqual([v["url"] for v in resposta["vagas"]], ["u2"])
         self.assertEqual(resposta["vagas"][0]["publicada_em"], date.today().isoformat())
-        self.assertIn("Quebrado", resposta["erros"])
+        # `plataformas: ["A"]`: o provider "Quebrado" nem é consultado, então não há erro dele.
+        self.assertEqual(resposta["erros"], {})
 
     def test_vagas_sem_termo_e_422(self):
         self.assertEqual(self.api.get("/vagas").status_code, 422)

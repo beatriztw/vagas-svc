@@ -6,7 +6,7 @@ from src.client.base import _LIGACAO, contem, normalizar, palavras, relevancia_t
 from src.model.perfil import Perfil
 from src.model.vaga import Modalidade, Nivel
 from src.model.vaga_externa import VagaExterna
-from src.service.busca_service import BuscaService, ResultadoBusca
+from src.service.busca_service import BuscaService, ResultadoBusca, casa_plataforma, plataformas_uteis
 
 # VagaExterna (busca ao vivo) ou VagaEncontrada (histórico): os filtros só leem os campos comuns.
 V = TypeVar("V")
@@ -84,11 +84,11 @@ def filtrar_pelo_perfil(vagas: list[V], perfil: Perfil, hoje: date) -> list[V]:
     # (`"" in titulo`) e a busca voltaria sempre vazia: é ignorado.
     excluir = [termo for termo in perfil.excluir if normalizar(termo).strip()]
     filtradas = [v for v in vagas if not any(contem(v.titulo, termo) for termo in excluir)]
-    # Plataforma por palavra, sem acento nem caixa: "linkedin" casa com "LinkedIn (Apify)"; "Remotar" não
-    # casa com "Remotar2". Entrada sem palavra ("", "—") é ignorada; sem nenhuma, não filtra.
-    plataformas = [p for p in (palavras(p) for p in perfil.plataformas) if p]
+    # Plataforma por palavra, sem acento nem caixa (`casa_plataforma`, a mesma regra que escolhe os
+    # providers da busca). No histórico é o que vale: mudar o perfil esconde ou traz de volta na hora.
+    plataformas = plataformas_uteis(perfil.plataformas)
     if plataformas:
-        filtradas = [v for v in filtradas if any(set(p) <= set(palavras(v.plataforma)) for p in plataformas)]
+        filtradas = [v for v in filtradas if casa_plataforma(v.plataforma, plataformas)]
     # Conjunto: perfil vindo de fora sem normalizar pode repetir a modalidade.
     if set(perfil.modalidades) == {Modalidade.REMOTO}:
         filtradas = [v for v in filtradas if _remota(v)]
@@ -128,7 +128,8 @@ class RecomendacaoService:
         self.busca = busca
 
     def recomendar(self, termo: str, perfil: Perfil | None, hoje: date | None = None) -> ResultadoBusca:
-        resultado = self.busca.buscar(termo)
+        # Provider fora das `plataformas` do perfil nem é consultado (ver `BuscaService.clients_para`).
+        resultado = self.busca.buscar(termo, perfil.plataformas if perfil is not None else ())
         vagas = resultado.vagas
         if perfil is not None:
             vagas = aplicar_perfil(vagas, perfil, hoje or date.today())

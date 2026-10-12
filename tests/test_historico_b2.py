@@ -14,8 +14,9 @@ from src.model.perfil import Perfil
 from src.model.vaga_externa import VagaExterna
 from src.repository.base import CurriculoRepositoryMemoria, PerfilBuscaRepositoryMemoria, VagaEncontradaRepositoryMemoria
 from src.service.busca_service import BuscaService
+from src.service.coleta_service import ColetaService
 from src.model.erros import DadoInvalido
-from src.service.recomendacao_service import aplicar_perfil, filtrar_pelo_perfil
+from src.service.recomendacao_service import RecomendacaoService, aplicar_perfil, filtrar_pelo_perfil
 from src.service.historico_service import HistoricoService, chave_do_grupo, ler_ate
 from tests.test_tela_lista import HX, Pagina
 
@@ -561,6 +562,79 @@ class PlataformasTest(unittest.TestCase):
 
     def test_vale_na_busca_ao_vivo_tambem(self):
         self.assertEqual(urls(aplicar_perfil(self.VAGAS, Perfil(plataformas=["Trampos"]), HOJE)), ["t"])
+
+
+class ClientContado:
+    """Provider escrito à mão que conta as chamadas (o pago é cobrado por chamada)."""
+
+    def __init__(self, nome, vagas=(), erro=None):
+        self.nome = nome
+        self.vagas = list(vagas)
+        self.erro = erro
+        self.chamadas = 0
+
+    def buscar(self, termo):
+        self.chamadas += 1
+        if self.erro:
+            raise self.erro
+        return self.vagas
+
+
+class PlataformasNaColetaTest(unittest.TestCase):
+    """O provider fora de `plataformas` não é consultado; o histórico filtra na leitura."""
+
+    def setUp(self):
+        self.remotar = ClientContado("Remotar", [v("r", "Analista A", "E1", plataforma="Remotar")])
+        self.apify = ClientContado("LinkedIn (Apify)", [v("l", "Analista B", "E2", plataforma="LinkedIn (Apify)")])
+        self.busca = BuscaService([self.remotar, self.apify])
+        self.repo = VagaEncontradaRepositoryMemoria()
+        self.perfis = PerfilBuscaRepositoryMemoria()
+        self.coleta = ColetaService(RecomendacaoService(self.busca), self.perfis, self.repo)
+
+    def test_coleta_nao_chama_o_provider_fora_das_plataformas(self):
+        self.perfis.salvar(Perfil(termos=["analista", "dados"], plataformas=["Remotar"]))
+
+        resultado = self.coleta.coletar(HOJE)
+
+        self.assertEqual(self.apify.chamadas, 0, "o actor pago não pode rodar para ser descartado")
+        self.assertEqual(self.remotar.chamadas, 2)
+        self.assertEqual(sorted(urls(self.repo.listar(False, 50))), ["r"])
+        self.assertFalse(resultado.falhou)
+
+    def test_sem_plataformas_chama_todos(self):
+        self.perfis.salvar(Perfil(termos=["analista"]))
+        self.coleta.coletar(HOJE)
+        self.assertEqual((self.remotar.chamadas, self.apify.chamadas), (1, 1))
+
+    def test_falhou_conta_so_os_providers_consultados(self):
+        self.remotar.erro = TimeoutError("sem resposta")
+        self.perfis.salvar(Perfil(termos=["analista"], plataformas=["remotar"]))
+
+        self.assertTrue(self.coleta.coletar(HOJE).falhou)
+
+    def test_nenhum_provider_casa_e_dado_invalido_sem_chamar_ninguem(self):
+        self.perfis.salvar(Perfil(termos=["analista"], plataformas=["Indeed"]))
+
+        with self.assertRaises(DadoInvalido):
+            self.coleta.coletar(HOJE)
+        self.assertEqual((self.remotar.chamadas, self.apify.chamadas), (0, 0))
+
+    def test_busca_ao_vivo_tambem_nao_chama(self):
+        resultado = RecomendacaoService(self.busca).recomendar("analista", Perfil(plataformas=["LinkedIn"]), HOJE)
+
+        self.assertEqual(urls(resultado.vagas), ["l"])
+        self.assertEqual(self.remotar.chamadas, 0)
+
+    def test_historico_ja_coletado_obedece_ao_perfil_na_leitura(self):
+        # Coletado com o perfil sem restrição; depois o perfil passa a ter só Remotar e volta.
+        self.perfis.salvar(Perfil(termos=["analista"]))
+        self.coleta.coletar(HOJE)
+        historico = HistoricoService(self.repo, self.perfis)
+
+        self.perfis.salvar(Perfil(termos=["analista"], plataformas=["Remotar"]))
+        self.assertEqual(urls(historico.pagina(False, 50, hoje=HOJE).vagas), ["r"])
+        self.perfis.salvar(Perfil(termos=["analista"]))
+        self.assertEqual(sorted(urls(historico.pagina(False, 50, hoje=HOJE).vagas)), ["l", "r"])
 
 
 class ContratoCandidatadas:
