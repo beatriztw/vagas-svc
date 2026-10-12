@@ -1,0 +1,18 @@
+{# Partial = alvo do swap: o contador e a lista trocam juntos; a página inteira inclui este mesmo arquivo. #}
+<div id="vagas">
+  <p class="mono contador">{{ total }} encontradas</p>
+  <ul id="lista-vagas" class="lista-vagas">
+    {% if total == 0 %}
+    <li class="vazio">
+      {% if q %}
+      <p>Nenhuma vaga encontrada para a busca.</p>
+      {% else %}
+      <p>Nenhuma vaga ainda; rode uma coleta.</p>
+      <button type="button" class="botao botao-primario" disabled title="em breve">Coletar agora</button>
+      {% endif %}
+    </li>
+    {% else %}
+    {% include "tela/_cards.html" %}
+    {% endif %}
+  </ul>
+</div>

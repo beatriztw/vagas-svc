@@ -1,0 +1,205 @@
+:root {
+  --accent: #0F766E;
+  --ai: #9D1F8F;
+  --fundo: #F4F6F5;
+  --borda: #DCE3E1;
+  --borda-campo: #C8D2CF;
+  --texto: #16201F;
+  --sec: #4D5C59;
+  --raio-sm: 8px;
+  --raio-md: 10px;
+  --raio-lg: 12px;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--fundo);
+  color: var(--texto);
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  font-size: 15px;
+  line-height: 1.5;
+}
+
+a { color: #0F5F58; }
+a:hover { color: #0A3F3A; }
+
+.topo { background: #FFFFFF; border-bottom: 1px solid var(--borda); }
+.topo-conteudo {
+  max-width: 1360px;
+  margin: 0 auto;
+  padding: 16px 24px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+.marca { display: flex; align-items: center; gap: 12px; }
+.marca-nome { font-weight: 700; font-size: 18px; letter-spacing: -0.01em; }
+.logo {
+  width: 36px;
+  height: 36px;
+  border-radius: var(--raio-sm);
+  background: var(--accent);
+  color: #FFFFFF;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.pagina {
+  max-width: 1360px;
+  margin: 0 auto;
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+/* Três colunas que quebram linha; no celular empilham (D12). */
+.colunas { display: flex; flex-wrap: wrap; gap: 24px; align-items: stretch; }
+.col-lista { flex: 1 1 340px; }
+.col-detalhe { flex: 2 1 420px; }
+.col-resultado { flex: 1 1 320px; }
+
+.painel {
+  max-width: 100%;
+  min-width: 0;
+  background: #FFFFFF;
+  border: 1px solid var(--borda);
+  border-radius: var(--raio-lg);
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.painel-cabecalho {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+.painel h2 { margin: 0; font-size: 20px; font-weight: 700; }
+
+.mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px;
+  color: var(--sec);
+}
+
+.botao {
+  min-height: 44px;
+  padding: 0 16px;
+  border: 1px solid var(--borda-campo);
+  background: #FFFFFF;
+  border-radius: var(--raio-sm);
+  font: inherit;
+  font-weight: 500;
+  color: var(--texto);
+  cursor: pointer;
+}
+.botao-primario { background: var(--accent); border-color: var(--accent); color: #FFFFFF; }
+.botao:disabled { opacity: 0.55; cursor: not-allowed; }
+
+input[type="search"], input[type="text"], select {
+  min-height: 44px;
+  padding: 0 12px;
+  border: 1px solid var(--borda-campo);
+  border-radius: var(--raio-sm);
+  font: inherit;
+}
+
+.lista-vagas { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+
+.card {
+  display: flex;
+  text-decoration: none;
+  width: 100%;
+  min-height: 44px;
+  text-align: left;
+  padding: 14px;
+  border-radius: var(--raio-md);
+  border: 1px solid var(--borda);
+  background: #FFFFFF;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  flex-direction: column;
+  gap: 4px;
+}
+.card:hover { border-color: var(--accent); }
+.card-titulo { font-weight: 600; color: var(--texto); }
+.card-sec { font-size: 13px; color: var(--sec); }
+.contador { margin: 0 0 12px; }
+.mais { padding: 12px; text-align: center; color: var(--sec); font-size: 13px; }
+.card[aria-current] { border: 2px solid var(--accent); background: #EAF4F2; }
+
+.vazio {
+  margin: 0;
+  padding: 16px;
+  border: 1px dashed var(--borda-campo);
+  border-radius: var(--raio-md);
+  color: var(--sec);
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 12px;
+}
+.vazio p { margin: 0; }
+
+.erro {
+  padding: 12px 16px;
+  border: 1px solid #E3B4B4;
+  border-radius: var(--raio-sm);
+  background: #FBEAEA;
+  color: #7A1F1F;
+}
+
+/* Chips de status das candidaturas. */
+.chip { display: inline-block; padding: 3px 10px; border-radius: 999px; font-size: 13px; font-weight: 500; }
+.st-analise { background: #E3EEFB; color: #1D4F91; }
+.st-entrevista { background: #FCEBD9; color: #8A4A0B; }
+.st-enviada { background: #EEF1F0; color: #34413F; }
+.st-recusada { background: #FBEAEA; color: #7A1F1F; }
+.st-oferta { background: #E1F3E8; color: #1B5E3A; }
+
+/* Indicador de carregamento do htmx (includeIndicatorStyles=false no meta htmx-config). */
+.htmx-request { opacity: 0.6; cursor: progress; }
+
+.visualmente-oculto {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+@media (max-width: 720px) {
+  .pagina { padding: 16px; }
+  .topo-conteudo { padding: 12px 16px; }
+  .colunas { flex-direction: column; }
+  .col-lista, .col-detalhe, .col-resultado { flex: 0 0 auto; width: 100%; }
+}
+
+.detalhe { display: flex; flex-direction: column; gap: 20px; }
+.detalhe-titulo { margin: 0; font-size: 26px; font-weight: 700; letter-spacing: -0.01em; overflow-wrap: anywhere; }
+.chips { display: flex; flex-wrap: wrap; gap: 8px; font-size: 13px; color: #34413F; }
+.chip-info { padding: 2px 10px; border-radius: 999px; background: #EEF1F0; overflow-wrap: anywhere; }
+.detalhe-rodape {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding-top: 16px;
+  border-top: 1px solid var(--borda);
+}
+.acoes { display: flex; flex-wrap: wrap; gap: 8px; }
+.botao-ai { background: var(--ai); border-color: var(--ai); color: #FFFFFF; }
