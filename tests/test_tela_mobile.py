@@ -57,6 +57,24 @@ class TelaMobileTest(unittest.TestCase):
 
         self.assertRegex(dentro_da_media, r"\.tabela-rolavel\s*\{\s*position:\s*relative;\s*\}")
 
+    def test_aviso_fica_acima_do_detalhe_aberto(self):
+        # A camada do detalhe aberto é fixed com z-index 100; o #aviso (erros de ações feitas nele) tem de
+        # ficar por cima dela, na mesma condição. Provado no navegador (390x844); aqui só a regra.
+        dentro_da_media = (STATIC / "tela-mobile.css").read_text().split("@media", 1)[1]
+        regras = dict(
+            (seletor.strip(), corpo)
+            for seletor, corpo in re.findall(r"([^{}]+)\{([^{}]*)\}", re.sub(r"/\*.*?\*/", "", dentro_da_media, flags=re.S))
+        )
+        aberto = "#detalhe[data-aberto]:not([data-fechado])"
+        [camada] = [c for s, c in regras.items() if s.startswith(".col-detalhe:has(") and aberto in s]
+        [aviso] = [c for s, c in regras.items() if s.endswith("#aviso") and aberto in s]
+
+        def z(corpo):
+            return int(re.search(r"z-index:\s*(\d+)", corpo).group(1))
+
+        self.assertRegex(aviso, r"position:\s*fixed")
+        self.assertGreater(z(aviso), z(camada))
+
     def test_botao_voltar_tem_rotulo_acessivel_e_o_detalhe_recebe_foco(self):
         js = (STATIC / "tela-mobile.js").read_text()
 

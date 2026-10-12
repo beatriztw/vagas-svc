@@ -21,6 +21,20 @@
     padding: 0 16px 24px;
   }
 
+  /* Com o detalhe aberto (camada fixed, z-index 100) o #aviso, no fluxo da página logo depois do header,
+     ficaria por baixo: o erro de uma ação feita no detalhe ("Marcar como aplicada" com 5xx, 422 ou sem rede)
+     não aparecia. Mesma condição da camada; embaixo para não cobrir o "Voltar" grudado no topo. */
+  body:has(.col-detalhe #detalhe[data-aberto]:not([data-fechado])) #aviso {
+    position: fixed;
+    left: 16px;
+    right: 16px;
+    bottom: 16px;
+    z-index: 101;
+    max-height: 40vh;
+    overflow-y: auto;
+    box-shadow: 0 4px 16px rgba(22, 32, 31, 0.25);
+  }
+
   .col-detalhe .voltar {
     display: inline-flex;
     align-items: center;
