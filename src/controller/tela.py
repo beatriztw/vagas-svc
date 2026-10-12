@@ -71,6 +71,10 @@ def criar_router_tela(
         """A candidatura da vaga aberta, para o detalhe mostrar "Aplicada em dd/mm" em vez do botão."""
         return candidaturas.obter_por_url(vaga.url) if vaga is not None else None
 
+    def outros_da(vaga) -> list:
+        """Os outros anúncios do grupo da vaga aberta (mesmo título e empresa), para o detalhe."""
+        return historico.outros_anuncios(vaga) if vaga is not None else []
+
     def contexto_lista(q: str | None, novas: bool, deslocamento: int) -> dict:
         """O que `_lista.html` e `_cards.html` precisam. Página e total saem da mesma leitura do
         histórico com o perfil aplicado: o contador é o da lista inteira, nunca o tamanho da página."""
@@ -100,7 +104,9 @@ def criar_router_tela(
         nao_encontrada = pedida and vaga is None
         if not pedida and contexto["vagas"]:
             vaga = contexto["vagas"][0]
-        contexto.update(selecionada=vaga, nao_encontrada=nao_encontrada, candidatura=candidatura_da(vaga))
+        contexto.update(
+            selecionada=vaga, nao_encontrada=nao_encontrada, candidatura=candidatura_da(vaga), outros=outros_da(vaga)
+        )
         # "Vagas aplicadas" entra na página inteira com o mesmo contexto das rotas de /tela/candidaturas.
         contexto.update(contexto_aplicadas(candidaturas))
         # 404 também na página inteira: o recurso pedido não existe, e o aviso aparece no detalhe
@@ -113,7 +119,12 @@ def criar_router_tela(
         return templates.TemplateResponse(
             request,
             "tela/_detalhe.html",
-            {"selecionada": vaga, "nao_encontrada": nao_encontrada, "candidatura": candidatura_da(vaga)},
+            {
+                "selecionada": vaga,
+                "nao_encontrada": nao_encontrada,
+                "candidatura": candidatura_da(vaga),
+                "outros": outros_da(vaga),
+            },
             status_code=404 if nao_encontrada else 200,
         )
 
@@ -145,10 +156,14 @@ def criar_router_tela(
 
     @router.post("/vagas/vista", dependencies=[Depends(exigir_mutacao_da_tela)])
     def vista(url: str = Form("")):
-        """Marca a vaga como vista: só aqui, nunca no GET do detalhe (D8). Sem corpo; o tela.js tira o selo."""
+        """Marca a vaga como vista: só aqui, nunca no GET do detalhe (D8). Sem corpo; o tela.js tira o selo.
+
+        Marca o grupo inteiro (os outros anúncios de mesmo título e empresa): senão eles voltariam
+        como novas depois de a pessoa já ter visto a vaga."""
         if not url or len(url) > MAX_TAMANHO_URL:
             raise DadoInvalido("url da vaga inválida")
-        encontradas.marcar_vistas([url])
+        vaga = encontradas.obter(url)
+        encontradas.marcar_vistas(historico.urls_do_grupo(vaga) if vaga is not None else [url])
         return Response(status_code=204)
 
     @router.post("/coletas", dependencies=[Depends(exigir_mutacao_da_tela)])

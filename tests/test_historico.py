@@ -325,11 +325,11 @@ class ApiHistoricoTest(unittest.TestCase):
 
     def test_dado_invalido_do_repositorio_vira_422_e_outro_erro_vira_500(self):
         class Invalido(VagaEncontradaRepositoryMemoria):
-            def listar(self, *a, **k):
+            def listar_recentes(self, *a, **k):
                 raise DadoInvalido("q ruim")
 
         class Quebrado(VagaEncontradaRepositoryMemoria):
-            def listar(self, *a, **k):
+            def listar_recentes(self, *a, **k):
                 raise ValueError("config")
 
         for classe, status in ((Invalido, 422), (Quebrado, 500)):

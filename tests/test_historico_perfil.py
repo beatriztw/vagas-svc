@@ -27,7 +27,8 @@ HOJE = date(2026, 10, 12)
 
 
 def v(url: str, titulo: str, local: str | None = "São Paulo", remoto: bool | None = False, pub: date | None = None):
-    return VagaExterna(titulo, "Empresa Teste", "Remotar", url, local=local, remoto=remoto, publicada_em=pub)
+    # Uma empresa por vaga: mesmo título e empresa agrupam (ver tests/test_historico_b2.py).
+    return VagaExterna(titulo, f"Empresa {url}", "Remotar", url, local=local, remoto=remoto, publicada_em=pub)
 
 
 # Coletadas ANTES (primeira_vez_em mais antiga): as que mais combinam com o perfil.

@@ -1,0 +1,16 @@
+{# Outros anúncios do mesmo grupo (mesmo título e empresa, outra URL). `outros` vem da rota; vazio não mostra nada. #}
+{% if outros is defined and outros %}
+<section class="outros-anuncios" aria-labelledby="t-outros">
+  <h3 id="t-outros" class="card-sec">Outros anúncios desta vaga</h3>
+  <ul class="lista-vagas">
+    {% for outro in outros %}
+    {% set destino = outro.url | urlencode %}
+    <li>
+      <a href="/tela?url={{ destino }}"
+         hx-get="/tela/vagas/detalhe?url={{ destino }}" hx-target="#detalhe" hx-swap="outerHTML"
+         hx-push-url="/tela?url={{ destino }}">{{ outro.plataforma }}{% if outro.primeira_vez_em %} · achada em {{ outro.primeira_vez_em.strftime("%d/%m") }}{% endif %}</a>
+    </li>
+    {% endfor %}
+  </ul>
+</section>
+{% endif %}

@@ -311,7 +311,7 @@ class ColetaServiceTest(unittest.TestCase):
 class ApiColetaTest(unittest.TestCase):
     def setUp(self):
         self.perfis = PerfilBuscaRepositoryMemoria()
-        self.client = ClientPorTermo("A", {"python": [vaga("u1"), vaga("u2")], "django": [vaga("u1")]})
+        self.client = ClientPorTermo("A", {"python": [vaga("u1"), vaga("u2", titulo="Dev Python Pleno")], "django": [vaga("u1")]})
         busca = BuscaService([ClientQuebrado(), self.client])
         self.api = TestClient(criar_app(self.perfis, CurriculoRepositoryMemoria(), busca))
 
@@ -408,7 +408,7 @@ class ApiColetaPostgresTest(unittest.TestCase):
             open=True,
         )
         self.addCleanup(pool.close)
-        client = ClientPorTermo("A", {"python": [vaga("u1"), vaga("u2")], "django": [vaga("u1")]})
+        client = ClientPorTermo("A", {"python": [vaga("u1"), vaga("u2", titulo="Dev Python Pleno")], "django": [vaga("u1")]})
         api = TestClient(
             criar_app(
                 _PorChamada(lambda: pool, lambda: PerfilBuscaRepositoryPostgres),
