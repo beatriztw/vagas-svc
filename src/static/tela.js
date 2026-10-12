@@ -48,7 +48,10 @@
   document.addEventListener("htmx:afterSettle", marcarSelecionado);
   document.addEventListener("htmx:afterRequest", tirarSelo);
   document.addEventListener("htmx:afterRequest", function (evento) {
-    if (evento.detail && evento.detail.successful) { esconderAviso(); }
+    // O 422/404/409 contam como `successful` no htmx (responseHandling com error:false), mas trazem
+    // o próprio aviso (HX-Retarget): só um pedido com status < 400 limpa o aviso anterior.
+    var xhr = evento.detail && evento.detail.xhr;
+    if (evento.detail && evento.detail.successful && xhr && xhr.status < 400) { esconderAviso(); }
   });
   // 5xx e erro de rede não trocam nada (responseHandling): avisa em vez de falhar calado.
   document.addEventListener("htmx:responseError", function () {

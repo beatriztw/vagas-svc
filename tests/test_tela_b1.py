@@ -4,11 +4,13 @@ As vagas daqui são escritas à mão (não são respostas gravadas de provider).
 """
 
 import unittest
+from pathlib import Path
 from urllib.parse import parse_qs, quote, urlencode, urlsplit
 
 from src.model.vaga_externa import VagaExterna
 from tests.test_tela_lista import HX, URLS_DIFICEIS, Pagina, criar, vaga
 
+RAIZ = Path(__file__).resolve().parent.parent
 MUTACAO = {"HX-Request": "true", "Origin": "http://testserver"}
 VISTA = "/tela/vagas/vista"
 
@@ -143,6 +145,16 @@ class LocalVazioTest(unittest.TestCase):
         self.assertEqual(sec.texto.strip(), "Empresa Teste - Rio de Janeiro")
         chips = [e.texto.strip() for e in pagina.tags("span") if e.attrs.get("class") == "chip-info"]
         self.assertIn("Rio de Janeiro", chips)
+
+
+class AvisoEm422Test(unittest.TestCase):
+    def test_tela_js_so_esconde_o_aviso_com_status_abaixo_de_400(self):
+        # O 422 é "successful" para o htmx (base.html: error:false) e traz o aviso por HX-Retarget;
+        # esconder o aviso em todo `successful` apagava a mensagem de validação. O comportamento
+        # real foi conferido no navegador (não há runner de JS neste repo): aqui só a guarda no código.
+        js = (RAIZ / "src" / "static" / "tela.js").read_text()
+
+        self.assertRegex(js, r"successful\s*&&\s*xhr\s*&&\s*xhr\.status\s*<\s*400")
 
 
 if __name__ == "__main__":
