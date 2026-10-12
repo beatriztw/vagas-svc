@@ -18,6 +18,7 @@ from src.repository.base import (
     validar_deslocamento,
     validar_limite,
     validar_perfil,
+    validar_teto,
     validar_termo,
     validar_urls,
 )
@@ -201,6 +202,16 @@ class VagaEncontradaRepositoryPostgres(VagaEncontradaRepository):
                 return cur.fetchone()["n"]
             cur.execute(f"SELECT {_COLUNAS_VAGA} FROM vaga_encontrada {self._filtro(somente_novas)}")
             return sum(1 for linha in cur.fetchall() if casa_busca(VagaEncontrada(**linha), exigidas))
+
+    def listar_recentes(self, somente_novas: bool, teto: int, q: str | None = None) -> list[VagaEncontrada]:
+        teto = validar_teto(teto)
+        exigidas = exigidas_da_busca(q)
+        # O teto vai no SQL (custo limitado); o `q` por radical é filtrado em Python, como em `listar`.
+        sql = f"SELECT {_COLUNAS_VAGA} FROM vaga_encontrada {self._filtro(somente_novas)}" + _ORDEM + " LIMIT %s"
+        with self._conn.cursor(row_factory=dict_row) as cur:
+            cur.execute(sql, (teto,))
+            vagas = [VagaEncontrada(**{**linha, "termos": list(linha["termos"])}) for linha in cur.fetchall()]
+        return [v for v in vagas if casa_busca(v, exigidas)]
 
     def obter(self, url: str) -> VagaEncontrada | None:
         if not isinstance(url, str) or "\x00" in url:
