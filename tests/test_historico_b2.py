@@ -4,7 +4,7 @@ Todas as vagas daqui são escritas à mão (não são respostas gravadas de prov
 """
 
 import unittest
-from datetime import date
+from datetime import date, datetime, timedelta, timezone
 from urllib.parse import quote
 
 from fastapi.testclient import TestClient
@@ -14,7 +14,8 @@ from src.model.perfil import Perfil
 from src.model.vaga_externa import VagaExterna
 from src.repository.base import CurriculoRepositoryMemoria, PerfilBuscaRepositoryMemoria, VagaEncontradaRepositoryMemoria
 from src.service.busca_service import BuscaService
-from src.service.historico_service import HistoricoService, chave_do_grupo
+from src.model.erros import DadoInvalido
+from src.service.historico_service import HistoricoService, chave_do_grupo, ler_ate
 from tests.test_tela_lista import HX, Pagina
 
 HOJE = date(2026, 10, 12)
@@ -240,6 +241,284 @@ class TelaAgrupamentoTest(unittest.TestCase):
         cliente, _ = criar_tela([v("a1")])
 
         self.assertEqual(cliente.post("/tela/vagas/vista", data={"url": "nao-existe"}, headers=MUTACAO).status_code, 204)
+
+
+class ContratoFoto:
+    """A foto do instante (`ate`), na memória e no Postgres. A subclasse define `criar` e `agora`
+    (o relógio do mesmo lado do `primeira_vez_em`: o do banco no Postgres)."""
+
+    def setUp(self):
+        self.criar()
+        self.servico = HistoricoService(self.repo, self.perfis)
+
+    def distintas(self, n, prefixo="v", **campos):
+        # Uma empresa por vaga: nada agrupa. Títulos com o mesmo termo do perfil.
+        return [v(f"{prefixo}{i:02}", f"Analista {prefixo}{i:02}", f"Empresa {prefixo}{i:02}", **campos) for i in range(n)]
+
+    def test_vaga_coletada_depois_do_instante_nao_entra_e_o_limite_inclui(self):
+        registrar_um_a_um(self.repo, self.distintas(3, "a"))
+        instante = self.agora()
+        registrar_um_a_um(self.repo, self.distintas(2, "b"))
+
+        self.assertEqual(len(self.repo.listar_recentes(False, 100)), 5)
+        com_foto = self.repo.listar_recentes(False, 100, ate=instante)
+        self.assertEqual(sorted(urls(com_foto)), ["a00", "a01", "a02"])
+        # O instante exato da primeira vez ainda entra (<=).
+        exata = self.repo.obter("a01").primeira_vez_em
+        self.assertEqual(sorted(urls(self.repo.listar_recentes(False, 100, ate=exata))), ["a00", "a01"])
+
+    def test_em_novas_vista_depois_do_instante_continua_e_vista_antes_sai(self):
+        registrar_um_a_um(self.repo, self.distintas(3, "a"))
+        antes = self.agora()
+        self.repo.marcar_vistas(["a00"])
+        depois = self.agora()
+
+        self.assertEqual(sorted(urls(self.repo.listar_recentes(True, 100, ate=antes))), ["a00", "a01", "a02"])
+        self.assertEqual(sorted(urls(self.repo.listar_recentes(True, 100, ate=depois))), ["a01", "a02"])
+        # Sem foto, o filtro de sempre (não vistas).
+        self.assertEqual(sorted(urls(self.repo.listar_recentes(True, 100))), ["a01", "a02"])
+        # Em Todas, vista não muda a janela.
+        self.assertEqual(len(self.repo.listar_recentes(False, 100, ate=depois)), 3)
+
+    def test_ate_sem_fuso_e_dado_invalido(self):
+        for ate in (datetime(2026, 10, 12, 3, 0), "2026-10-12"):
+            with self.subTest(ate=ate):
+                with self.assertRaises(DadoInvalido):
+                    self.repo.listar_recentes(False, 10, ate=ate)
+                with self.assertRaises(DadoInvalido):
+                    self.servico.pagina(False, 10, ate=ate)
+
+    def test_paginas_nao_repetem_nem_pulam_com_coleta_no_meio(self):
+        self.perfis.salvar(Perfil(termos=["analista"]))
+        registrar_um_a_um(self.repo, self.distintas(12, "a"))
+        primeira = self.servico.pagina(False, 5, hoje=HOJE)
+        esperado = urls(self.servico.pagina(False, 50, hoje=HOJE, ate=primeira.ate).vagas)
+        self.assertEqual(len(esperado), 12)
+
+        # Coleta no meio: vagas que ranqueiam acima (publicada_em mais nova) das já lidas.
+        registrar_um_a_um(self.repo, self.distintas(4, "z", publicada_em=date(2026, 10, 11)))
+        lidas = urls(primeira.vagas)
+        for deslocamento in (5, 10):
+            pagina = self.servico.pagina(False, 5, deslocamento=deslocamento, hoje=HOJE, ate=primeira.ate)
+            self.assertEqual(pagina.total, 12, "o contador é o da foto")
+            lidas += urls(pagina.vagas)
+
+        self.assertEqual(lidas, esperado)
+        # Uma foto nova enxerga a coleta.
+        self.assertEqual(self.servico.pagina(False, 5, hoje=HOJE).total, 16)
+
+    def test_paginas_nao_pulam_com_vista_no_meio_em_novas(self):
+        registrar_um_a_um(self.repo, self.distintas(12, "a"))
+        primeira = self.servico.pagina(True, 5, hoje=HOJE)
+        self.assertEqual(primeira.total, 12)
+
+        self.repo.marcar_vistas(urls(primeira.vagas)[:3])  # a pessoa abriu três cards
+        lidas = urls(primeira.vagas)
+        for deslocamento in (5, 10):
+            pagina = self.servico.pagina(True, 5, deslocamento=deslocamento, hoje=HOJE, ate=primeira.ate)
+            self.assertEqual(pagina.total, 12)
+            lidas += urls(pagina.vagas)
+
+        self.assertEqual(len(lidas), 12)
+        self.assertEqual(len(set(lidas)), 12)
+        # Uma foto nova só tem as 9 que sobraram.
+        self.assertEqual(self.servico.pagina(True, 5, hoje=HOJE).total, 9)
+
+    def test_duplicata_coletada_depois_do_instante_nao_troca_o_anuncio_mostrado(self):
+        registrar_um_a_um(self.repo, [v("a1")])
+        instante = self.agora()
+        registrar_um_a_um(self.repo, [v("a2")])
+
+        self.assertEqual(urls(self.servico.pagina(False, 10, hoje=HOJE, ate=instante).vagas), ["a1"])
+        self.assertEqual(urls(self.servico.pagina(False, 10, hoje=HOJE).vagas), ["a2"])
+
+    def test_sem_ate_a_primeira_pagina_devolve_o_instante_usado(self):
+        antes = datetime.now(timezone.utc)
+
+        pagina = self.servico.pagina(False, 10, hoje=HOJE)
+
+        self.assertIsNotNone(pagina.ate.tzinfo)
+        self.assertGreaterEqual(pagina.ate, antes - timedelta(seconds=1))
+        self.assertEqual(self.servico.pagina(False, 10, hoje=HOJE, ate=pagina.ate).ate, pagina.ate)
+
+
+class FotoMemoriaTest(ContratoFoto, unittest.TestCase):
+    def criar(self):
+        self.repo = VagaEncontradaRepositoryMemoria()
+        self.perfis = PerfilBuscaRepositoryMemoria()
+
+    def agora(self):
+        return datetime.now(timezone.utc)
+
+
+class LerAteTest(unittest.TestCase):
+    def test_aceita_iso_com_fuso_e_devolve_utc(self):
+        for texto in ("2026-10-12T03:20:00+00:00", "2026-10-12T03:20:00Z", "2026-10-12T00:20:00-03:00", "2026-10-12T06:20:00+03:00"):
+            with self.subTest(texto=texto):
+                self.assertEqual(ler_ate(texto), datetime(2026, 10, 12, 3, 20, tzinfo=timezone.utc))
+        self.assertEqual(ler_ate("2026-10-12T03:20:00.123456+00:00").microsecond, 123456)
+
+    def test_vazio_e_none(self):
+        self.assertIsNone(ler_ate(None))
+        self.assertIsNone(ler_ate(""))
+        self.assertIsNone(ler_ate("  "))
+
+    def test_invalido_e_dado_invalido(self):
+        for texto in (
+            "ontem",
+            "2026-10-12",
+            "2026-10-12T03:20:00",  # sem fuso
+            "2026-10-12T03:20:00 00:00",  # o + do fuso virou espaço numa url sem codificar
+            "x" * 100,
+            "9999-12-31T23:59:59-23:59",  # estoura ao converter para UTC
+            "0001-01-01T00:00:00+23:59",
+        ):
+            with self.subTest(texto=texto):
+                with self.assertRaises(DadoInvalido):
+                    ler_ate(texto)
+
+
+def lidas_pelo_carregar_mais(cliente, rota="/tela", antes_da_segunda=None) -> list[str]:
+    """Primeira página e o sentinela até o fim; `antes_da_segunda` roda entre a 1ª e a 2ª página."""
+    pagina = Pagina(cliente.get(rota).text)
+    lidas = [c.attrs["data-url"] for c in pagina.cards()]
+    primeira = True
+    while True:
+        sentinelas = [e for e in pagina.tags("li") if "mais" in (e.attrs.get("class") or "")]
+        if not sentinelas:
+            return lidas
+        if primeira and antes_da_segunda:
+            antes_da_segunda()
+        primeira = False
+        resposta = cliente.get(sentinelas[0].attrs["hx-get"], headers=HX)
+        assert resposta.status_code == 200, resposta.text
+        pagina = Pagina(resposta.text)
+        lidas += [c.attrs["data-url"] for c in pagina.cards()]
+
+
+def distintas(n, prefixo="v", **campos):
+    return [v(f"{prefixo}{i:03}", f"Analista {prefixo}{i:03}", f"Empresa {prefixo}{i:03}", **campos) for i in range(n)]
+
+
+class TelaFotoTest(unittest.TestCase):
+    def test_coleta_no_meio_do_carregar_mais_nao_repete_card_sem_perfil(self):
+        cliente, repo = criar_tela(distintas(120, "a"))
+        # Sem perfil: mais recentes primeiro. Uma coleta nova entra NO TOPO depois da 1ª página.
+        esperado = [c.attrs["data-url"] for c in Pagina(cliente.get("/tela").text).cards()]
+        self.assertEqual(len(esperado), 50)
+
+        lidas = lidas_pelo_carregar_mais(cliente, antes_da_segunda=lambda: registrar_um_a_um(repo, distintas(5, "z")))
+
+        self.assertEqual(len(lidas), 120)
+        self.assertEqual(len(set(lidas)), 120, "sem card repetido")
+        self.assertFalse([u for u in lidas if u.startswith("z")], "a coleta nova só aparece na próxima foto")
+
+    def test_coleta_no_meio_nao_repete_nem_pula_com_perfil(self):
+        cliente, repo = criar_tela(distintas(120, "a"), perfil=Perfil(termos=["analista"]))
+        sem_coleta = lidas_pelo_carregar_mais(cliente)
+
+        lidas = lidas_pelo_carregar_mais(
+            cliente, antes_da_segunda=lambda: registrar_um_a_um(repo, distintas(5, "z", publicada_em=date.today()))
+        )
+
+        self.assertEqual(lidas, sem_coleta)
+
+    def test_vista_no_meio_do_carregar_mais_em_novas_nao_pula_card(self):
+        cliente, repo = criar_tela(distintas(120, "a"))
+        primeira = [c.attrs["data-url"] for c in Pagina(cliente.get("/tela?novas=1").text).cards()]
+
+        lidas = lidas_pelo_carregar_mais(
+            cliente, "/tela?novas=1", antes_da_segunda=lambda: repo.marcar_vistas(primeira[:5])
+        )
+
+        self.assertEqual(len(lidas), 120, "nenhuma vaga pulada")
+        self.assertEqual(len(set(lidas)), 120)
+        # Nova foto: as cinco vistas saíram de Novas.
+        self.assertEqual(len(lidas_pelo_carregar_mais(cliente, "/tela?novas=1")), 115)
+
+    def test_o_sentinela_leva_o_instante_codificado_e_volta(self):
+        cliente, _ = criar_tela(distintas(60, "a"))
+        sentinela = next(e for e in Pagina(cliente.get("/tela").text).tags("li") if "mais" in (e.attrs.get("class") or ""))
+
+        proximo = sentinela.attrs["hx-get"]
+
+        self.assertRegex(proximo, r"[?&]ate=\d{4}-\d{2}-\d{2}T[\d.%A-F]+%2B00%3A00")
+        self.assertNotIn("+", proximo)
+        self.assertEqual(cliente.get(proximo, headers=HX).status_code, 200)
+
+    def test_ate_com_outro_fuso_codificado_funciona(self):
+        cliente, _ = criar_tela(distintas(3, "a"))
+        ate = (datetime.now(timezone.utc) + timedelta(hours=1)).astimezone(timezone(timedelta(hours=3))).isoformat()
+        self.assertTrue(ate.endswith("+03:00"))
+
+        resposta = cliente.get("/tela/vagas", params={"ate": ate}, headers=HX)  # o httpx codifica o +
+
+        self.assertEqual(resposta.status_code, 200)
+        self.assertEqual(len(Pagina(resposta.text).cards()), 3)
+
+    def test_ate_no_passado_tira_o_que_foi_coletado_depois(self):
+        cliente, _ = criar_tela(distintas(3, "a"))
+        passado = (datetime.now(timezone.utc) - timedelta(days=1)).isoformat()
+
+        resposta = cliente.get("/tela/vagas", params={"ate": passado}, headers=HX)
+
+        self.assertEqual(resposta.status_code, 200)
+        self.assertEqual(Pagina(resposta.text).cards(), [])
+
+    def test_ate_invalido_e_422_html_nunca_500(self):
+        cliente, _ = criar_tela(distintas(3, "a"))
+        for ate in ("ontem", "2026-10-12T03:20:00", "2026-10-12T03:20:00 00:00", "x" * 100, "9999-12-31T23:59:59-23:59"):
+            for cabecalhos in (HX, {}):
+                with self.subTest(ate=ate[:30], htmx=bool(cabecalhos)):
+                    resposta = cliente.get("/tela/vagas", params={"ate": ate}, headers=cabecalhos)
+                    self.assertEqual(resposta.status_code, 422)
+                    self.assertNotIn('"detail"', resposta.text)
+                    self.assertIn("ate", resposta.text)
+
+    def test_o_mais_cru_sem_codificar_tambem_nao_vira_500(self):
+        cliente, _ = criar_tela(distintas(3, "a"))
+
+        # `+` solto numa url escrita à mão: o servidor lê espaço.
+        resposta = cliente.get("/tela/vagas?ate=2026-10-12T03:20:00+00:00", headers=HX)
+
+        self.assertEqual(resposta.status_code, 422)
+
+
+class JsonFotoTest(unittest.TestCase):
+    def test_devolve_o_instante_no_cabecalho_e_o_corpo_continua_a_lista(self):
+        cliente, _ = criar_tela(distintas(3, "a"))
+
+        resposta = cliente.get("/vagas/encontradas?novas=false")
+
+        self.assertEqual(len(resposta.json()), 3)
+        self.assertIsInstance(resposta.json(), list)
+        usado = ler_ate(resposta.headers["X-Vagas-Ate"])
+        self.assertIsNotNone(usado)
+
+    def test_paginando_com_o_cabecalho_nao_repete_com_coleta_no_meio(self):
+        cliente, repo = criar_tela(distintas(12, "a"))
+        primeira = cliente.get("/vagas/encontradas?novas=false&limite=5")
+        ate = primeira.headers["X-Vagas-Ate"]
+        lidas = [x["url"] for x in primeira.json()]
+
+        registrar_um_a_um(repo, distintas(4, "z"))
+        for deslocamento in (5, 10):
+            pagina = cliente.get("/vagas/encontradas", params={"novas": "false", "limite": 5, "deslocamento": deslocamento, "ate": ate})
+            self.assertEqual(pagina.headers["X-Vagas-Ate"], ate)
+            lidas += [x["url"] for x in pagina.json()]
+
+        self.assertEqual(len(lidas), 12)
+        self.assertEqual(len(set(lidas)), 12)
+        self.assertFalse([u for u in lidas if u.startswith("z")])
+
+    def test_ate_invalido_e_422_json(self):
+        cliente, _ = criar_tela(distintas(1, "a"))
+
+        for ate in ("ontem", "2026-10-12T03:20:00", "x" * 100):
+            with self.subTest(ate=ate[:20]):
+                resposta = cliente.get("/vagas/encontradas", params={"ate": ate})
+                self.assertEqual(resposta.status_code, 422)
+                self.assertIn("detail", resposta.json())
 
 
 if __name__ == "__main__":

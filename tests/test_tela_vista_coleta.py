@@ -105,6 +105,7 @@ class SeloENovasTest(unittest.TestCase):
 
         sentinela = next(e for e in pagina.tags("li") if "mais" in (e.attrs.get("class") or ""))
         consulta = parse_qs(urlsplit(sentinela.attrs["hx-get"]).query)
+        self.assertEqual(len(consulta.pop("ate")), 1)  # a foto do instante
         self.assertEqual(consulta, {"deslocamento": ["50"], "q": ["conciliação analista"], "novas": ["1"]})
         resposta = cliente.get(sentinela.attrs["hx-get"], headers=HX)
         self.assertEqual(len(Pagina(resposta.text).cards()), 11)
@@ -185,10 +186,9 @@ class BuscaComNovasTest(unittest.TestCase):
         self.assertNotIn("https://exemplo.test/c/vista", [c.attrs["data-url"] for c in pagina.cards()])
         # O novo bloco continua em Novas e o sentinela leva os dois.
         sentinela = next(e for e in pagina.tags("li") if "mais" in (e.attrs.get("class") or ""))
-        self.assertEqual(
-            parse_qs(urlsplit(sentinela.attrs["hx-get"]).query),
-            {"deslocamento": ["50"], "q": [self.Q], "novas": ["1"]},
-        )
+        consulta = parse_qs(urlsplit(sentinela.attrs["hx-get"]).query)
+        self.assertEqual(len(consulta.pop("ate")), 1)  # a foto do instante
+        self.assertEqual(consulta, {"deslocamento": ["50"], "q": [self.Q], "novas": ["1"]})
         # O hx-push-url="true" empurra a própria url do pedido: abri-la (F5) mostra a mesma lista.
         inteira = Pagina(cliente.get(pedido).text)
         self.assertIn("60 novas", inteira.por_id("vagas").texto)

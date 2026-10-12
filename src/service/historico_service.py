@@ -4,11 +4,13 @@ from dataclasses import dataclass
 from datetime import date, datetime, timezone
 
 from src.client.base import _LIGACAO, palavras, radical
+from src.model.erros import DadoInvalido
 from src.model.perfil import Perfil
 from src.model.vaga_encontrada import VagaEncontrada
 from src.repository.base import (
     PerfilBuscaRepository,
     VagaEncontradaRepository,
+    validar_ate,
     validar_deslocamento,
     validar_limite,
 )
@@ -21,12 +23,37 @@ TETO_VARREDURA_HISTORICO = 5000
 
 _SEM_DATA = datetime.min.replace(tzinfo=timezone.utc)
 
+MAX_TAMANHO_ATE = 64
+
+
+def ler_ate(texto: str | None) -> datetime | None:
+    """`ate` da query string: instante ISO 8601 COM fuso (`2026-10-12T03:20:00.123456+00:00` ou `...Z`).
+
+    Vazio ou ausente é None (sem foto: o serviço tira uma agora). Qualquer outra coisa, inclusive sem
+    fuso ou com o `+` do fuso virado espaço por uma url sem codificar, é `DadoInvalido` (422).
+    Devolve o instante em UTC.
+    """
+    texto = (texto or "").strip()
+    if not texto:
+        return None
+    if len(texto) > MAX_TAMANHO_ATE:
+        raise DadoInvalido("ate tem que ser um instante ISO 8601 com fuso, como 2026-10-12T03:20:00+00:00")
+    try:
+        instante = datetime.fromisoformat(texto)
+        if instante.tzinfo is None or instante.utcoffset() is None:
+            raise ValueError("sem fuso")
+        return instante.astimezone(timezone.utc)
+    except (ValueError, OverflowError):
+        raise DadoInvalido("ate tem que ser um instante ISO 8601 com fuso, como 2026-10-12T03:20:00+00:00") from None
+
 
 @dataclass
 class PaginaHistorico:
     vagas: list[VagaEncontrada]
     # Quantas a lista inteira tem com o mesmo perfil, filtro e busca: o "[N] encontradas".
     total: int
+    # O instante da foto: o "carregar mais" volta com ele para a janela não mudar entre as páginas.
+    ate: datetime
 
 
 def ordenar_por_match(vagas: list[VagaEncontrada], perfil: Perfil) -> list[VagaEncontrada]:
@@ -81,6 +108,10 @@ class HistoricoService:
     ordena por match e só então pagina e conta, então contador, páginas e "carregar mais" batem.
     Sem perfil salvo: a mesma janela, na ordem do repositório (mais recentes primeiro).
 
+    A janela é uma foto do instante (`ate`): a primeira página a tira, o "carregar mais" a repete.
+    Vaga coletada depois dela não entra, e vaga vista depois dela continua na janela de Novas, então
+    as páginas não repetem nem pulam item.
+
     Anúncios repetidos (mesmo título e empresa, URLs diferentes) viram UMA vaga na lista e no
     contador: o agrupamento vem depois de filtrar e ordenar e antes de paginar e contar. O grupo
     fica na posição do membro mais bem ranqueado e mostra o anúncio mais recente; os outros são
@@ -92,17 +123,27 @@ class HistoricoService:
         self.perfis = perfis
 
     def pagina(
-        self, somente_novas: bool, limite: int, q: str | None = None, deslocamento: int = 0, hoje: date | None = None
+        self,
+        somente_novas: bool,
+        limite: int,
+        q: str | None = None,
+        deslocamento: int = 0,
+        hoje: date | None = None,
+        ate: datetime | None = None,
     ) -> PaginaHistorico:
+        """Sem `ate` (primeira página) a foto é tirada agora; com `ate` (as seguintes), a mesma da primeira."""
         limite = validar_limite(limite)
         deslocamento = validar_deslocamento(deslocamento)
+        ate = validar_ate(ate) or datetime.now(timezone.utc)
         # Um perfil lido uma vez por leitura: a página e o total saem do mesmo perfil.
         perfil = self.perfis.obter()
-        janela = self.vagas.listar_recentes(somente_novas=somente_novas, teto=TETO_VARREDURA_HISTORICO, q=q)
+        janela = self.vagas.listar_recentes(
+            somente_novas=somente_novas, teto=TETO_VARREDURA_HISTORICO, q=q, ate=ate
+        )
         if perfil is not None:
             janela = ordenar_por_match(filtrar_pelo_perfil(janela, perfil, hoje or date.today()), perfil)
         visiveis = agrupar(janela)
-        return PaginaHistorico(vagas=visiveis[deslocamento : deslocamento + limite], total=len(visiveis))
+        return PaginaHistorico(vagas=visiveis[deslocamento : deslocamento + limite], total=len(visiveis), ate=ate)
 
     def outros_anuncios(self, vaga: VagaEncontrada, hoje: date | None = None) -> list[VagaEncontrada]:
         """Os outros anúncios do mesmo grupo da vaga (sem ela), o mais recente primeiro.
@@ -125,9 +166,17 @@ class HistoricoService:
         return [vaga.url, *(v.url for v in self.outros_anuncios(vaga, hoje))]
 
     def listar(
-        self, somente_novas: bool, limite: int, q: str | None = None, deslocamento: int = 0, hoje: date | None = None
+        self,
+        somente_novas: bool,
+        limite: int,
+        q: str | None = None,
+        deslocamento: int = 0,
+        hoje: date | None = None,
+        ate: datetime | None = None,
     ) -> list[VagaEncontrada]:
-        return self.pagina(somente_novas, limite, q, deslocamento, hoje).vagas
+        return self.pagina(somente_novas, limite, q, deslocamento, hoje, ate).vagas
 
-    def contar(self, somente_novas: bool, q: str | None = None, hoje: date | None = None) -> int:
-        return self.pagina(somente_novas, 1, q, 0, hoje).total
+    def contar(
+        self, somente_novas: bool, q: str | None = None, hoje: date | None = None, ate: datetime | None = None
+    ) -> int:
+        return self.pagina(somente_novas, 1, q, 0, hoje, ate).total

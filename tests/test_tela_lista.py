@@ -153,7 +153,9 @@ class ListaTest(unittest.TestCase):
         self.assertEqual(len(pagina.cards()), 50)
         self.assertIn("60 encontradas", pagina.por_id("vagas").texto)
         proximo = next(e for e in pagina.tags("li") if "mais" in (e.attrs.get("class") or "")).attrs["hx-get"]
-        self.assertEqual(proximo, "/tela/vagas?deslocamento=50&q=" + quote("conciliação contábil"))
+        prefixo, _, ate = proximo.partition("&ate=")  # a foto do instante vem depois do filtro
+        self.assertEqual(prefixo, "/tela/vagas?deslocamento=50&q=" + quote("conciliação contábil"))
+        self.assertIn("%2B00%3A00", ate)
         resposta = cliente.get(proximo, headers=HX)
         self.assertEqual(len(Pagina(resposta.text).cards()), 10)
         self.assertNotIn("Java", resposta.text)

@@ -6,7 +6,7 @@ from collections.abc import Callable
 from datetime import date, datetime
 from typing import Any
 
-from fastapi import FastAPI, HTTPException, Query, Request
+from fastapi import FastAPI, HTTPException, Query, Request, Response
 from fastapi.responses import JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field
@@ -38,7 +38,7 @@ from src.repository.trava import ColetaEmAndamento, TravaColeta, TravaColetaPost
 from src.service.busca_service import BuscaService
 from src.service.candidatura_service import CandidaturaService
 from src.service.coleta_service import ColetaService
-from src.service.historico_service import HistoricoService
+from src.service.historico_service import MAX_TAMANHO_ATE, HistoricoService, ler_ate
 from src.service.recomendacao_service import RecomendacaoService
 
 
@@ -307,13 +307,19 @@ def criar_app(
 
     @app.get("/vagas/encontradas")
     def listar_encontradas(
+        response: Response,
         novas: bool = True,
         limite: int = Query(default=50, ge=1, le=MAX_LIMITE_VAGAS),
         q: str | None = Query(default=None, max_length=MAX_TAMANHO_BUSCA),
         deslocamento: int = Query(default=0, ge=0, le=MAX_DESLOCAMENTO_VAGAS),
+        ate: str | None = Query(default=None, max_length=MAX_TAMANHO_ATE),
     ) -> list[VagaEncontradaJson]:
-        vagas = historico.listar(somente_novas=novas, limite=limite, q=q, deslocamento=deslocamento)
-        return [VagaEncontradaJson.de(v) for v in vagas]
+        # `ate` (ISO 8601 com fuso) é a foto do instante: quem pagina com `deslocamento` manda de volta o
+        # valor do cabeçalho `X-Vagas-Ate` da primeira página e as páginas não pulam nem repetem vaga
+        # quando há coleta ou vista no meio. O corpo continua a lista, como antes; sem `ate`, a foto é de agora.
+        pagina = historico.pagina(somente_novas=novas, limite=limite, q=q, deslocamento=deslocamento, ate=ler_ate(ate))
+        response.headers["X-Vagas-Ate"] = pagina.ate.isoformat()
+        return [VagaEncontradaJson.de(v) for v in pagina.vagas]
 
     @app.post("/vagas/vistas")
     def marcar_vistas(corpo: VagasVistas) -> VistasJson:

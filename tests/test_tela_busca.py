@@ -135,9 +135,12 @@ class IdaEVoltaDoQTest(unittest.TestCase):
                 self.assertIn("60 encontradas", pagina.por_id("vagas").texto)
                 self.assertEqual(urls(pagina), esperado[:50])
                 proximo = sentinela(pagina).attrs["hx-get"]
-                self.assertEqual(proximo, "/tela/vagas?deslocamento=50&q=" + quote(Q_DIFICIL))
+                # O "carregar mais" leva a foto do instante (`ate`, codificado) depois do filtro.
+                prefixo, _, ate = proximo.partition("&ate=")
+                self.assertEqual(prefixo, "/tela/vagas?deslocamento=50&q=" + quote(Q_DIFICIL))
+                self.assertIn("%2B00%3A00", ate)
                 # Nenhum caractere de query solto no valor.
-                valor = proximo.split("&q=", 1)[1]
+                valor = prefixo.split("&q=", 1)[1]
                 for solto in " &#?=+":
                     self.assertNotIn(solto, valor)
 

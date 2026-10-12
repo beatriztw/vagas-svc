@@ -1,5 +1,6 @@
 """Rotas HTML da tela (`/tela`): renderizadas no servidor, com partials trocados pelo HTMX."""
 
+from datetime import datetime
 from urllib.parse import quote, urlencode
 
 from fastapi import APIRouter, Depends, Form, Request, Response
@@ -10,7 +11,7 @@ from src.model.erros import DadoInvalido
 from src.repository.base import MAX_DESLOCAMENTO_VAGAS, MAX_TAMANHO_BUSCA, VagaEncontradaRepository, validar_deslocamento
 from src.service.candidatura_service import CandidaturaService
 from src.service.coleta_service import ColetaService
-from src.service.historico_service import HistoricoService
+from src.service.historico_service import HistoricoService, ler_ate
 
 # D11: 50 por vez; o resto vem pelo "carregar mais".
 TAMANHO_PAGINA = 50
@@ -75,16 +76,20 @@ def criar_router_tela(
         """Os outros anúncios do grupo da vaga aberta (mesmo título e empresa), para o detalhe."""
         return historico.outros_anuncios(vaga) if vaga is not None else []
 
-    def contexto_lista(q: str | None, novas: bool, deslocamento: int) -> dict:
+    def contexto_lista(q: str | None, novas: bool, deslocamento: int, ate: datetime | None = None) -> dict:
         """O que `_lista.html` e `_cards.html` precisam. Página e total saem da mesma leitura do
-        histórico com o perfil aplicado: o contador é o da lista inteira, nunca o tamanho da página."""
-        lida = historico.pagina(somente_novas=novas, limite=TAMANHO_PAGINA, q=q, deslocamento=deslocamento)
+        histórico com o perfil aplicado: o contador é o da lista inteira, nunca o tamanho da página.
+
+        A primeira página (`ate` None) tira a foto do instante; o "carregar mais" leva o `ate` dela de
+        volta, então vaga vista ou coletada entre as páginas não faz pular nem repetir card."""
+        lida = historico.pagina(somente_novas=novas, limite=TAMANHO_PAGINA, q=q, deslocamento=deslocamento, ate=ate)
         vagas, total = lida.vagas, lida.total
         proximo = deslocamento + len(vagas)
         query_proximo = None
         if vagas and proximo < total and proximo <= MAX_DESLOCAMENTO_VAGAS:
             # Codificado aqui, uma vez: o template só imprime (e escapa para atributo).
-            query_proximo = _query(deslocamento=proximo, q=q, novas=novas)
+            # O instante vai em UTC e codificado: o `+00:00` do fuso não pode virar espaço na volta.
+            query_proximo = _query(deslocamento=proximo, q=q, novas=novas, ate=lida.ate.isoformat())
         return {
             "vagas": vagas,
             "total": total,
@@ -134,14 +139,21 @@ def criar_router_tela(
         return pagina(request, _busca(q), _novas(novas), obter(url), bool(url))
 
     @router.get("/vagas")
-    def vagas(request: Request, q: str | None = None, novas: str | None = None, deslocamento: str = "0"):
+    def vagas(
+        request: Request,
+        q: str | None = None,
+        novas: str | None = None,
+        deslocamento: str = "0",
+        ate: str | None = None,
+    ):
         q = _busca(q)
         somente_novas = _novas(novas)
+        instante = ler_ate(ate)  # validado também na página inteira: instante ruim é 422, não é ignorado
         # Validado também na página inteira: um deslocamento ruim é 422, não é ignorado.
         inicio = validar_deslocamento(_deslocamento(deslocamento))
         if not eh_htmx(request):
             return pagina(request, q, somente_novas, None, False)
-        contexto = contexto_lista(q, somente_novas, inicio)
+        contexto = contexto_lista(q, somente_novas, inicio, instante)
         # Do 2º bloco em diante só entram os cards e o novo sentinela (substitui o anterior).
         partial = "tela/_cards.html" if inicio > 0 else "tela/_lista.html"
         return templates.TemplateResponse(request, partial, contexto)

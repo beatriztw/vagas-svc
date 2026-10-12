@@ -1,3 +1,5 @@
+from datetime import datetime
+
 import psycopg
 from psycopg.rows import dict_row
 
@@ -15,6 +17,7 @@ from src.repository.base import (
     exigidas_da_busca,
     normalizar_perfil,
     vagas_validas,
+    validar_ate,
     validar_deslocamento,
     validar_limite,
     validar_perfil,
@@ -203,13 +206,24 @@ class VagaEncontradaRepositoryPostgres(VagaEncontradaRepository):
             cur.execute(f"SELECT {_COLUNAS_VAGA} FROM vaga_encontrada {self._filtro(somente_novas)}")
             return sum(1 for linha in cur.fetchall() if casa_busca(VagaEncontrada(**linha), exigidas))
 
-    def listar_recentes(self, somente_novas: bool, teto: int, q: str | None = None) -> list[VagaEncontrada]:
+    def listar_recentes(
+        self, somente_novas: bool, teto: int, q: str | None = None, ate: datetime | None = None
+    ) -> list[VagaEncontrada]:
         teto = validar_teto(teto)
+        ate = validar_ate(ate)
         exigidas = exigidas_da_busca(q)
         # O teto vai no SQL (custo limitado); o `q` por radical é filtrado em Python, como em `listar`.
-        sql = f"SELECT {_COLUNAS_VAGA} FROM vaga_encontrada {self._filtro(somente_novas)}" + _ORDEM + " LIMIT %s"
+        if ate is None:
+            filtro, params = self._filtro(somente_novas), ()
+        else:
+            # Foto do instante: o que já existia em `ate` e, em Novas, ainda não visto em `ate`.
+            filtro, params = "WHERE primeira_vez_em <= %s ", (ate,)
+            if somente_novas:
+                filtro += "AND (vista_em IS NULL OR vista_em > %s) "
+                params += (ate,)
+        sql = f"SELECT {_COLUNAS_VAGA} FROM vaga_encontrada {filtro}" + _ORDEM + " LIMIT %s"
         with self._conn.cursor(row_factory=dict_row) as cur:
-            cur.execute(sql, (teto,))
+            cur.execute(sql, (*params, teto))
             vagas = [VagaEncontrada(**{**linha, "termos": list(linha["termos"])}) for linha in cur.fetchall()]
         return [v for v in vagas if casa_busca(v, exigidas)]
 

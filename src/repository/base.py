@@ -73,11 +73,19 @@ class VagaEncontradaRepository(ABC):
         """Quantas vagas `listar` devolveria sem limite nem deslocamento."""
 
     @abstractmethod
-    def listar_recentes(self, somente_novas: bool, teto: int, q: str | None = None) -> list[VagaEncontrada]:
+    def listar_recentes(
+        self, somente_novas: bool, teto: int, q: str | None = None, ate: datetime | None = None
+    ) -> list[VagaEncontrada]:
         """A janela de varredura do histórico: as `teto` vagas mais recentes na ordem de `listar`
         (já com o filtro `somente_novas`) e, dentro delas, as que casam com `q`.
 
         O teto vale antes do `q`, para o custo ficar limitado pelo teto nos dois repositórios.
+
+        `ate` (datetime com fuso) é a foto do instante: só entra o que já existia nele
+        (`primeira_vez_em <= ate`) e, em Novas, o que ainda não tinha sido visto nele
+        (`vista_em IS NULL OR vista_em > ate`). Assim uma coleta ou uma vista depois de `ate` não muda
+        a janela e as páginas do "carregar mais" não pulam nem repetem. Sem `ate`, sem foto: o filtro
+        de `listar` (Novas = `vista_em IS NULL`), sem limite de data.
         """
 
     @abstractmethod
@@ -160,6 +168,20 @@ def validar_teto(teto: int) -> int:
     if isinstance(teto, bool) or not isinstance(teto, int) or teto < 1:
         raise DadoInvalido("teto da varredura tem que ser um inteiro positivo")
     return teto
+
+
+def validar_ate(ate: datetime | None) -> datetime | None:
+    """A foto do instante tem que ter fuso: sem ele a comparação com `timestamptz` dependeria do servidor."""
+    if ate is not None and (not isinstance(ate, datetime) or ate.tzinfo is None or ate.utcoffset() is None):
+        raise DadoInvalido("ate tem que ser um instante com fuso")
+    return ate
+
+
+def na_janela(vaga: VagaEncontrada, somente_novas: bool, ate: datetime) -> bool:
+    """A regra da foto do instante (ver `listar_recentes`), em Python, para a memória."""
+    if vaga.primeira_vez_em is None or vaga.primeira_vez_em > ate:
+        return False
+    return not somente_novas or vaga.vista_em is None or vaga.vista_em > ate
 
 
 def validar_urls(urls: list[str]) -> list[str]:
@@ -322,10 +344,18 @@ class VagaEncontradaRepositoryMemoria(VagaEncontradaRepository):
     def contar(self, somente_novas: bool, q: str | None = None) -> int:
         return len(filtrar_e_ordenar(list(self._linhas.values()), somente_novas, q))
 
-    def listar_recentes(self, somente_novas: bool, teto: int, q: str | None = None) -> list[VagaEncontrada]:
+    def listar_recentes(
+        self, somente_novas: bool, teto: int, q: str | None = None, ate: datetime | None = None
+    ) -> list[VagaEncontrada]:
         teto = validar_teto(teto)
+        ate = validar_ate(ate)
         exigidas = exigidas_da_busca(q)
-        janela = filtrar_e_ordenar(list(self._linhas.values()), somente_novas, None)[:teto]
+        linhas = list(self._linhas.values())
+        if ate is None:
+            janela = filtrar_e_ordenar(linhas, somente_novas, None)[:teto]
+        else:
+            # A foto decide Novas pela vista_em no instante; a ordem é a de sempre.
+            janela = filtrar_e_ordenar([v for v in linhas if na_janela(v, somente_novas, ate)], False, None)[:teto]
         return [replace(v, termos=list(v.termos)) for v in janela if casa_busca(v, exigidas)]
 
     def obter(self, url: str) -> VagaEncontrada | None:
