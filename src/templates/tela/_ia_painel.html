@@ -1,0 +1,18 @@
+{# Alvo do GET /tela/vagas/ia. Cada botão pede um tipo e o pedido aparece no slot do tipo. #}
+<div id="ia" class="ia">
+  <div class="ia-botoes">
+    <form hx-post="/tela/vagas/ia" hx-target="#ia-compatibilidade" hx-swap="innerHTML" hx-disabled-elt="find button">
+      <input type="hidden" name="vaga_url" value="{{ vaga_url }}">
+      <input type="hidden" name="tipo" value="compatibilidade">
+      <button type="submit" class="botao botao-ai">Compatibilidade</button>
+    </form>
+    <form hx-post="/tela/vagas/ia" hx-target="#ia-curriculo" hx-swap="innerHTML" hx-disabled-elt="find button">
+      <input type="hidden" name="vaga_url" value="{{ vaga_url }}">
+      <input type="hidden" name="tipo" value="curriculo">
+      <button type="submit" class="botao botao-ai">Gerar currículo</button>
+    </form>
+  </div>
+  <div id="ia-compatibilidade" class="ia-slot">{% set p = ultimos["compatibilidade"] %}{% if p %}{% include "tela/_ia_pedido.html" %}{% endif %}</div>
+  <div id="ia-curriculo" class="ia-slot">{% set p = ultimos["curriculo"] %}{% if p %}{% include "tela/_ia_pedido.html" %}{% endif %}</div>
+  {% include "tela/_ia_rotulo.html" %}
+</div>

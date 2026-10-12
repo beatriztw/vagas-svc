@@ -1,0 +1,59 @@
+{# Um pedido de IA. Ativo: se acompanha sozinho a cada 3 s. Pronto/erro: sem hx-get (e o servidor responde 286). `p` é None quando o pedido sumiu. #}
+{% if p is none %}
+<div class="ia-pedido ia-erro" role="status">Pedido não encontrado</div>
+{% elif p.ativo %}
+<div id="ia-pedido-{{ p.id }}" class="ia-pedido ia-ativo" role="status" hx-get="/tela/vagas/ia/{{ p.id }}" hx-trigger="every 3s" hx-swap="outerHTML">
+  {{ "Na fila…" if p.estado.value == "pendente" else "Rodando…" }}
+</div>
+{% elif p.estado.value == "erro" %}
+<div id="ia-pedido-{{ p.id }}" class="ia-pedido ia-erro" role="status">Não foi possível: {{ p.erro }}</div>
+{% elif p.tipo.value == "compatibilidade" %}
+{% set r = p.resultado %}
+{% set classe = "alta" if r["faixa"] == "alta" else "media" if r["faixa"] == "média" else "baixa" %}
+<div id="ia-pedido-{{ p.id }}" class="ia-pedido ia-pronto">
+  <p class="ia-nota ia-faixa-{{ classe }}"><span class="ia-nota-valor">{{ r["nota"] }}/100</span> <span class="ia-faixa">{{ r["faixa"] }}</span></p>
+  <p class="ia-resumo">{{ r["resumo"] }}</p>
+  {% if r["atende"] %}
+  <h4>Atende</h4>
+  <ul class="ia-lista">
+    {% for item in r["atende"] %}
+    <li>{{ item["requisito"] }}<span class="ia-evidencia"> “{{ item["evidencia_no_curriculo"] }}”</span></li>
+    {% endfor %}
+  </ul>
+  {% endif %}
+  {% if r["falta"] %}
+  <h4>Falta</h4>
+  <ul class="ia-lista">
+    {% for item in r["falta"] %}
+    <li>{{ item["requisito"] }} <span class="ia-etiqueta">{{ "obrigatório" if item["obrigatorio"] else "desejável" }}</span></li>
+    {% endfor %}
+  </ul>
+  {% endif %}
+  {% if r["eliminatorios"] %}
+  <h4>Eliminatórios</h4>
+  <ul class="ia-lista">
+    {% for item in r["eliminatorios"] %}<li>{{ item }}</li>{% endfor %}
+  </ul>
+  {% endif %}
+  <p class="ia-versao">{{ p.prompt_versao }}</p>
+</div>
+{% else %}
+{% set r = p.resultado %}
+<div id="ia-pedido-{{ p.id }}" class="ia-pedido ia-pronto">
+  <p class="ia-curriculo-titulo">{{ r["titulo"] }}</p>
+  <p><a href="/tela/vagas/ia/{{ p.id }}/curriculo.md" download>Baixar currículo (.md)</a></p>
+  {% if r["o_que_mudou"] %}
+  <h4>O que mudou</h4>
+  <ul class="ia-lista">
+    {% for item in r["o_que_mudou"] %}<li>{{ item }}</li>{% endfor %}
+  </ul>
+  {% endif %}
+  {% if r["lacunas"] %}
+  <h4>Lacunas</h4>
+  <ul class="ia-lista">
+    {% for item in r["lacunas"] %}<li>{{ item }}</li>{% endfor %}
+  </ul>
+  {% endif %}
+  <p class="ia-versao">{{ p.prompt_versao }}</p>
+</div>
+{% endif %}

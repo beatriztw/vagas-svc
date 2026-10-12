@@ -286,7 +286,7 @@ class DetalheTest(unittest.TestCase):
 
         self.assertIsNone(repo.obter("https://exemplo.test/vaga/1").vista_em)
 
-    def test_detalhe_tem_chips_link_seguro_e_botao_gerar_desabilitado(self):
+    def test_detalhe_tem_chips_link_seguro_e_painel_de_ia(self):
         cliente, _ = criar([vaga(1, remoto=True)])
 
         pagina = Pagina(cliente.get("/tela/vagas/detalhe", params={"url": "https://exemplo.test/vaga/1"}, headers=HX).text)
@@ -299,9 +299,9 @@ class DetalheTest(unittest.TestCase):
         self.assertEqual(link.attrs["target"], "_blank")
         self.assertEqual(link.attrs["rel"], "noopener noreferrer")
         botoes = {b.texto.strip(): b.attrs for b in pagina.tags("button")}
-        # "Gerar" segue desabilitado (D6); "Marcar como aplicada" é o formulário de candidatura.
-        self.assertIn("disabled", botoes["Gerar"])
-        self.assertEqual(botoes["Gerar"]["title"], "em breve")
+        # O "Gerar" desabilitado virou o painel de IA (carrega por hx-get); "Marcar como aplicada" é o formulário de candidatura.
+        self.assertNotIn("Gerar", botoes)
+        self.assertEqual(pagina.por_id("ia").attrs["hx-trigger"], "load")
         self.assertNotIn("disabled", botoes["Marcar como aplicada"])
         self.assertNotIn("Descrição", detalhe.texto)
         self.assertNotIn("Requisitos", detalhe.texto)
