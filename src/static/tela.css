@@ -211,5 +211,27 @@ input[type="search"], input[type="text"], select {
 .acoes { display: flex; flex-wrap: wrap; gap: 8px; }
 .botao-ai { background: var(--ai); border-color: var(--ai); color: #FFFFFF; }
 
+/* Selo "nova", alternância novas/todas e resumo da coleta. */
+.selo-nova {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 0 8px;
+  border-radius: 999px;
+  background: #EAF4F2;
+  color: #0F5F58;
+  border: 1px solid var(--accent);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 18px;
+  vertical-align: middle;
+}
+.lista-barra { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin: 0 0 12px; }
+.lista-barra .contador { margin: 0; flex: 1 1 auto; }
+.alternancia { display: flex; gap: 6px; }
+.alternancia .botao { text-decoration: none; display: inline-flex; align-items: center; }
+.botao-ativo { background: #EAF4F2; border-color: var(--accent); color: #0F5F58; }
+.resumo { margin: 0 0 12px; padding: 10px 12px; border: 1px solid var(--borda); border-radius: var(--raio-sm); background: #EAF4F2; }
+.resumo p { margin: 0; }
+.botao.htmx-request { opacity: 0.6; cursor: progress; }
 .busca { display: flex; flex-direction: column; gap: 8px; }
 .busca label { font-size: 13px; font-weight: 500; color: #34413F; }

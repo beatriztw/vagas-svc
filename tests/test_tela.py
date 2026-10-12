@@ -34,7 +34,7 @@ def criar_cliente(encontradas=None, **kwargs) -> tuple[TestClient, object]:
 
 
 class PaginaTest(unittest.TestCase):
-    def test_pagina_vazia_mostra_o_vazio_e_o_botao_de_coleta_desabilitado(self):
+    def test_pagina_vazia_mostra_o_vazio_e_o_botao_de_coleta(self):
         cliente, _ = criar_cliente()
 
         resposta = cliente.get("/tela")
@@ -43,7 +43,9 @@ class PaginaTest(unittest.TestCase):
         html = resposta.text
         self.assertIn("<html", html)
         self.assertIn("Nenhuma vaga ainda; rode uma coleta", html)
-        self.assertRegex(html, r"<button[^>]*\bdisabled\b[^>]*>\s*Coletar agora\s*</button>")
+        # O botão de coleta do estado vazio está habilitado e chama POST /tela/coletas (PR4).
+        self.assertRegex(html, r'<button[^>]*hx-post="/tela/coletas"[^>]*>\s*Coletar agora\s*</button>')
+        self.assertNotRegex(html, r"<button[^>]*(?<![-\w])disabled(?![-\w])[^>]*>\s*Coletar agora")
         self.assertRegex(html, r"<button[^>]*\bdisabled\b[^>]*>\s*Meu perfil\s*</button>")
         self.assertIn("Selecione uma vaga", html)
         self.assertIn("Nenhuma candidatura ainda", html)
@@ -59,7 +61,6 @@ class PaginaTest(unittest.TestCase):
         html = cliente.get("/tela").text
 
         self.assertNotIn("Nenhuma vaga ainda", html)
-        self.assertNotIn("Coletar agora", html)
 
     def test_get_tela_com_hx_request_continua_sendo_a_pagina_inteira(self):
         cliente, _ = criar_cliente()
