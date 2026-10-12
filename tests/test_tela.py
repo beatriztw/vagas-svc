@@ -272,16 +272,33 @@ class RotasDeTesteTest(unittest.TestCase):
 
     # Erros
 
-    def test_dado_invalido_em_rota_da_tela_e_422_html_escapado(self):
-        resposta = self.cliente.get("/tela/_teste/dado-invalido")
+    def test_dado_invalido_com_htmx_e_422_que_troca_o_aviso_da_pagina(self):
+        resposta = self.cliente.get("/tela/_teste/dado-invalido", headers={"HX-Request": "true"})
 
         self.assertEqual(resposta.status_code, 422)
         self.assertIn("text/html", resposta.headers["content-type"])
+        # O alvo do chamador (uma linha de tabela, por exemplo) não é trocado pelo erro.
+        self.assertEqual(resposta.headers["hx-retarget"], "#aviso")
+        self.assertEqual(resposta.headers["hx-reswap"], "outerHTML")
         self.assertNotIn("<html", resposta.text)
-        self.assertIn('role="alert"', resposta.text)
+        self.assertRegex(resposta.text, r'<div id="aviso" class="erro" role="alert">')
+        self.assertNotIn("hidden", resposta.text)
         self.assertNotIn("<script>", resposta.text)
         self.assertIn("&lt;script&gt;alert(1)&lt;/script&gt; inválido", resposta.text)
         self.assertEqual(resposta.headers["cache-control"], "no-store")
+
+    def test_dado_invalido_sem_htmx_e_a_pagina_de_erro_inteira(self):
+        resposta = self.cliente.get("/tela/_teste/dado-invalido")
+
+        self.assertEqual(resposta.status_code, 422)
+        self.assertIn("<html", resposta.text)
+        self.assertNotIn("hx-retarget", resposta.headers)
+        self.assertEqual(resposta.text.count('role="alert"'), 1)
+        self.assertIn('<div id="aviso" class="erro" role="alert">', resposta.text)
+        self.assertIn('href="/tela"', resposta.text)
+        self.assertIn("Voltar para /tela", resposta.text)
+        self.assertNotIn("<script>alert", resposta.text)
+        self.assertIn("&lt;script&gt;alert(1)&lt;/script&gt; inválido", resposta.text)
 
     def test_dado_invalido_em_rota_json_continua_json(self):
         resposta = self.cliente.get("/_teste/dado-invalido-json")

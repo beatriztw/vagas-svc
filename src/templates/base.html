@@ -21,7 +21,7 @@
     <button type="button" class="botao" disabled title="em breve">Meu perfil</button>
   </div>
 </header>
-<div id="aviso" class="erro" role="alert" hidden></div>
+{% block aviso %}<div id="aviso" class="erro" role="alert" hidden></div>{% endblock %}
 <main class="pagina">
 {% block conteudo %}{% endblock %}
 </main>
