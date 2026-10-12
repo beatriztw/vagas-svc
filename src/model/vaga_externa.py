@@ -1,5 +1,7 @@
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, datetime
+
+from src.model.detalhe_vaga import DetalheVaga
 
 
 @dataclass(frozen=True)
@@ -13,3 +15,7 @@ class VagaExterna:
     local: str | None = None
     remoto: bool | None = None
     publicada_em: date | None = None
+    # Só o provider que informa expiração na listagem (Remotar) preenche; None = no ar.
+    expirada_em: datetime | None = None
+    # Detalhe que a própria listagem traz (Remotar): descrição, requisitos, salário e benefícios, já sanitizados.
+    detalhe: DetalheVaga | None = None
