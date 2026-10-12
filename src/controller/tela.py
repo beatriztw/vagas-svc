@@ -2,11 +2,12 @@
 
 from urllib.parse import quote, urlencode
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Depends, Form, Request, Response
 
-from src.controller.tela_seguranca import PREFIXO_TELA, eh_htmx, templates
+from src.controller.tela_seguranca import PREFIXO_TELA, eh_htmx, exigir_mutacao_da_tela, templates
 from src.model.erros import DadoInvalido
 from src.repository.base import MAX_DESLOCAMENTO_VAGAS, MAX_TAMANHO_BUSCA, VagaEncontradaRepository, validar_deslocamento
+from src.service.coleta_service import ColetaService
 
 # D11: 50 por vez; o resto vem pelo "carregar mais".
 TAMANHO_PAGINA = 50
@@ -29,8 +30,27 @@ def _busca(q: str | None) -> str | None:
     return q
 
 
-def criar_router_tela(encontradas: VagaEncontradaRepository) -> APIRouter:
-    """Recebe os repositories que `criar_app` já tem (na produção, os `_PorChamada`)."""
+def _novas(texto: str | None) -> bool:
+    """`novas` da query: "1"/"true" só as não vistas; ausente, "0" ou "false" todas (o padrão do PR2)."""
+    valor = (texto or "").strip().lower()
+    if valor in ("", "0", "false"):
+        return False
+    if valor in ("1", "true"):
+        return True
+    raise DadoInvalido("novas tem que ser 0 ou 1")
+
+
+def _query(**parametros) -> str:
+    """Query já codificada, só com o que tem valor; `novas` vai como 1. Os templates só imprimem."""
+    limpos = {n: v for n, v in parametros.items() if v}
+    if "novas" in limpos:
+        limpos["novas"] = "1"
+    return urlencode(limpos, quote_via=quote)
+
+
+def criar_router_tela(encontradas: VagaEncontradaRepository, coleta: ColetaService) -> APIRouter:
+    """Recebe o que `criar_app` já tem: os repositories (na produção, os `_PorChamada`) e o MESMO
+    `ColetaService`, com a mesma trava de uma coleta por vez da API e do cron."""
     router = APIRouter(prefix=PREFIXO_TELA, include_in_schema=False)
 
     def obter(url: str | None):
@@ -38,21 +58,30 @@ def criar_router_tela(encontradas: VagaEncontradaRepository) -> APIRouter:
             return None
         return encontradas.obter(url)
 
-    def contexto_lista(q: str | None, deslocamento: int) -> dict:
+    def contexto_lista(q: str | None, novas: bool, deslocamento: int) -> dict:
         """O que `_lista.html` e `_cards.html` precisam; a contagem vem de `contar`, nunca do tamanho da página."""
-        total = encontradas.contar(somente_novas=False, q=q)
-        vagas = encontradas.listar(somente_novas=False, limite=TAMANHO_PAGINA, q=q, deslocamento=deslocamento)
+        total = encontradas.contar(somente_novas=novas, q=q)
+        vagas = encontradas.listar(somente_novas=novas, limite=TAMANHO_PAGINA, q=q, deslocamento=deslocamento)
         proximo = deslocamento + len(vagas)
         query_proximo = None
         if vagas and proximo < total and proximo <= MAX_DESLOCAMENTO_VAGAS:
-            parametros = {"deslocamento": proximo, **({"q": q} if q else {})}
             # Codificado aqui, uma vez: o template só imprime (e escapa para atributo).
-            query_proximo = urlencode(parametros, quote_via=quote)
-        return {"vagas": vagas, "total": total, "q": q, "query_proximo": query_proximo}
+            query_proximo = _query(deslocamento=proximo, q=q, novas=novas)
+        return {
+            "vagas": vagas,
+            "total": total,
+            "q": q,
+            "novas": novas,
+            "query_proximo": query_proximo,
+            # O filtro viaja em toda url gerada (card, alternância); sem filtro fica vazio.
+            "filtro": _query(q=q, novas=novas),
+            "query_todas": _query(q=q),
+            "query_novas": _query(q=q, novas=True),
+        }
 
-    def pagina(request: Request, q: str | None, vaga, pedida: bool):
+    def pagina(request: Request, q: str | None, novas: bool, vaga, pedida: bool):
         """A página inteira. `vaga` é a selecionada; `pedida` sem vaga é um link para o que não existe."""
-        contexto = contexto_lista(q, 0)
+        contexto = contexto_lista(q, novas, 0)
         nao_encontrada = pedida and vaga is None
         if not pedida and contexto["vagas"]:
             vaga = contexto["vagas"][0]
@@ -72,27 +101,50 @@ def criar_router_tela(encontradas: VagaEncontradaRepository) -> APIRouter:
         )
 
     @router.get("")
-    def tela(request: Request, url: str | None = None, q: str | None = None):
+    def tela(request: Request, url: str | None = None, q: str | None = None, novas: str | None = None):
         # A página inteira sempre, mesmo com HX-Request: as rotas de partial são as de baixo.
-        return pagina(request, _busca(q), obter(url), bool(url))
+        return pagina(request, _busca(q), _novas(novas), obter(url), bool(url))
 
     @router.get("/vagas")
-    def vagas(request: Request, q: str | None = None, deslocamento: str = "0"):
+    def vagas(request: Request, q: str | None = None, novas: str | None = None, deslocamento: str = "0"):
         q = _busca(q)
+        somente_novas = _novas(novas)
         # Validado também na página inteira: um deslocamento ruim é 422, não é ignorado.
         inicio = validar_deslocamento(_deslocamento(deslocamento))
         if not eh_htmx(request):
-            return pagina(request, q, None, False)
-        contexto = contexto_lista(q, inicio)
+            return pagina(request, q, somente_novas, None, False)
+        contexto = contexto_lista(q, somente_novas, inicio)
         # Do 2º bloco em diante só entram os cards e o novo sentinela (substitui o anterior).
         partial = "tela/_cards.html" if inicio > 0 else "tela/_lista.html"
         return templates.TemplateResponse(request, partial, contexto)
 
     @router.get("/vagas/detalhe")
-    def detalhe(request: Request, url: str | None = None):
+    def detalhe(request: Request, url: str | None = None, q: str | None = None, novas: str | None = None):
         vaga = obter(url)
+        busca, somente_novas = _busca(q), _novas(novas)  # validados também no partial
         if not eh_htmx(request):
-            return pagina(request, None, vaga, True)
+            return pagina(request, busca, somente_novas, vaga, True)
         return detalhe_partial(request, vaga, vaga is None)
+
+    @router.post("/vagas/vista", dependencies=[Depends(exigir_mutacao_da_tela)])
+    def vista(url: str = Form("")):
+        """Marca a vaga como vista: só aqui, nunca no GET do detalhe (D8). Sem corpo; o tela.js tira o selo."""
+        if not url or len(url) > MAX_TAMANHO_URL:
+            raise DadoInvalido("url da vaga inválida")
+        encontradas.marcar_vistas([url])
+        return Response(status_code=204)
+
+    @router.post("/coletas", dependencies=[Depends(exigir_mutacao_da_tela)])
+    def coletar(request: Request, q: str = Form(""), novas: str = Form("")):
+        """Roda a coleta (a trava de uma por vez é do ColetaService: 409 em HTML se já há uma) e devolve a lista."""
+        busca, somente_novas = _busca(q), _novas(novas)
+        resultado = coleta.coletar()
+        contexto = contexto_lista(busca, somente_novas, 0)
+        contexto["resumo"] = {
+            "novas": resultado.novas,
+            "falhou": resultado.falhou,
+            "erros": [f"{t.termo}: {nome}" for t in resultado.termos for nome in t.erros],
+        }
+        return templates.TemplateResponse(request, "tela/_lista.html", contexto)
 
     return router

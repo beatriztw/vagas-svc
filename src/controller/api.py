@@ -172,24 +172,27 @@ def criar_app(
     encontradas = encontradas if encontradas is not None else VagaEncontradaRepositoryMemoria()
     coleta = ColetaService(recomendacao, perfis, encontradas, trava)
 
+    def erro_da_tela(request: Request, mensagem: str, status: int):
+        """A tela troca HTML: o erro volta como HTML, não como JSON."""
+        contexto = {"mensagem": mensagem}
+        if eh_htmx(request):
+            # O erro seria trocado no alvo de quem chamou (uma linha de tabela, por exemplo): o
+            # servidor redireciona a troca para o aviso da página.
+            return templates.TemplateResponse(
+                request,
+                "tela/_erro.html",
+                contexto,
+                status_code=status,
+                headers={"HX-Retarget": "#aviso", "HX-Reswap": "outerHTML"},
+            )
+        return templates.TemplateResponse(request, "tela/erro.html", contexto, status_code=status)
+
     @app.exception_handler(DadoInvalido)
     def valor_invalido(request: Request, erro: DadoInvalido):
         # Só a validação do domínio vira 422; um ValueError qualquer (PGPORT inválido, dado
         # inesperado do banco) é falha do servidor e sai como 500.
         if caminho_da_tela(request.url.path):
-            # A tela troca HTML: o erro volta como HTML, não como JSON.
-            contexto = {"mensagem": str(erro)}
-            if eh_htmx(request):
-                # O 422 é trocado no alvo de quem chamou (uma linha de tabela, por exemplo): o
-                # servidor redireciona a troca para o aviso da página.
-                return templates.TemplateResponse(
-                    request,
-                    "tela/_erro.html",
-                    contexto,
-                    status_code=422,
-                    headers={"HX-Retarget": "#aviso", "HX-Reswap": "outerHTML"},
-                )
-            return templates.TemplateResponse(request, "tela/erro.html", contexto, status_code=422)
+            return erro_da_tela(request, str(erro), 422)
         return JSONResponse(status_code=422, content={"detail": str(erro)})
 
     @app.middleware("http")
@@ -205,15 +208,17 @@ def criar_app(
         return resposta
 
     app.mount("/static", StaticFiles(directory=DIRETORIO_STATIC), name="static")
-    app.include_router(criar_router_tela(encontradas))
+    app.include_router(criar_router_tela(encontradas, coleta))
 
     @app.get("/", include_in_schema=False)
     def raiz() -> RedirectResponse:
         return RedirectResponse("/tela", status_code=307)
 
     @app.exception_handler(ColetaEmAndamento)
-    def coleta_em_andamento(_: Request, erro: ColetaEmAndamento) -> JSONResponse:
+    def coleta_em_andamento(request: Request, erro: ColetaEmAndamento):
         # Conflito, não validação nem falha: quem chamou tenta de novo quando a outra terminar.
+        if caminho_da_tela(request.url.path):
+            return erro_da_tela(request, str(erro), 409)
         return JSONResponse(status_code=409, content={"detail": str(erro)})
 
     @app.get("/saude")

@@ -1,14 +1,46 @@
-{# Partial = alvo do swap: o contador e a lista trocam juntos; a página inteira inclui este mesmo arquivo. #}
+{# Partial = alvo do swap (outerHTML): resumo, contador, alternância e lista trocam juntos; a página inteira inclui este mesmo arquivo. #}
 <div id="vagas">
-  <p class="mono contador">{{ total }} encontradas</p>
+  {# O filtro atual, para o POST da coleta devolver a lista no mesmo estado (hx-include). #}
+  <div id="estado-lista" hidden>
+    <input type="hidden" name="q" value="{{ q or '' }}">
+    <input type="hidden" name="novas" value="{{ '1' if novas else '' }}">
+  </div>
+  {% if resumo is defined %}
+  <div class="resumo" role="status">
+    {% if resumo.falhou %}
+    <p>Coleta sem resultado: todas as fontes deram erro.</p>
+    {% else %}
+    <p>Coleta concluída: {{ resumo.novas }} novas.</p>
+    {% endif %}
+    {% for erro in resumo.erros %}<p class="mono">{{ erro }}</p>{% endfor %}
+  </div>
+  {% endif %}
+  <div class="lista-barra">
+    <p class="mono contador">{{ total }} {{ "novas" if novas else "encontradas" }}</p>
+    <nav class="alternancia" aria-label="Filtro da lista">
+      <a class="botao{% if not novas %} botao-ativo{% endif %}"{% if not novas %} aria-current="page"{% endif %}
+         href="/tela{{ '?' ~ query_todas if query_todas }}"
+         hx-get="/tela/vagas{{ '?' ~ query_todas if query_todas }}" hx-target="#vagas" hx-swap="outerHTML"
+         hx-push-url="/tela{{ '?' ~ query_todas if query_todas }}">Todas</a>
+      <a class="botao{% if novas %} botao-ativo{% endif %}"{% if novas %} aria-current="page"{% endif %}
+         href="/tela?{{ query_novas }}"
+         hx-get="/tela/vagas?{{ query_novas }}" hx-target="#vagas" hx-swap="outerHTML"
+         hx-push-url="/tela?{{ query_novas }}">Novas</a>
+    </nav>
+    <button type="button" class="botao botao-primario" hx-post="/tela/coletas" hx-include="#estado-lista"
+            hx-target="#vagas" hx-swap="outerHTML" hx-disabled-elt="this">Coletar agora</button>
+  </div>
   <ul id="lista-vagas" class="lista-vagas">
     {% if total == 0 %}
     <li class="vazio">
       {% if q %}
       <p>Nenhuma vaga encontrada para a busca.</p>
+      {% elif novas %}
+      <p>Nenhuma vaga nova.</p>
       {% else %}
       <p>Nenhuma vaga ainda; rode uma coleta.</p>
-      <button type="button" class="botao botao-primario" disabled title="em breve">Coletar agora</button>
+      <button type="button" class="botao botao-primario" hx-post="/tela/coletas" hx-include="#estado-lista"
+              hx-target="#vagas" hx-swap="outerHTML" hx-disabled-elt="this">Coletar agora</button>
       {% endif %}
     </li>
     {% else %}
