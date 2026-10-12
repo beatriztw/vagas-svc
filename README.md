@@ -205,7 +205,7 @@ Além do clique da pessoa, a compatibilidade roda em lote, uma vaga por vez, pel
 - **Quais vagas**: as da lista da tela (as que passam no perfil, sem as expiradas, na mesma ordem), menos as que já têm pedido de compatibilidade ativo e as que já têm nota válida.
 - **Nota válida**: pronto de compatibilidade feito com o currículo base vigente (`curriculo_base_id`, gravado quando o pedido é criado) e com a versão atual do prompt (a maior `compatibilidade-vN` já vista nos prontos). Trocou a base ou subiu a versão, a vaga volta para o lote. Pedido de antes da 007 não tem base gravada e não conta.
 - **Prioridade**: o clique da pessoa (`prioridade` 0) passa na frente do lote (1) na fila; pedir pela tela uma vaga que já está no lote sobe o pedido para a prioridade da pessoa.
-- **Teto**: no máximo `IA_LOTE_MAX_POR_DIA` pedidos do lote criados nas últimas 24 h (padrão 40; `0` desliga o lote; valor inválido cai no padrão). A cota é a do Pro da Beatriz: cota estourada deixa o pedido `rodando` e o worker espera, como no clique.
+- **Teto**: no máximo `IA_LOTE_MAX_POR_DIA` pedidos do lote criados nas últimas 24 h (padrão 40; `0` desliga o lote; valor inválido cai no padrão). A cota é a da assinatura do worker: cota estourada deixa o pedido `rodando` e o worker espera, como no clique.
 - **Na tela**: a barra da lista mostra `IA: N avaliadas · M na fila` (entre as vagas da lista).
 
 ### Token do worker (Bearer)
