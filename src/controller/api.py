@@ -15,7 +15,7 @@ from src.client.armazenamento import Armazenamento
 from src.controller.candidaturas import criar_router_candidaturas
 from src.controller.tela import criar_router_tela
 from src.controller.tela_candidaturas import criar_router_tela_candidaturas
-from src.controller.tela_seguranca import DIRETORIO_STATIC, caminho_da_tela, templates
+from src.controller.tela_seguranca import DIRETORIO_STATIC, caminho_da_tela, eh_htmx, templates
 from src.model.curriculo import Curriculo
 from src.model.erros import DadoInvalido
 from src.model.perfil import Perfil
@@ -23,8 +23,10 @@ from src.model.vaga import Modalidade, Nivel
 from src.model.vaga_encontrada import VagaEncontrada
 from src.model.vaga_externa import VagaExterna
 from src.repository.base import (
+    MAX_DESLOCAMENTO_VAGAS,
     MAX_LIMITE_VAGAS,
     MAX_PUBLICADA_DESDE_DIAS,
+    MAX_TAMANHO_BUSCA,
     CurriculoRepository,
     PerfilBuscaRepository,
     VagaEncontradaRepository,
@@ -32,6 +34,7 @@ from src.repository.base import (
     validar_perfil,
 )
 from src.repository.candidatura import CandidaturaRepository, CandidaturaRepositoryMemoria, vaga_por_url_em
+from src.repository.trava import ColetaEmAndamento, TravaColeta, TravaColetaPostgres
 from src.service.busca_service import BuscaService
 from src.service.candidatura_service import CandidaturaService
 from src.service.coleta_service import ColetaService
@@ -165,6 +168,7 @@ def criar_app(
     armazenamento: Armazenamento | None = None,
     encontradas: VagaEncontradaRepository | None = None,
     candidaturas: CandidaturaRepository | None = None,
+    trava: TravaColeta | None = None,
 ) -> FastAPI:
     """Sem `encontradas` e `candidaturas`, o histórico da coleta e as candidaturas ficam em memória (testes);
     a produção passa os do Postgres."""
@@ -172,7 +176,7 @@ def criar_app(
     app.state.armazenamento = armazenamento
     recomendacao = RecomendacaoService(busca)
     encontradas = encontradas if encontradas is not None else VagaEncontradaRepositoryMemoria()
-    coleta = ColetaService(recomendacao, perfis, encontradas)
+    coleta = ColetaService(recomendacao, perfis, encontradas, trava)
     if candidaturas is None:
         candidaturas = CandidaturaRepositoryMemoria(vaga_por_url_em(encontradas))
     # Um serviço só, para as rotas JSON e as da tela (na produção, o repositório é o _PorChamada).
@@ -185,8 +189,19 @@ def criar_app(
         # Só a validação do domínio vira 422; um ValueError qualquer (PGPORT inválido, dado
         # inesperado do banco) é falha do servidor e sai como 500.
         if caminho_da_tela(request.url.path):
-            # A tela troca HTML: o erro volta como partial, não como JSON.
-            return templates.TemplateResponse(request, "tela/_erro.html", {"mensagem": str(erro)}, status_code=422)
+            # A tela troca HTML: o erro volta como HTML, não como JSON.
+            contexto = {"mensagem": str(erro)}
+            if eh_htmx(request):
+                # O 422 é trocado no alvo de quem chamou (uma linha de tabela, por exemplo): o
+                # servidor redireciona a troca para o aviso da página.
+                return templates.TemplateResponse(
+                    request,
+                    "tela/_erro.html",
+                    contexto,
+                    status_code=422,
+                    headers={"HX-Retarget": "#aviso", "HX-Reswap": "outerHTML"},
+                )
+            return templates.TemplateResponse(request, "tela/erro.html", contexto, status_code=422)
         return JSONResponse(status_code=422, content={"detail": str(erro)})
 
     @app.middleware("http")
@@ -208,6 +223,11 @@ def criar_app(
     @app.get("/", include_in_schema=False)
     def raiz() -> RedirectResponse:
         return RedirectResponse("/tela", status_code=307)
+
+    @app.exception_handler(ColetaEmAndamento)
+    def coleta_em_andamento(_: Request, erro: ColetaEmAndamento) -> JSONResponse:
+        # Conflito, não validação nem falha: quem chamou tenta de novo quando a outra terminar.
+        return JSONResponse(status_code=409, content={"detail": str(erro)})
 
     @app.get("/saude")
     def saude() -> dict[str, bool]:
@@ -270,7 +290,7 @@ def criar_app(
 
     @app.post("/coletas")
     def coletar() -> ResultadoColetaJson:
-        # Sem perfil ou sem termos: DadoInvalido do serviço, 422.
+        # Sem perfil ou sem termos: DadoInvalido do serviço, 422; outra coleta rodando: 409.
         resultado = coleta.coletar()
         return ResultadoColetaJson(
             termos=[ColetaDoTermoJson(**vars(t)) for t in resultado.termos], novas=resultado.novas
@@ -278,9 +298,13 @@ def criar_app(
 
     @app.get("/vagas/encontradas")
     def listar_encontradas(
-        novas: bool = True, limite: int = Query(default=50, ge=1, le=MAX_LIMITE_VAGAS)
+        novas: bool = True,
+        limite: int = Query(default=50, ge=1, le=MAX_LIMITE_VAGAS),
+        q: str | None = Query(default=None, max_length=MAX_TAMANHO_BUSCA),
+        deslocamento: int = Query(default=0, ge=0, le=MAX_DESLOCAMENTO_VAGAS),
     ) -> list[VagaEncontradaJson]:
-        return [VagaEncontradaJson.de(v) for v in encontradas.listar(somente_novas=novas, limite=limite)]
+        vagas = encontradas.listar(somente_novas=novas, limite=limite, q=q, deslocamento=deslocamento)
+        return [VagaEncontradaJson.de(v) for v in vagas]
 
     @app.post("/vagas/vistas")
     def marcar_vistas(corpo: VagasVistas) -> VistasJson:
@@ -409,6 +433,7 @@ def criar_app_producao() -> FastAPI:
         armazenamento=Armazenamento(),
         encontradas=_PorChamada(pool, _encontradas_postgres),
         candidaturas=_PorChamada(pool, _candidaturas_postgres),
+        trava=TravaColetaPostgres(),
     )
 
 

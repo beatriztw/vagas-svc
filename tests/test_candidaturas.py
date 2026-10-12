@@ -159,6 +159,19 @@ class CandidaturaMemoriaTest(ContratoCandidatura, unittest.TestCase):
         self.vagas = VagaEncontradaRepositoryMemoria()
         self.repo = CandidaturaRepositoryMemoria(vaga_por_url_em(self.vagas))
 
+    def test_vaga_antiga_fora_da_primeira_pagina_do_historico_pode_ser_marcada(self):
+        # URL_A entrou antes: com MAX_LIMITE_VAGAS vagas mais novas, ela sai da primeira página da listagem.
+        from src.repository.base import MAX_LIMITE_VAGAS
+
+        novas = [vaga(f"https://exemplo.com/nova-{i}") for i in range(MAX_LIMITE_VAGAS)]
+        self.vagas.registrar(novas, "django")
+        self.assertNotIn(URL_A, [v.url for v in self.vagas.listar(False, MAX_LIMITE_VAGAS)])
+
+        candidatura, criada = self.repo.criar(URL_A)
+
+        self.assertTrue(criada)
+        self.assertEqual(candidatura.titulo, "Dev Python")
+
     def igualar_aplicada_em(self):
         instante = next(iter(self.repo._linhas.values())).aplicada_em
         for id, linha in list(self.repo._linhas.items()):

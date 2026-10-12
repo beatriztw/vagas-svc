@@ -3,13 +3,15 @@
 Lê o Postgres pelas mesmas variáveis PG* da API e busca nos providers de produção
 (`providers_padrao`). Imprime uma linha por termo e sai com 0; sai com 1 se a coleta
 inteira falhar (sem perfil ou sem termos, banco fora do ar, todos os providers com erro
-em todos os termos). O erro de um provider só aparece na linha do termo e não é falha.
+em todos os termos, ou outra coleta em andamento: mensagem "coleta em andamento" no
+stderr, mesmo código 1 e nada é buscado). O erro de um provider só aparece na linha do termo e não é falha.
 """
 
 import sys
 from collections.abc import Callable
 from typing import TextIO
 
+from src.repository.trava import ColetaEmAndamento
 from src.service.coleta_service import ColetaDoTermo, ColetaService
 
 
@@ -24,6 +26,9 @@ def rodar(criar_servico: Callable[[], ColetaService], saida: TextIO, erro: TextI
     """Roda uma coleta e imprime o resumo; devolve o código de saída."""
     try:
         resultado = criar_servico().coletar()
+    except ColetaEmAndamento as e:
+        print(str(e), file=erro)
+        return 1
     except Exception as e:
         print(f"coleta falhou: {type(e).__name__}: {e}", file=erro)
         return 1
@@ -38,6 +43,7 @@ def rodar(criar_servico: Callable[[], ColetaService], saida: TextIO, erro: TextI
 def main() -> int:
     from src.controller.api import providers_padrao
     from src.repository.conexao import conectar
+    from src.repository.trava import TravaColetaPostgres
     from src.repository.postgres import PerfilBuscaRepositoryPostgres, VagaEncontradaRepositoryPostgres
     from src.service.busca_service import BuscaService
     from src.service.recomendacao_service import RecomendacaoService
@@ -53,6 +59,7 @@ def main() -> int:
             RecomendacaoService(BuscaService(providers_padrao())),
             PerfilBuscaRepositoryPostgres(conn),
             VagaEncontradaRepositoryPostgres(conn),
+            TravaColetaPostgres(),
         )
 
     try:
