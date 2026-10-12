@@ -5,10 +5,13 @@ com o cron (`python -m src.controller.coleta`, outro processo) não podem rodar 
 tempo. Quem não pega a trava recebe `ColetaEmAndamento` na hora, sem esperar.
 """
 
+import logging
 import threading
 from abc import ABC, abstractmethod
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
+
+log = logging.getLogger(__name__)
 
 # Chave fixa do `pg_try_advisory_lock` (bigint): vale entre processos e é só desta coleta.
 # Outro uso de advisory lock neste banco tem que escolher outra chave.
@@ -77,9 +80,16 @@ class TravaColetaPostgres(TravaColeta):
             return None
 
         def liberar() -> None:
+            # A coleta já terminou (ou falhou por outro motivo): erro ao soltar não pode mudar o
+            # resultado. A sessão que caiu já perdeu o lock sozinha; fechar também o solta.
             try:
                 conn.execute("SELECT pg_advisory_unlock(%s)", (CHAVE_TRAVA_COLETA,))
+            except Exception:
+                log.warning("não consegui soltar a trava da coleta; ela some com a sessão", exc_info=True)
             finally:
-                conn.close()
+                try:
+                    conn.close()
+                except Exception:
+                    log.warning("não consegui fechar a conexão da trava da coleta", exc_info=True)
 
         return liberar

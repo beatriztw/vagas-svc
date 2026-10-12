@@ -315,6 +315,123 @@ class TravaPostgresTest(unittest.TestCase):
         self.assertEqual(resposta.json()["novas"], 1)
 
 
+class ConexaoFalsa:
+    """Conexão fake: `falhas` diz quais SQL levantam (por pedaço do texto); anota o que rodou e se fechou."""
+
+    def __init__(self, pegou=True, falhas=(), falha_no_close=False):
+        self.pegou, self.falhas, self.falha_no_close = pegou, falhas, falha_no_close
+        self.fechada = False
+        self.sqls = []
+
+    def execute(self, sql, params=None):
+        self.sqls.append(sql)
+        for pedaco in self.falhas:
+            if pedaco in sql:
+                raise OSError(f"conexão caiu em {pedaco}")
+        outer = self
+
+        class Resultado:
+            def fetchone(self):
+                return (outer.pegou,)
+
+        return Resultado()
+
+    def close(self):
+        self.fechada = True
+        if self.falha_no_close:
+            raise OSError("close falhou")
+
+
+class TravaPostgresFalhasTest(unittest.TestCase):
+    """Sem banco de verdade: a conexão fake falha nos pontos que importam."""
+
+    def trava(self, conn):
+        from src.repository.trava import TravaColetaPostgres
+
+        return TravaColetaPostgres(lambda: conn)
+
+    def coleta(self, conn, banco=None):
+        provider = ProviderBloqueado()
+        provider.soltar.set()
+        return servico(provider, perfis_com("python"), banco, trava=self.trava(conn))
+
+    def test_falha_no_unlock_nao_muda_o_resultado_da_coleta(self):
+        conn = ConexaoFalsa(falhas=("pg_advisory_unlock",))
+
+        with self.assertLogs("src.repository.trava", "WARNING"):
+            resultado = self.coleta(conn).coletar()
+
+        self.assertEqual(resultado.novas, 1)
+        self.assertTrue(conn.fechada)
+
+    def test_falha_no_close_tambem_nao_mascara(self):
+        conn = ConexaoFalsa(falhas=("pg_advisory_unlock",), falha_no_close=True)
+
+        with self.assertLogs("src.repository.trava", "WARNING"):
+            self.assertEqual(self.coleta(conn).coletar().novas, 1)
+
+        self.assertTrue(conn.fechada)
+
+    def test_excecao_original_da_coleta_sobe_mesmo_com_unlock_falhando(self):
+        class FalhaDoBanco(VagaEncontradaRepositoryMemoria):
+            def registrar(self, vagas, termo):
+                raise ValueError("banco caiu")
+
+        conn = ConexaoFalsa(falhas=("pg_advisory_unlock",))
+
+        with self.assertLogs("src.repository.trava", "WARNING"), self.assertRaisesRegex(ValueError, "banco caiu"):
+            self.coleta(conn, FalhaDoBanco()).coletar()
+
+        self.assertTrue(conn.fechada)
+
+    def test_falha_ao_tentar_o_lock_fecha_a_conexao_e_a_excecao_sobe(self):
+        conn = ConexaoFalsa(falhas=("pg_try_advisory_lock",))
+
+        with self.assertRaisesRegex(OSError, "pg_try_advisory_lock"), self.trava(conn).segurar():
+            self.fail("não devia entrar")
+
+        self.assertTrue(conn.fechada)
+
+    def test_lock_ocupado_fecha_a_conexao(self):
+        conn = ConexaoFalsa(pegou=False)
+
+        with self.assertRaises(ColetaEmAndamento), self.trava(conn).segurar():
+            self.fail("não devia entrar")
+
+        self.assertTrue(conn.fechada)
+
+
+@unittest.skipUnless(os.environ.get("PGHOST"), "PGHOST não definido: trava no Postgres pulada")
+class TravaPostgresSessaoMortaTest(unittest.TestCase):
+    def test_sessao_da_trava_derrubada_no_meio_da_coleta_nao_vira_falha(self):
+        from src.repository.conexao import conectar
+        from src.repository.trava import CHAVE_TRAVA_COLETA, TravaColetaPostgres
+
+        admin = conectar()
+        self.addCleanup(admin.close)
+
+        class MataASessao(ProviderBloqueado):
+            def buscar(self, termo):
+                # Quem segura o lock é a sessão da trava: derruba-a no meio da coleta.
+                admin.execute(
+                    "SELECT pg_terminate_backend(pid) FROM pg_locks WHERE locktype = 'advisory' "
+                    "AND (classid::bigint << 32 | objid::bigint) = %s AND granted AND pid <> pg_backend_pid()",
+                    (CHAVE_TRAVA_COLETA,),
+                )
+                return super().buscar(termo)
+
+        provider = MataASessao()
+        provider.soltar.set()
+        coleta = servico(provider, perfis_com("python"), trava=TravaColetaPostgres(conectar))
+
+        with self.assertLogs("src.repository.trava", "WARNING"):
+            resultado = coleta.coletar()
+
+        self.assertEqual(resultado.novas, 1)
+        with TravaColetaPostgres(conectar).segurar():  # o lock sumiu junto com a sessão
+            pass
+
+
 class ProducaoTravaTest(unittest.TestCase):
     def test_producao_usa_a_trava_do_postgres(self):
         from unittest import mock
