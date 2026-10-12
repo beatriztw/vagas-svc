@@ -91,6 +91,16 @@ A app de produção lê o Postgres pelas variáveis `PG*` (`PGHOST`, `PGPORT`, `
 | `GET /vagas/encontradas?novas=true&limite=50&q=&deslocamento=0` | vagas guardadas com o perfil salvo aplicado na leitura (ver "Histórico pelo perfil" abaixo); sem perfil salvo, primeiro as achadas mais recentemente; `novas=false` inclui as já vistas; `q` filtra por palavra; `limite` de 1 a 500 (fora disso, 422) |
 | `POST /vagas/vistas` | `{"urls": [...]}` (até 500): marca como vistas e devolve `{"marcadas": n}`, só as que ainda não estavam |
 
+### Coleta agendada (na app)
+
+A própria app coleta às 08:00 e às 18:00 de Brasília (`COLETA_HORARIOS`, `HH:MM` separados por vírgula; fuso `America/Sao_Paulo`). Vazia desliga; inválida gera um aviso no log e desliga, sem derrubar a app. Uma thread daemon (`src/service/agendador_coleta.py`) é iniciada no lifespan da app de produção, depois das migrations, e parada no shutdown; `criar_app` sem `agendador` (testes) não agenda nada.
+
+- É a mesma coleta do `POST /coletas`: a mesma trava (outra coleta rodando = "em andamento") e, no fim, o lote da IA.
+- Cada horário é reservado em `coleta_agendada` (`migrations/008_coleta_agendada.sql`) ANTES de coletar, com `INSERT ... ON CONFLICT DO NOTHING`: só quem insere coleta, então um reinício ou uma segunda réplica nunca rodam o mesmo horário.
+- Recuperação: ao subir e a cada volta (no máximo 5 min), o horário mais recente que passou há até 6 h e não foi reservado roda (Pi desligado ou app reiniciando no horário). Mais velho que isso fica para o próximo.
+- O registro guarda só contagens (`ok termos=6 novas=12 termos_com_erro=1`) ou o motivo (`em andamento`, `sem perfil ou sem termos`, `erro <Tipo>`); o log também. Banco fora ao reservar: tenta de novo em 60 s, sem marcar o horário. Uma coleta que falha nunca derruba a thread.
+- A CLI `python -m src.controller.coleta` continua para rodar à mão.
+
 ### Histórico pelo perfil
 
 O histórico (`GET /vagas/encontradas` e a lista da tela: contador, "carregar mais", busca `q` e Novas/Todas) obedece ao perfil salvo **no momento da leitura**, não ao perfil da época da coleta. Mudar o perfil muda na hora o que aparece, sem migration e sem recoletar.
