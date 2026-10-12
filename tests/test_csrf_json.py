@@ -121,6 +121,21 @@ class CsrfJsonTest(unittest.TestCase):
         self.assertEqual(self.api.post("/futura").status_code, 415)
         self.assertEqual(self.api.post("/futura", headers=JSON).status_code, 200)
 
+    def test_exigir_json_continua_importavel_de_candidaturas_e_aplica_a_regra(self):
+        from fastapi import Depends
+
+        from src.controller.candidaturas import exigir_json
+
+        @self.app.post("/interno/teste-exigir-json", dependencies=[Depends(exigir_json)])
+        def rota() -> dict[str, bool]:
+            return {"ok": True}
+
+        url = "/interno/teste-exigir-json"
+        self.assertEqual(self.api.post(url).status_code, 415)
+        self.assertEqual(self.api.post(url, headers={**JSON, "Origin": "null"}).status_code, 403)
+        self.assertEqual(self.api.post(url, headers={**JSON, "Sec-Fetch-Site": "cross-site"}).status_code, 403)
+        self.assertEqual(self.api.post(url, headers=JSON).status_code, 200)
+
     def test_tela_e_interno_ficam_fora(self):
         # /tela tem a própria proteção (403 do HTMX, não 415); /interno é isento (aqui, 404: ainda não existe).
         self.assertEqual(self.api.post("/tela/coletas", headers={"Origin": "http://testserver"}).status_code, 403)

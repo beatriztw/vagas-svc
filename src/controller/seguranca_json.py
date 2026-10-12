@@ -14,9 +14,9 @@ def caminho_interno(caminho: str) -> bool:
     return caminho == PREFIXO_INTERNO or caminho.startswith(PREFIXO_INTERNO + "/")
 
 
-def exigir_json_mesma_origem(request: Request) -> None:
-    """Dependência do app inteiro: toda rota que muda estado, fora de `/tela` e `/interno`, só
-    aceita chamada de mesma origem com `Content-Type: application/json`.
+def exigir_json(request: Request) -> None:
+    """A regra completa, sem isenção de método nem de caminho (rotas que a aplicam à mão, como
+    `Depends(exigir_json)`). Reexportada por `candidaturas.py`.
 
     1. O tipo do `Content-Type` (sem parâmetros) tem que ser `application/json`, mesmo sem corpo
        (inclusive no DELETE): senão 415. Um formulário ou um `fetch` no-cors de outro site só
@@ -25,14 +25,7 @@ def exigir_json_mesma_origem(request: Request) -> None:
     2. `Sec-Fetch-Site`, se vier, tem que ser `same-origin` ou `none`: senão 403.
     3. `Origin`, se vier, tem que ter o mesmo host (netloc) do `Host`; `Origin: null` é 403.
     4. Sem `Origin` e sem `Sec-Fetch-Site` (curl, o timer do Pi) passa, cumprida a regra 1.
-
-    `/tela` tem a própria proteção (`exigir_mutacao_da_tela`); `/interno` (Bearer) é isento.
     """
-    if request.method in METODOS_SEGUROS:
-        return
-    caminho = request.url.path
-    if caminho_da_tela(caminho) or caminho_interno(caminho):
-        return
     tipo = request.headers.get("content-type", "").split(";")[0].strip().lower()
     if tipo != "application/json":
         raise HTTPException(415, "Content-Type tem que ser application/json")
@@ -48,3 +41,14 @@ def exigir_json_mesma_origem(request: Request) -> None:
             mesma = False
         if not mesma:
             raise HTTPException(403, "Origem não permitida")
+
+
+def exigir_json_mesma_origem(request: Request) -> None:
+    """Dependência do app inteiro: aplica `exigir_json` a toda rota que muda estado, fora de
+    `/tela` (proteção própria do HTMX) e `/interno` (Bearer)."""
+    if request.method in METODOS_SEGUROS:
+        return
+    caminho = request.url.path
+    if caminho_da_tela(caminho) or caminho_interno(caminho):
+        return
+    exigir_json(request)

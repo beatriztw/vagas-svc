@@ -7,6 +7,7 @@ from datetime import datetime
 from fastapi import APIRouter, HTTPException, Response
 from pydantic import BaseModel, ConfigDict, Field
 
+from src.controller.seguranca_json import exigir_json  # noqa: F401  (reexportado: outros módulos importam daqui)
 from src.model.candidatura import CandidaturaComVaga, StatusCandidatura
 from src.service.candidatura_service import CandidaturaService
 
