@@ -306,7 +306,7 @@ class DetalheTest(unittest.TestCase):
         self.assertNotIn("Requisitos", detalhe.texto)
 
     def test_url_javascript_mostra_o_texto_sem_link(self):
-        cliente, _ = criar([vaga(1, url_=None)] if False else [VagaExterna("Vaga X", "Empresa", "Remotar", "javascript:alert(1)")])
+        cliente, _ = criar([VagaExterna("Vaga X", "Empresa", "Remotar", "javascript:alert(1)")])
 
         for resposta in (
             cliente.get("/tela"),

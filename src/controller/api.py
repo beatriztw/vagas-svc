@@ -13,7 +13,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from src.client.armazenamento import Armazenamento
 from src.controller.tela import criar_router_tela
-from src.controller.tela_seguranca import DIRETORIO_STATIC, caminho_da_tela, templates
+from src.controller.tela_seguranca import DIRETORIO_STATIC, caminho_da_tela, eh_htmx, templates
 from src.model.curriculo import Curriculo
 from src.model.erros import DadoInvalido
 from src.model.perfil import Perfil
@@ -175,8 +175,19 @@ def criar_app(
         # Só a validação do domínio vira 422; um ValueError qualquer (PGPORT inválido, dado
         # inesperado do banco) é falha do servidor e sai como 500.
         if caminho_da_tela(request.url.path):
-            # A tela troca HTML: o erro volta como partial, não como JSON.
-            return templates.TemplateResponse(request, "tela/_erro.html", {"mensagem": str(erro)}, status_code=422)
+            # A tela troca HTML: o erro volta como HTML, não como JSON.
+            contexto = {"mensagem": str(erro)}
+            if eh_htmx(request):
+                # O 422 é trocado no alvo de quem chamou (uma linha de tabela, por exemplo): o
+                # servidor redireciona a troca para o aviso da página.
+                return templates.TemplateResponse(
+                    request,
+                    "tela/_erro.html",
+                    contexto,
+                    status_code=422,
+                    headers={"HX-Retarget": "#aviso", "HX-Reswap": "outerHTML"},
+                )
+            return templates.TemplateResponse(request, "tela/erro.html", contexto, status_code=422)
         return JSONResponse(status_code=422, content={"detail": str(erro)})
 
     @app.middleware("http")
