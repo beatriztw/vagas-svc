@@ -5,6 +5,7 @@ import threading
 from collections.abc import Callable
 from contextlib import asynccontextmanager
 from datetime import date, datetime
+from pathlib import Path
 from typing import Any
 
 from fastapi import Depends, FastAPI, HTTPException, Query, Request
@@ -402,9 +403,23 @@ def _limite_apify() -> int:
     return limite if limite > 0 else APIFY_LIMITE_PADRAO
 
 
+def _token_apify() -> str | None:
+    """APIFY_TOKEN ou o conteúdo do arquivo em APIFY_TOKEN_FILE (secret do Swarm). Arquivo ausente,
+    ilegível ou vazio = sem token: o LinkedIn fica desligado e a app sobe igual."""
+    if token := os.environ.get("APIFY_TOKEN", "").strip():
+        return token
+    arquivo = os.environ.get("APIFY_TOKEN_FILE", "").strip()
+    if not arquivo:
+        return None
+    try:
+        return Path(arquivo).read_text(encoding="utf-8").strip() or None
+    except (OSError, UnicodeDecodeError):
+        return None
+
+
 def providers_padrao() -> list:
     """Remotar e Trampos sempre; Greenhouse, Lever e Ashby só com empresas em GREENHOUSE_EMPRESAS etc.;
-    o LinkedIn pelo Apify só com APIFY_TOKEN."""
+    o LinkedIn pelo Apify só com APIFY_TOKEN ou APIFY_TOKEN_FILE."""
     from src.client.ashby import AshbyClient
     from src.client.greenhouse import GreenhouseClient
     from src.client.lever import LeverClient
@@ -415,14 +430,16 @@ def providers_padrao() -> list:
     for classe, env in ((GreenhouseClient, "GREENHOUSE_EMPRESAS"), (LeverClient, "LEVER_EMPRESAS"), (AshbyClient, "ASHBY_EMPRESAS")):
         if empresas := _lista_env(env):
             providers.append(classe(empresas))
-    if os.environ.get("APIFY_TOKEN"):
+    if token := _token_apify():
         from src.client.apify_linkedin import ApifyLinkedInClient
 
         # Cada busca custa até APIFY_LIMITE vagas no Apify (US$ 0,001–0,002 cada em out/2026).
         providers.append(
             # Vazio (APIFY_LOCAL=${APIFY_LOCAL} sem valor no compose) cai no padrão: sem país, a
             # busca paga traria vagas do mundo todo.
-            ApifyLinkedInClient(local=os.environ.get("APIFY_LOCAL", "").strip() or "Brasil", limite=_limite_apify())
+            ApifyLinkedInClient(
+                local=os.environ.get("APIFY_LOCAL", "").strip() or "Brasil", limite=_limite_apify(), token=token
+            )
         )
     return providers
 

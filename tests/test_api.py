@@ -370,6 +370,49 @@ class ProvidersPadraoTest(unittest.TestCase):
         self.assertEqual(len(apify), 1)
         self.assertEqual((apify[0].local, apify[0].limite), ("Rio de Janeiro", 20))
 
+    def test_token_do_apify_pelo_arquivo_do_secret(self):
+        import tempfile
+        from pathlib import Path
+        from unittest import mock
+
+        from src.client.apify_linkedin import ApifyLinkedInClient
+        from src.controller.api import providers_padrao
+
+        with tempfile.TemporaryDirectory() as pasta:
+            arquivo = Path(pasta) / "apify"
+            arquivo.write_text("tk-do-arquivo\n", encoding="utf-8")
+            with mock.patch.dict(os.environ, {"APIFY_TOKEN_FILE": str(arquivo)}, clear=True):
+                apify = [p for p in providers_padrao() if isinstance(p, ApifyLinkedInClient)]
+            self.assertEqual(len(apify), 1)
+            self.assertEqual(apify[0]._token, "tk-do-arquivo")
+            # A variável, quando existe, vale mais que o arquivo.
+            env = {"APIFY_TOKEN": "tk-da-variavel", "APIFY_TOKEN_FILE": str(arquivo)}
+            with mock.patch.dict(os.environ, env, clear=True):
+                apify = [p for p in providers_padrao() if isinstance(p, ApifyLinkedInClient)]
+            self.assertEqual(apify[0]._token, "tk-da-variavel")
+
+    def test_arquivo_do_apify_ausente_ou_vazio_desliga_o_linkedin_sem_derrubar_a_app(self):
+        import tempfile
+        from pathlib import Path
+        from unittest import mock
+
+        from src.client.apify_linkedin import ApifyLinkedInClient
+        from src.controller.api import providers_padrao
+
+        with tempfile.TemporaryDirectory() as pasta:
+            vazio = Path(pasta) / "vazio"
+            vazio.write_text("  \n", encoding="utf-8")
+            for env in (
+                {"APIFY_TOKEN_FILE": str(Path(pasta) / "nao-existe")},
+                {"APIFY_TOKEN_FILE": str(vazio)},
+                {"APIFY_TOKEN_FILE": pasta},  # diretório: ilegível como arquivo
+                {"APIFY_TOKEN": "   "},
+            ):
+                with mock.patch.dict(os.environ, env, clear=True):
+                    providers = providers_padrao()
+                self.assertFalse(any(isinstance(p, ApifyLinkedInClient) for p in providers), env)
+                self.assertTrue(providers, env)
+
     def test_apify_local_vazio_cai_no_padrao(self):
         from unittest import mock
 
