@@ -7,7 +7,7 @@ from contextlib import asynccontextmanager
 from datetime import date, datetime
 from typing import Any
 
-from fastapi import FastAPI, HTTPException, Query, Request
+from fastapi import Depends, FastAPI, HTTPException, Query, Request
 from fastapi.responses import JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field
@@ -15,6 +15,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from src.client.armazenamento import Armazenamento
 from src.controller.candidaturas import criar_router_candidaturas
 from src.controller import tela_compat  # noqa: F401  (registra as funções de template da compatibilidade)
+from src.controller.seguranca_json import exigir_json_mesma_origem
 from src.controller.tela import criar_router_tela
 from src.controller.tela_candidaturas import criar_router_tela_candidaturas
 from src.controller.tela_curriculos import criar_router_tela_curriculos
@@ -187,7 +188,8 @@ def criar_app(
             ao_subir()
         yield
 
-    app = FastAPI(title="vagas-svc", lifespan=ciclo_de_vida)
+    # Dependência do app: rota mutável nova (JSON) já nasce protegida; /tela e /interno ficam de fora dentro dela.
+    app = FastAPI(title="vagas-svc", lifespan=ciclo_de_vida, dependencies=[Depends(exigir_json_mesma_origem)])
     app.state.armazenamento = armazenamento
     # A tela lê o perfil daqui (compatibilidade); cada app tem o seu.
     app.state.perfis = perfis
