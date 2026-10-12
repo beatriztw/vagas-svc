@@ -99,6 +99,14 @@ class RelevanciaTermoTest(unittest.TestCase):
         self.assertEqual(relevancia_termo("Analista de QA", "analista de dados"), 0.5)
         self.assertEqual(relevancia_termo("Gerente de Loja", "analista de dados"), 0)
 
+    def test_palavra_inteira_nao_comeco_de_palavra(self):
+        from src.client.base import relevancia_termo
+
+        self.assertEqual(relevancia_termo("Desenvolvedor JavaScript", "desenvolvedor java"), 0.5)
+        self.assertEqual(relevancia_termo("Analista de Governança", "go"), 0)
+        self.assertEqual(relevancia_termo("Database Administrator", "dados"), 0)
+        self.assertEqual(relevancia_termo("Analista de Conciliações", "analista de conciliação"), 1)
+
     def test_traducao_nos_dois_sentidos(self):
         from src.client.base import relevancia_termo
 

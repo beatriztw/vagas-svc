@@ -36,9 +36,10 @@ def nivel_do_titulo(titulo: str) -> Nivel | None:
 
 
 def _cidade(localidade: str) -> str:
-    # "Rio de Janeiro, RJ", "Rio de Janeiro - RJ" e "Rio de Janeiro, Rio de Janeiro, Brasil"
+    # "Rio de Janeiro, RJ", "Rio de Janeiro - RJ", "Rio de Janeiro-RJ" e "Rio de Janeiro, Rio de Janeiro, Brasil"
     # comparam pela cidade, e por igualdade: "Vitória" não casa com "Vitória da Conquista".
-    return " ".join(palavras(re.split(r",|\s[-–]\s|/|\(", localidade)[0]))
+    # "-RJ" colado no fim também é UF; "Embu-Guaçu" segue sendo uma cidade só.
+    return " ".join(palavras(re.split(r",|\s[-–]\s|/|\(|[-–](?=\s*[A-Za-z]{2}\s*$)", localidade)[0]))
 
 
 def _no_lugar(vaga: VagaExterna, cidades: set[str]) -> bool:

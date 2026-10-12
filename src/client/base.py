@@ -44,6 +44,9 @@ _LIGACAO = {"a", "o", "as", "os", "de", "da", "do", "das", "dos", "e", "em", "pa
 
 def radical(palavra: str) -> str:
     """Tira plural e gênero do fim: "engenheira" e "engenheiros" viram "engenheir"."""
+    if palavra.endswith("oes"):
+        # "conciliações" → "conciliação": o plural em -ões não sai só tirando o fim.
+        palavra = palavra[:-3] + "ao"
     for sufixo in ("as", "os", "es", "a", "o", "s"):
         if palavra.endswith(sufixo) and len(palavra) - len(sufixo) >= 4:
             return palavra[: -len(sufixo)]
@@ -78,9 +81,10 @@ def _formas_do_titulo(titulo: str) -> list[str]:
 def relevancia_termo(titulo: str, termo: str) -> float:
     """Fração das palavras do termo (fora as de ligação) que aparecem no título, de 0 a 1.
 
-    Compara por radical (gênero e plural), ignora hífen, junta palavras vizinhas ("front
-    end" = "front-end" = "frontend") e aceita o cargo no outro idioma (dados/data,
-    engenheiro/engineer...). Termo sem palavra útil vale 1: não há o que comparar.
+    Compara palavra inteira por radical (gênero e plural), nunca por começo: "java" não
+    casa com "JavaScript", nem "go" com "Governança". Ignora hífen, junta palavras
+    vizinhas ("front end" = "front-end" = "frontend") e aceita o cargo no outro idioma
+    (dados/data, engenheiro/engineer...). Termo sem palavra útil vale 1.
     """
     formas = _formas_do_titulo(titulo)
     exigidas = [radical(p) for p in palavras(termo) if p not in _LIGACAO]
@@ -90,11 +94,11 @@ def relevancia_termo(titulo: str, termo: str) -> float:
     i = 0
     while i < len(exigidas):
         # Par vizinho do termo junto ("front" + "end") conta pelas duas palavras.
-        if i + 1 < len(exigidas) and any(f.startswith(exigidas[i] + exigidas[i + 1]) for f in formas):
+        if i + 1 < len(exigidas) and (exigidas[i] + exigidas[i + 1]) in formas:
             casadas += 2
             i += 2
             continue
-        if any(f.startswith(alt) for alt in _equivalentes(exigidas[i]) for f in formas):
+        if _equivalentes(exigidas[i]) & set(formas):
             casadas += 1
         i += 1
     return casadas / len(exigidas)

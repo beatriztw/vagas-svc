@@ -147,12 +147,14 @@ class LocalidadeTest(unittest.TestCase):
         vagas = [
             vaga("a", local="Vitória da Conquista, BA", remoto=False),
             vaga("b", local="Vitória - ES", remoto=False),
+            vaga("b2", local="Vitória-ES", remoto=False),
+            vaga("b3", local="Embu-Guaçu, SP", remoto=False),
             vaga("c", local="Serra Talhada, PE", remoto=False),
         ]
 
         filtradas = aplicar_perfil(vagas, Perfil(localidades=["Vitória, ES", "Serra, ES"]), HOJE)
 
-        self.assertEqual([v.titulo for v in filtradas], ["b"])
+        self.assertEqual([v.titulo for v in filtradas], ["b", "b2"])
 
     def test_sem_localidade_no_perfil_nada_e_cortado(self):
         vagas = [vaga("f", local="São Paulo, SP", remoto=False)]
