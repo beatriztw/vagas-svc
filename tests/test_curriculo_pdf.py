@@ -89,6 +89,20 @@ class BlocosTest(unittest.TestCase):
 
     def test_regua_e_linha_vazia_somem(self):
         self.assertEqual(_blocos("# Nome\n---\n\n***\n## Resumo"), [("nome", "Nome"), ("secao", "Resumo")])
+        self.assertEqual(_blocos("# Nome\n* * *\n- - -\n_ _ _\n## Resumo"), [("nome", "Nome"), ("secao", "Resumo")])
+
+    def test_titulos_de_4_a_6_e_fechamento_com_cerquilha(self):
+        self.assertEqual(
+            _blocos("# Nome #\n## Resumo ##\n#### Projeto X\n###### Detalhe ###\n####### sete"),
+            [
+                ("nome", "Nome"),
+                ("secao", "Resumo"),
+                ("subtitulo", "Projeto X"),
+                ("subtitulo", "Detalhe"),
+                ("paragrafo", "####### sete"),
+            ],
+        )
+        self.assertEqual(_blocos("# Nome\n## C#")[1], ("secao", "C#"))  # `#` colado não é fechamento
 
 
 class GerarPdfTest(unittest.TestCase):

@@ -53,6 +53,9 @@ _ENFASES = (
     re.compile(r"(?<!\w)_(?=\S)(.+?)(?<=\S)_(?!\w)"),
 )
 _TOPICO = re.compile(r"^\s*[-*+•]\s+")
+# Título ATX de 1 a 6 `#`, com os `#` de fechamento opcionais (`## Resumo ##`).
+_TITULO = re.compile(r"^(#{1,6})\s+(.*?)(?:\s+#+)?\s*$")
+_TIPO_DO_TITULO = {1: "nome", 2: "secao"}  # 3 a 6: subtítulo
 
 MARGEM_MM = 18
 CORPO_PT = 10.5
@@ -112,14 +115,13 @@ def _blocos(conteudo_md: str) -> list[tuple[str, str]]:
     blocos: list[tuple[str, str]] = []
     for bruta in conteudo_md.replace("\r\n", "\n").split("\n"):
         linha = bruta.strip()
-        if not linha or set(linha) <= {"-", "*", "_"}:  # linha em branco ou régua `---`
+        # Linha em branco ou régua, com ou sem espaço entre os traços (`---`, `* * *`, `- - -`).
+        if not linha or set(linha.replace(" ", "")) <= {"-", "*", "_"}:
             continue
-        if linha.startswith("### "):
-            blocos.append(("subtitulo", _limpar(linha[4:])))
-        elif linha.startswith("## "):
-            blocos.append(("secao", _limpar(linha[3:])))
-        elif linha.startswith("# "):
-            blocos.append(("nome", _limpar(linha[2:])))
+        titulo = _TITULO.match(linha)
+        if titulo:
+            tipo = _TIPO_DO_TITULO.get(len(titulo.group(1)), "subtitulo")
+            blocos.append((tipo, _limpar(titulo.group(2))))
         elif _TOPICO.match(linha):
             blocos.append(("topico", _limpar(_TOPICO.sub("", linha))))
         elif blocos and blocos[-1][0] == "nome":
