@@ -15,6 +15,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from src.client.armazenamento import Armazenamento
 from src.controller.candidaturas import criar_router_candidaturas
+from src.controller.ia_metricas import criar_router_ia_metricas
 from src.controller.pedidos_ia import criar_router_pedidos_ia
 from src.controller.seguranca_json import exigir_json_mesma_origem
 from src.controller.tela import criar_router_tela
@@ -214,6 +215,7 @@ def criar_app(
     # Um serviço só para as rotas do worker e, depois, as da tela e as métricas.
     app.state.pedido_ia_service = PedidoIAService(pedidos_ia, encontradas, perfis, curriculos)
     app.include_router(criar_router_pedidos_ia(app.state.pedido_ia_service))
+    app.include_router(criar_router_ia_metricas(pedidos_ia))
 
     def erro_da_tela(request: Request, mensagem: str, status: int):
         """A tela troca HTML: o erro volta como HTML, não como JSON."""
