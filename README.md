@@ -207,6 +207,7 @@ Além do clique da pessoa, a compatibilidade roda em lote, uma vaga por vez, pel
 - **Prioridade**: o clique da pessoa (`prioridade` 0) passa na frente do lote (1) na fila; pedir pela tela uma vaga que já está no lote sobe o pedido para a prioridade da pessoa.
 - **Teto**: no máximo `IA_LOTE_MAX_POR_DIA` pedidos do lote criados nas últimas 24 h (padrão 40; `0` desliga o lote; valor inválido cai no padrão). A cota é a da assinatura do worker: cota estourada deixa o pedido `rodando` e o worker espera, como no clique.
 - **Na tela**: a barra da lista mostra `IA: N avaliadas · M na fila` (entre as vagas da lista).
+- **Ranking**: com alguma nota válida, a lista da tela vem por padrão em "Compatibilidade (IA)": as avaliadas primeiro, da maior nota para a menor (empate: a ordem do perfil), depois as sem nota na ordem do perfil. O card mostra a nota e a faixa (`82 · alta`) ou "IA na fila". `?ordem=perfil` volta à ordem do perfil; `?faixa=alta` ou `?faixa=media` deixa só as avaliadas nessa faixa ou acima (`todas` ou vazio tira o corte). A escolha viaja no card, no "carregar mais", na busca e na barra do navegador. As notas saem de uma consulta por página. Uma nota que chega entre duas páginas do "carregar mais" muda a ordem (a vaga sobe), como uma coleta no meio. A rota JSON `/vagas/encontradas` continua na ordem do perfil.
 
 ### Token do worker (Bearer)
 

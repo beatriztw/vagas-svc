@@ -1,7 +1,7 @@
 {# Partial = alvo do swap (outerHTML): resumo, contador, alternância e lista trocam juntos; a página inteira inclui este mesmo arquivo. #}
 <div id="vagas">
   {# O filtro "Novas" atual: o campo de busca (fora deste bloco) e a coleta levam isto com `hx-include`. O `q` é o do próprio campo. #}
-  <div id="estado-lista" hidden>{% if novas %}<input type="hidden" name="novas" value="1">{% endif %}</div>
+  <div id="estado-lista" hidden>{% if novas %}<input type="hidden" name="novas" value="1">{% endif %}{% if ordem_pedida %}<input type="hidden" name="ordem" value="{{ ordem_pedida.value }}">{% endif %}{% if faixa %}<input type="hidden" name="faixa" value="{{ faixa.value }}">{% endif %}</div>
   {% if resumo is defined %}
   <div class="resumo" role="status">
     {% if resumo.falhou %}
@@ -26,10 +26,31 @@
             hx-target="#vagas" hx-swap="outerHTML" hx-disabled-elt="this">Coletar agora</button>
   </div>
   {% if lote %}{% include "tela/_lote_ia.html" %}{% endif %}
+  {% if tem_ia %}
+  <div class="lista-barra lista-ia">
+    <nav class="alternancia" aria-label="Ordem da lista">
+      <span class="mono">Ordem</span>
+      {% for valor, rotulo, query in (("ia", "Compatibilidade (IA)", query_ordem_ia), ("perfil", "Perfil", query_ordem_perfil)) %}
+      <a class="botao{% if ordem.value == valor %} botao-ativo{% endif %}"{% if ordem.value == valor %} aria-current="page"{% endif %}
+         href="/tela?{{ query }}" hx-get="/tela/vagas?{{ query }}" hx-include="#detalhe-url" hx-target="#vagas" hx-swap="outerHTML">{{ rotulo }}</a>
+      {% endfor %}
+    </nav>
+    <nav class="alternancia" aria-label="Faixa mínima da IA">
+      <span class="mono">Faixa</span>
+      {% for valor, rotulo, query in ((none, "Qualquer faixa", query_faixa_todas), ("media", "Média ou mais", query_faixa_media), ("alta", "Alta", query_faixa_alta)) %}
+      {% set ativa = (faixa.value if faixa else none) == valor %}
+      <a class="botao{% if ativa %} botao-ativo{% endif %}"{% if ativa %} aria-current="page"{% endif %}
+         href="/tela{{ '?' ~ query if query }}" hx-get="/tela/vagas{{ '?' ~ query if query }}" hx-include="#detalhe-url" hx-target="#vagas" hx-swap="outerHTML">{{ rotulo }}</a>
+      {% endfor %}
+    </nav>
+  </div>
+  {% endif %}
   <ul id="lista-vagas" class="lista-vagas">
     {% if total == 0 %}
     <li class="vazio">
-      {% if q %}
+      {% if faixa %}
+      <p>Nenhuma vaga avaliada pela IA nessa faixa.</p>
+      {% elif q %}
       <p>Nenhuma vaga encontrada para a busca.</p>
       {% elif novas %}
       <p>Nenhuma vaga nova.</p>

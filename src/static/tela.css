@@ -228,6 +228,14 @@ input[type="search"], input[type="text"], select {
 .lista-barra { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin: 0 0 12px; }
 .lote-ia { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; margin: 0 0 12px; font-size: 13px; }
 .lote-ia .mono { color: var(--sec); }
+.lista-ia .mono { color: var(--sec); font-size: 12px; }
+.lista-ia .botao { white-space: nowrap; padding: 4px 10px; font-size: 13px; }
+.lista-ia .alternancia { flex-wrap: wrap; align-items: center; }
+.chip-ia { align-self: flex-start; font-size: 12px; font-weight: 600; padding: 1px 8px; border-radius: 999px; border: 1px solid currentColor; }
+.chip-ia-alta { color: #0F766E; background: #E6F4F1; }
+.chip-ia-media { color: #9A6700; background: #FBF3E0; }
+.chip-ia-baixa { color: #9B2C2C; background: #FBEAEA; }
+.chip-ia-fila { color: var(--sec); background: #EEF1F0; font-weight: 500; }
 .lista-barra .contador { margin: 0; flex: 1 1 auto; }
 .alternancia { display: flex; gap: 6px; }
 .alternancia .botao { text-decoration: none; display: inline-flex; align-items: center; }

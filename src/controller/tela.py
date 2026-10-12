@@ -11,7 +11,13 @@ from src.repository.base import MAX_DESLOCAMENTO_VAGAS, MAX_TAMANHO_BUSCA, VagaE
 from src.service.candidatura_service import CandidaturaService
 from src.service.coleta_service import ColetaService
 from src.service.detalhe_service import DetalheService, VagaAberta
-from src.service.historico_service import HistoricoService
+from src.service.historico_service import (
+    FaixaMinima,
+    HistoricoService,
+    Ordem,
+    validar_faixa_minima,
+    validar_ordem,
+)
 from src.service.pedido_ia_service import PedidoIAService
 
 # D11: 50 por vez; o resto vem pelo "carregar mais".
@@ -46,8 +52,9 @@ def _novas(texto: str | None) -> bool:
 
 
 def _query(**parametros) -> str:
-    """Query já codificada, só com o que tem valor; `novas` vai como 1. Os templates só imprimem."""
-    limpos = {n: v for n, v in parametros.items() if v}
+    """Query já codificada, só com o que tem valor; `novas` vai como 1 e os enums pelo valor. Os
+    templates só imprimem."""
+    limpos = {n: getattr(v, "value", v) for n, v in parametros.items() if v}
     if "novas" in limpos:
         limpos["novas"] = "1"
     return urlencode(limpos, quote_via=quote)
@@ -75,11 +82,11 @@ def criar_router_tela(
             return None
         return servico_detalhe.abrir(url)
 
-    def contexto_lote(criados: int | None = None) -> dict | None:
+    def contexto_lote(criados: int | None = None, notas: dict | None = None) -> dict | None:
         """O indicador da IA em lote (avaliadas / na fila, entre as vagas da lista); sem o serviço, nada."""
         if ia is None:
             return None
-        avaliadas, na_fila = ia.progresso_lote(historico.visiveis())
+        avaliadas, na_fila = ia.progresso_lote(historico.visiveis(), notas)
         return {
             "avaliadas": avaliadas,
             "na_fila": na_fila,
@@ -91,34 +98,72 @@ def criar_router_tela(
         """A candidatura da vaga aberta, para o detalhe mostrar "Aplicada em dd/mm" em vez do botão."""
         return candidaturas.obter_por_url(vaga.url) if vaga is not None else None
 
-    def contexto_lista(q: str | None, novas: bool, deslocamento: int) -> dict:
+    def contexto_lista(
+        q: str | None,
+        novas: bool,
+        deslocamento: int,
+        ordem: Ordem | None = None,
+        faixa: FaixaMinima | None = None,
+    ) -> dict:
         """O que `_lista.html` e `_cards.html` precisam. Página e total saem da mesma leitura do
-        histórico com o perfil aplicado: o contador é o da lista inteira, nunca o tamanho da página."""
-        lida = historico.pagina(somente_novas=novas, limite=TAMANHO_PAGINA, q=q, deslocamento=deslocamento)
+        histórico com o perfil aplicado: o contador é o da lista inteira, nunca o tamanho da página.
+        As notas da IA saem de UMA consulta e servem à ordem, ao corte por faixa e aos chips."""
+        notas = ia.notas_validas() if ia is not None else {}
+        lida = historico.pagina(
+            somente_novas=novas,
+            limite=TAMANHO_PAGINA,
+            q=q,
+            deslocamento=deslocamento,
+            notas=notas,
+            ordem=ordem,
+            faixa_minima=faixa,
+        )
         vagas, total = lida.vagas, lida.total
         proximo = deslocamento + len(vagas)
+        # O que a pessoa escolheu viaja nas urls (a ordem padrão não: ela muda sozinha com as notas).
+        escolha = {"q": q, "ordem": ordem, "faixa": faixa}
         query_proximo = None
         if vagas and proximo < total and proximo <= MAX_DESLOCAMENTO_VAGAS:
             # Codificado aqui, uma vez: o template só imprime (e escapa para atributo).
-            query_proximo = _query(deslocamento=proximo, q=q, novas=novas)
+            query_proximo = _query(deslocamento=proximo, novas=novas, **escolha)
+        com_novas = {**escolha, "novas": novas}
         return {
             "vagas": vagas,
             "total": total,
             "q": q,
             "novas": novas,
+            "ordem": lida.ordem,
+            "ordem_pedida": ordem,
+            "faixa": faixa,
+            "notas": notas,
+            "na_fila": ia.pedidos.urls_ativas("compatibilidade") if ia is not None else set(),
+            "tem_ia": ia is not None,
             "query_proximo": query_proximo,
             # O filtro viaja em toda url gerada (card, alternância); sem filtro fica vazio.
-            "filtro": _query(q=q, novas=novas),
-            "query_todas": _query(q=q),
-            "query_novas": _query(q=q, novas=True),
+            "filtro": _query(**com_novas),
+            "query_todas": _query(**escolha),
+            "query_novas": _query(**escolha, novas=True),
+            "query_ordem_ia": _query(**{**com_novas, "ordem": Ordem.IA}),
+            "query_ordem_perfil": _query(**{**com_novas, "ordem": Ordem.PERFIL}),
+            "query_faixa_todas": _query(**{**com_novas, "faixa": None}),
+            "query_faixa_media": _query(**{**com_novas, "faixa": FaixaMinima.MEDIA}),
+            "query_faixa_alta": _query(**{**com_novas, "faixa": FaixaMinima.ALTA}),
             "max_busca": MAX_TAMANHO_BUSCA,
             # Só no 1º bloco (a barra da lista); os blocos do "carregar mais" não têm barra.
-            "lote": contexto_lote() if deslocamento == 0 else None,
+            "lote": contexto_lote(notas=notas) if deslocamento == 0 else None,
         }
 
-    def pagina(request: Request, q: str | None, novas: bool, aberta: VagaAberta | None, pedida: bool):
+    def pagina(
+        request: Request,
+        q: str | None,
+        novas: bool,
+        aberta: VagaAberta | None,
+        pedida: bool,
+        ordem: Ordem | None = None,
+        faixa: FaixaMinima | None = None,
+    ):
         """A página inteira. `aberta` é a selecionada; `pedida` sem vaga é um link para o que não existe."""
-        contexto = contexto_lista(q, novas, 0)
+        contexto = contexto_lista(q, novas, 0, ordem, faixa)
         nao_encontrada = pedida and aberta is None
         if not pedida and contexto["vagas"]:
             aberta = obter(contexto["vagas"][0].url)
@@ -155,9 +200,18 @@ def criar_router_tela(
         )
 
     @router.get("")
-    def tela(request: Request, url: str | None = None, q: str | None = None, novas: str | None = None):
+    def tela(
+        request: Request,
+        url: str | None = None,
+        q: str | None = None,
+        novas: str | None = None,
+        ordem: str | None = None,
+        faixa: str | None = None,
+    ):
         # A página inteira sempre, mesmo com HX-Request: as rotas de partial são as de baixo.
-        return pagina(request, _busca(q), _novas(novas), obter(url), bool(url))
+        busca, somente_novas = _busca(q), _novas(novas)
+        ordem_, faixa_ = validar_ordem(ordem), validar_faixa_minima(faixa)
+        return pagina(request, busca, somente_novas, obter(url), bool(url), ordem_, faixa_)
 
     @router.get("/vagas")
     def vagas(
@@ -166,14 +220,17 @@ def criar_router_tela(
         novas: str | None = None,
         deslocamento: str = "0",
         detalhe_url: str | None = None,
+        ordem: str | None = None,
+        faixa: str | None = None,
     ):
         q = _busca(q)
         somente_novas = _novas(novas)
+        ordem_, faixa_ = validar_ordem(ordem), validar_faixa_minima(faixa)
         # Validado também na página inteira: um deslocamento ruim é 422, não é ignorado.
         inicio = validar_deslocamento(_deslocamento(deslocamento))
         if not eh_htmx(request):
-            return pagina(request, q, somente_novas, None, False)
-        contexto = contexto_lista(q, somente_novas, inicio)
+            return pagina(request, q, somente_novas, None, False, ordem_, faixa_)
+        contexto = contexto_lista(q, somente_novas, inicio, ordem_, faixa_)
         # Do 2º bloco em diante só entram os cards e o novo sentinela (substitui o anterior).
         partial = "tela/_cards.html" if inicio > 0 else "tela/_lista.html"
         resposta = templates.TemplateResponse(request, partial, contexto)
@@ -181,15 +238,24 @@ def criar_router_tela(
             # A barra mostra a PÁGINA (`/tela?...`), não o partial, e mantém a vaga aberta (`url`):
             # F5 e link copiado reabrem a mesma tela. `detalhe_url` vem do #detalhe-url, se houver detalhe.
             aberta = detalhe_url if detalhe_url and len(detalhe_url) <= MAX_TAMANHO_URL else None
-            resposta.headers["HX-Push-Url"] = f"{PREFIXO_TELA}?{_query(q=q, novas=somente_novas, url=aberta)}".rstrip("?")
+            query = _query(q=q, novas=somente_novas, ordem=ordem_, faixa=faixa_, url=aberta)
+            resposta.headers["HX-Push-Url"] = f"{PREFIXO_TELA}?{query}".rstrip("?")
         return resposta
 
     @router.get("/vagas/detalhe")
-    def detalhe(request: Request, url: str | None = None, q: str | None = None, novas: str | None = None):
+    def detalhe(
+        request: Request,
+        url: str | None = None,
+        q: str | None = None,
+        novas: str | None = None,
+        ordem: str | None = None,
+        faixa: str | None = None,
+    ):
         busca, somente_novas = _busca(q), _novas(novas)  # validados antes de buscar no provider
+        ordem_, faixa_ = validar_ordem(ordem), validar_faixa_minima(faixa)
         aberta = obter(url)
         if not eh_htmx(request):
-            return pagina(request, busca, somente_novas, aberta, True)
+            return pagina(request, busca, somente_novas, aberta, True, ordem_, faixa_)
         return detalhe_partial(request, aberta)
 
     @router.get("/vagas/secoes")
@@ -221,11 +287,14 @@ def criar_router_tela(
         return templates.TemplateResponse(request, "tela/_lote_ia.html", {"lote": contexto_lote(criados)})
 
     @router.post("/coletas", dependencies=[Depends(exigir_mutacao_da_tela)])
-    def coletar(request: Request, q: str = Form(""), novas: str = Form("")):
+    def coletar(
+        request: Request, q: str = Form(""), novas: str = Form(""), ordem: str = Form(""), faixa: str = Form("")
+    ):
         """Roda a coleta (a trava de uma por vez é do ColetaService: 409 em HTML se já há uma) e devolve a lista."""
         busca, somente_novas = _busca(q), _novas(novas)
+        ordem_, faixa_ = validar_ordem(ordem), validar_faixa_minima(faixa)
         resultado = coleta.coletar()
-        contexto = contexto_lista(busca, somente_novas, 0)
+        contexto = contexto_lista(busca, somente_novas, 0, ordem_, faixa_)
         contexto["resumo"] = {
             "novas": resultado.novas,
             "falhou": resultado.falhou,
