@@ -221,6 +221,28 @@ class LoteTest(unittest.TestCase):
         self.assertIsNone(m.pedidos.marcar_base(rodando.id, rodando.tentativas + 1, m.base.id))
         self.assertEqual(m.pedidos.marcar_base(rodando.id, rodando.tentativas, m.base.id).curriculo_base_id, m.base.id)
 
+    def test_vaga_que_deu_erro_fica_fora_do_lote_por_7_dias(self):
+        m = Montagem()
+        m.servico.enfileirar_lote(m.vagas(0))
+        p = m.pedidos.proximo()
+        m.pedidos.falhar(p.id, p.tentativas, "tempo esgotado (420 s)")
+
+        m.relogio.agora += timedelta(days=1)  # coleta do dia seguinte
+        self.assertEqual(m.servico.enfileirar_lote(m.vagas(0, 1)), 1)
+        self.assertEqual(m.pedidos.urls_ativas("compatibilidade"), {URLS[1]})
+
+        m.relogio.agora += timedelta(days=7)  # passou a espera: volta
+        self.assertEqual(m.servico.enfileirar_lote(m.vagas(0)), 1)
+
+    def test_erro_com_outra_base_nao_segura_a_vaga(self):
+        m = Montagem()
+        m.servico.enfileirar_lote(m.vagas(0))
+        p = m.pedidos.proximo()
+        m.pedidos.falhar(p.id, p.tentativas, "x")
+        m.curriculos.salvar(Curriculo(tipo="base", titulo="Base 2", conteudo_md="# Base 2"))
+        m.relogio.agora += timedelta(days=1)
+        self.assertEqual(m.servico.enfileirar_lote(m.vagas(0)), 1)
+
     def test_candidatas_do_historico_seguem_o_perfil(self):
         m = Montagem()
         m.encontradas.registrar(

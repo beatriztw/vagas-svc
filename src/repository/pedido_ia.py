@@ -102,6 +102,10 @@ class PedidoIARepository(ABC):
         """Vagas com pedido pendente ou rodando do tipo."""
 
     @abstractmethod
+    def urls_com_erro_desde(self, curriculo_base_id: int, desde: datetime) -> set[str]:
+        """Vagas com compatibilidade em `erro` para a base, terminada em `desde` ou depois."""
+
+    @abstractmethod
     def contar_lote_desde(self, desde: datetime) -> int:
         """Pedidos do lote (prioridade 1) criados em `desde` ou depois."""
 
@@ -326,6 +330,18 @@ class PedidoIARepositoryMemoria(PedidoIARepository):
         tipo = validar_tipo(tipo)
         with self._lock:
             return {p.vaga_url for p in self._linhas.values() if p.tipo == tipo and p.ativo}
+
+    def urls_com_erro_desde(self, curriculo_base_id: int, desde: datetime) -> set[str]:
+        with self._lock:
+            return {
+                p.vaga_url
+                for p in self._linhas.values()
+                if p.tipo == TipoPedidoIA.COMPATIBILIDADE
+                and p.estado == EstadoPedidoIA.ERRO
+                and p.curriculo_base_id == curriculo_base_id
+                and p.terminado_em is not None
+                and p.terminado_em >= desde
+            }
 
     def contar_lote_desde(self, desde: datetime) -> int:
         with self._lock:

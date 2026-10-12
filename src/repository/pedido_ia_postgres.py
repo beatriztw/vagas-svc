@@ -233,6 +233,15 @@ class PedidoIARepositoryPostgres(PedidoIARepository):
             )
             return {url: NotaIA(nota, Faixa(faixa)) for url, nota, faixa in cur.fetchall()}
 
+    def urls_com_erro_desde(self, curriculo_base_id: int, desde: datetime) -> set[str]:
+        with self._conn.cursor() as cur:
+            cur.execute(
+                "SELECT vaga_url FROM pedido_ia WHERE tipo = 'compatibilidade' AND estado = 'erro' "
+                "AND curriculo_base_id = %s AND terminado_em >= %s",
+                (curriculo_base_id, desde),
+            )
+            return {url for (url,) in cur.fetchall()}
+
     def urls_ativas(self, tipo: TipoPedidoIA | str) -> set[str]:
         tipo = validar_tipo(tipo)
         with self._conn.cursor() as cur:

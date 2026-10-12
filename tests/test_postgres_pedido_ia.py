@@ -312,6 +312,16 @@ class PedidoIAPostgresTest(unittest.TestCase):
         self.assertEqual(self.repo.marcar_base(rodando.id, rodando.tentativas, b2).curriculo_base_id, b2)
         self.assertEqual(self.repo.obter(rodando.id).curriculo_base_id, b2)
 
+    def test_urls_com_erro_desde_so_da_base_e_dentro_da_janela(self):
+        b1, b2 = self.base("B1").id, self.base("B2").id
+        for url, base in ((URL_A, b1), (URL_B, b2)):
+            self.repo.criar(url, "compatibilidade", curriculo_base_id=base)
+            p = self.repo.proximo()
+            self.repo.falhar(p.id, p.tentativas, "x")
+        agora = self.conn.execute("SELECT now()").fetchone()[0]
+        self.assertEqual(self.repo.urls_com_erro_desde(b1, agora - timedelta(days=7)), {URL_A})
+        self.assertEqual(self.repo.urls_com_erro_desde(b1, agora + timedelta(minutes=1)), set())
+
     def test_contar_lote_desde_e_urls_ativas(self):
         self.repo.criar(URL_A, "compatibilidade", prioridade=1)
         self.repo.criar(URL_B, "compatibilidade", prioridade=1)
