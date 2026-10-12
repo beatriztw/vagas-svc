@@ -86,12 +86,13 @@ class SeloENovasTest(unittest.TestCase):
         todas = urlsplit(links["Todas"].attrs["hx-get"])
         self.assertEqual(todas.path, "/tela/vagas")
         self.assertEqual(parse_qs(todas.query), {"q": [q]})  # ida e volta do q codificado
-        self.assertEqual(links["Todas"].attrs["hx-push-url"], "/tela?" + todas.query)
+        self.assertNotIn("hx-push-url", links["Todas"].attrs)  # a barra vem do HX-Push-Url do servidor
+        self.assertEqual(links["Todas"].attrs["hx-include"], "#detalhe-url")
         self.assertEqual(links["Todas"].attrs["href"], "/tela?" + todas.query)
         novas = urlsplit(links["Novas"].attrs["hx-get"])
         self.assertEqual(parse_qs(novas.query), {"q": [q], "novas": ["1"]})
         for e in links.values():
-            for atributo in ("hx-get", "hx-push-url", "href"):
+            for atributo in ("hx-get", "href"):
                 self.assertNotRegex(e.attrs[atributo].split("?", 1)[-1], r"[ #]")
 
     def test_novas_e_q_vao_em_sentinela_card_e_push_url_com_ida_e_volta(self):
@@ -163,7 +164,7 @@ class BuscaComNovasTest(unittest.TestCase):
         """Simula o htmx: o GET do campo (hx-get + hx-include) com o valor digitado e os inputs incluídos."""
         pagina = Pagina(texto)
         campo = pagina.por_id("busca")
-        self.assertEqual(campo.attrs["hx-include"], "#estado-lista")
+        self.assertEqual(campo.attrs["hx-include"], "#estado-lista, #detalhe-url")
         estado = [i for i in pagina.tags("input") if i.attrs.get("type") == "hidden" and i.attrs.get("name") in ("q", "novas")]
         nomes = [i.attrs["name"] for i in estado]
         self.assertEqual(nomes.count("q"), 0, "o q é só o do campo de busca")
@@ -189,7 +190,7 @@ class BuscaComNovasTest(unittest.TestCase):
             parse_qs(urlsplit(sentinela.attrs["hx-get"]).query),
             {"deslocamento": ["50"], "q": [self.Q], "novas": ["1"]},
         )
-        # O hx-push-url="true" empurra a própria url do pedido: abri-la (F5) mostra a mesma lista.
+        # A barra recebe `/tela?...` (HX-Push-Url): abri-la (F5) mostra a mesma lista.
         inteira = Pagina(cliente.get(pedido).text)
         self.assertIn("60 novas", inteira.por_id("vagas").texto)
         self.assertEqual(inteira.por_id("busca").attrs["value"], self.Q)
@@ -476,7 +477,7 @@ class ColetaPelaTelaTest(unittest.TestCase):
         provider = ProviderBloqueado()
         app, _ = app_de_coleta(provider)
         resposta = {}
-        primeira = threading.Thread(target=lambda: resposta.update(r=TestClient(app).post("/coletas")))
+        primeira = threading.Thread(target=lambda: resposta.update(r=TestClient(app).post("/coletas", json={})))
         primeira.start()
         self.addCleanup(primeira.join, ESPERA)
         self.addCleanup(provider.soltar.set)
@@ -492,14 +493,14 @@ class ColetaPelaTelaTest(unittest.TestCase):
     def test_409_sem_htmx_e_a_pagina_de_erro_e_na_api_continua_json(self):
         provider = ProviderBloqueado()
         app, _ = app_de_coleta(provider)
-        primeira = threading.Thread(target=lambda: TestClient(app).post("/coletas"))
+        primeira = threading.Thread(target=lambda: TestClient(app).post("/coletas", json={}))
         primeira.start()
         self.addCleanup(primeira.join, ESPERA)
         self.addCleanup(provider.soltar.set)
         self.assertTrue(provider.comecou.wait(ESPERA))
         cliente = TestClient(app, raise_server_exceptions=False)
 
-        api = cliente.post("/coletas")
+        api = cliente.post("/coletas", json={})
         self.assertEqual((api.status_code, api.json()), (409, {"detail": "coleta em andamento"}))
         sem_htmx = cliente.post("/tela/coletas", headers={"Origin": "http://testserver"})
         self.assertEqual(sem_htmx.status_code, 403)  # mutação sem HX-Request nem chega à coleta

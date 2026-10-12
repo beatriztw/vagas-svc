@@ -1,0 +1,60 @@
+{# Formulário do perfil. PUT pelo HTMX; o form troca a si mesmo (outerHTML) com o perfil relido do banco. #}
+<form id="perfil-form" class="perfil-form" method="post" action="/tela/perfil"
+      hx-put="/tela/perfil" hx-target="this" hx-swap="outerHTML" hx-disabled-elt="find button[type=submit]">
+  {% if salvo %}
+  <div class="resumo" role="status">
+    <p><strong>Perfil salvo</strong>. A lista de vagas já usa este perfil. <a href="/tela">Voltar para a lista</a></p>
+  </div>
+  {% endif %}
+
+  <div class="campo">
+    <label for="p-termos">Termos de busca</label>
+    <textarea id="p-termos" name="termos" rows="5" spellcheck="false">{{ perfil.termos | join('\n') }}</textarea>
+    <p class="dica">Um por linha. Cada termo vira uma busca na coleta.</p>
+  </div>
+  <div class="campo">
+    <label for="p-excluir">Excluir</label>
+    <textarea id="p-excluir" name="excluir" rows="3" spellcheck="false">{{ perfil.excluir | join('\n') }}</textarea>
+    <p class="dica">Um por linha. Vaga com uma destas palavras no título some da lista.</p>
+  </div>
+
+  <fieldset class="campo">
+    <legend>Modalidades</legend>
+    {% for m in modalidades %}
+    <label class="opcao"><input type="checkbox" name="modalidades" value="{{ m.value }}"{% if m.value in marcadas_modalidades %} checked{% endif %}> {{ m.value }}</label>
+    {% endfor %}
+  </fieldset>
+  <fieldset class="campo">
+    <legend>Níveis</legend>
+    {% for n in niveis %}
+    <label class="opcao"><input type="checkbox" name="niveis" value="{{ n.value }}"{% if n.value in marcados_niveis %} checked{% endif %}> {{ n.value }}</label>
+    {% endfor %}
+  </fieldset>
+
+  <div class="campo">
+    <label for="p-localidades">Localidades</label>
+    <textarea id="p-localidades" name="localidades" rows="3" spellcheck="false">{{ perfil.localidades | join('\n') }}</textarea>
+    <p class="dica">Um por linha. Vazio aceita qualquer local.</p>
+  </div>
+  <div class="campo">
+    <label for="p-skills">Skills</label>
+    <textarea id="p-skills" name="skills" rows="5" spellcheck="false">{{ perfil.skills | join('\n') }}</textarea>
+    <p class="dica">Um por linha. Só mudam a ordem das vagas.</p>
+  </div>
+  <div class="campo">
+    <label for="p-plataformas">Plataformas</label>
+    <textarea id="p-plataformas" name="plataformas" rows="2" spellcheck="false">{{ perfil.plataformas | join('\n') }}</textarea>
+    <p class="dica">Uma por linha (ex.: Remotar). Vazio aceita todas.</p>
+  </div>
+  <div class="campo">
+    <label for="p-dias">Publicada nos últimos (dias)</label>
+    <input id="p-dias" type="number" name="publicada_desde_dias" min="1" max="{{ max_dias }}" step="1" value="{{ dias }}">
+    <p class="dica">Vazio não limita pela data.</p>
+  </div>
+  <label class="opcao"><input type="checkbox" name="ocultar_candidatadas" value="1"{% if perfil.ocultar_candidatadas %} checked{% endif %}> Ocultar vagas em que já me candidatei</label>
+
+  <div class="acoes-form">
+    <button type="submit" class="botao botao-primario">Salvar perfil</button>
+    <a href="/tela">Voltar para a lista</a>
+  </div>
+</form>
