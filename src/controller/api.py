@@ -18,8 +18,10 @@ from src.model.vaga import Modalidade, Nivel
 from src.model.vaga_encontrada import VagaEncontrada
 from src.model.vaga_externa import VagaExterna
 from src.repository.base import (
+    MAX_DESLOCAMENTO_VAGAS,
     MAX_LIMITE_VAGAS,
     MAX_PUBLICADA_DESDE_DIAS,
+    MAX_TAMANHO_BUSCA,
     CurriculoRepository,
     PerfilBuscaRepository,
     VagaEncontradaRepository,
@@ -236,9 +238,13 @@ def criar_app(
 
     @app.get("/vagas/encontradas")
     def listar_encontradas(
-        novas: bool = True, limite: int = Query(default=50, ge=1, le=MAX_LIMITE_VAGAS)
+        novas: bool = True,
+        limite: int = Query(default=50, ge=1, le=MAX_LIMITE_VAGAS),
+        q: str | None = Query(default=None, max_length=MAX_TAMANHO_BUSCA),
+        deslocamento: int = Query(default=0, ge=0, le=MAX_DESLOCAMENTO_VAGAS),
     ) -> list[VagaEncontradaJson]:
-        return [VagaEncontradaJson.de(v) for v in encontradas.listar(somente_novas=novas, limite=limite)]
+        vagas = encontradas.listar(somente_novas=novas, limite=limite, q=q, deslocamento=deslocamento)
+        return [VagaEncontradaJson.de(v) for v in vagas]
 
     @app.post("/vagas/vistas")
     def marcar_vistas(corpo: VagasVistas) -> VistasJson:
