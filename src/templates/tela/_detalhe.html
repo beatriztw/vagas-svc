@@ -6,13 +6,15 @@
   {# Url do detalhe aberto: o "Desfazer" da tabela a inclui (hx-include) para o servidor devolver o botão. #}
   <input type="hidden" id="detalhe-url" name="detalhe_url" value="{{ vaga.url }}">
   <h2 id="t-detalhe" class="detalhe-titulo">{{ vaga.titulo }}</h2>
-  {# D8: abrir o detalhe (GET) não marca vista; este POST de carga marca, e o tela.js tira o selo do card. #}
+  {# D8: só o clique marca vista: o partial pedido pelo card traz este POST de carga (`marcar_vista`); a página inteira (abrir, F5, deep link) não. O tela.js tira o selo do card. #}
+  {% if marcar_vista is defined and marcar_vista %}
   <form hidden hx-post="/tela/vagas/vista" hx-trigger="load" hx-swap="none">
     <input type="hidden" name="url" value="{{ vaga.url }}">
   </form>
+  {% endif %}
   <div class="chips">
     <span class="chip-info">{{ vaga.empresa }}</span>
-    <span class="chip-info">{{ vaga.local or "—" }}</span>
+    {% if (vaga.local or "").strip() %}<span class="chip-info">{{ vaga.local }}</span>{% endif %}
     <span class="chip-info">{{ "remoto" if vaga.remoto is true else "presencial" if vaga.remoto is false else "não informado" }}</span>
   </div>
   <div class="detalhe-rodape">
