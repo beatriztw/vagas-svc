@@ -160,7 +160,7 @@ class LocalidadeTest(unittest.TestCase):
         vagas = [
             vaga("a", local="Rio de Janeiro e Região", remoto=False),
             vaga("b", local="Greater Rio de Janeiro Area", remoto=False),
-            vaga("c", local="Região Metropolitana de Rio de Janeiro", remoto=False),
+            vaga("c", local="Região Metropolitana do Rio de Janeiro", remoto=False),
             vaga("d", local="Brasil"),
             vaga("e", local="São Paulo e Região", remoto=False),
         ]

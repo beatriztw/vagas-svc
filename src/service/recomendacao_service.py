@@ -44,7 +44,8 @@ def _cidade(localidade: str) -> str:
     # "-RJ" colado no fim também é UF; "Embu-Guaçu" segue sendo uma cidade só.
     cidade = " ".join(palavras(re.split(r",|\s[-–]\s|/|\(|[-–](?=\s*[A-Za-z]{2}\s*$)", localidade)[0]))
     # O LinkedIn marca a região metropolitana: "Rio de Janeiro e Região", "Greater São Paulo Area".
-    cidade = re.sub(r"^(regiao metropolitana de|grande|greater) ", "", cidade)
+    # "Região Metropolitana do Rio de Janeiro", "da Baixada Santista", "de Belo Horizonte".
+    cidade = re.sub(r"^(regiao metropolitana d[eoa]s?|grande|greater) ", "", cidade)
     return re.sub(r" (e regiao|metropolitan area|area)$", "", cidade)
 
 
