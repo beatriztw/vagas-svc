@@ -13,6 +13,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from src.client.armazenamento import Armazenamento
 from src.controller.candidaturas import criar_router_candidaturas
+from src.controller import tela_compat  # noqa: F401  (registra as funções de template da compatibilidade)
 from src.controller.tela import criar_router_tela
 from src.controller.tela_candidaturas import criar_router_tela_candidaturas
 from src.controller.tela_seguranca import DIRETORIO_STATIC, caminho_da_tela, eh_htmx, templates
@@ -175,6 +176,8 @@ def criar_app(
     a produção passa os do Postgres."""
     app = FastAPI(title="vagas-svc")
     app.state.armazenamento = armazenamento
+    # A tela lê o perfil daqui (compatibilidade); cada app tem o seu.
+    app.state.perfis = perfis
     recomendacao = RecomendacaoService(busca)
     encontradas = encontradas if encontradas is not None else VagaEncontradaRepositoryMemoria()
     coleta = ColetaService(recomendacao, perfis, encontradas, trava)

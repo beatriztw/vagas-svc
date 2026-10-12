@@ -1,0 +1,13 @@
+/* Compatibilidade (frente E): bloco no detalhe e coluna "Compat." das aplicadas. */
+.compat { margin: 12px 0; padding: 12px; border: 1px solid var(--borda); border-radius: var(--raio-sm); }
+.compat-titulo { margin: 0 0 8px; font-size: 15px; }
+.compat-sub { margin: 10px 0 4px; font-size: 13px; color: var(--sec); }
+.compat-linha { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin: 0; }
+.compat-pct { font-size: 20px; }
+.compat-alta { color: #1B5E3A; }
+.compat-media { color: #8A4A0B; }
+.compat-baixa { color: #9B1C1C; }
+.compat-medidor { width: 140px; height: 12px; }
+.compat-parcial { font-size: 12px; color: var(--sec); }
+.compat-lista { margin: 0; padding-left: 20px; }
+.compat-celula { white-space: nowrap; }

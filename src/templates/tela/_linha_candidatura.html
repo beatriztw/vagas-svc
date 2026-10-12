@@ -3,7 +3,10 @@
   <td>{{ c.titulo }}</td>
   <td>{{ c.empresa }}</td>
   <td><time datetime="{{ c.aplicada_em.isoformat() }}">{{ c.aplicada_em|data_curta }}</time></td>
-  <td></td>
+  <td class="compat-celula">
+    {% set compat = compat_do_titulo(c.titulo) %}
+    {% if compat %}<span class="compat-pct {{ compat_faixa(compat.percentual) }}" title="{{ compat_rotulo_parcial }}">{{ compat.percentual }}%</span> <span class="compat-parcial">parcial</span>{% endif %}
+  </td>
   <td>
     {{ status_chip(c.status) }}
     <select name="status" aria-label="Alterar o status de {{ c.titulo }}"
