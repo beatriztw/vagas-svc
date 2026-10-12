@@ -120,11 +120,13 @@ class CurriculoRepositoryPostgres(CurriculoRepository):
     def obter(self, id: int) -> Curriculo | None:
         return self._um(f"SELECT {_COLUNAS_CURRICULO} FROM curriculo WHERE id = %s", (id,))
 
-    def listar_adaptados(self) -> list[Curriculo]:
+    def listar_adaptados(self, vaga_url: str | None = None) -> list[Curriculo]:
+        filtro, params = ("", ()) if vaga_url is None else (" AND vaga_url = %s", (vaga_url,))
         with self._conn.cursor(row_factory=dict_row) as cur:
             cur.execute(
-                f"SELECT {_COLUNAS_CURRICULO} FROM curriculo WHERE tipo = 'adaptado' "
-                "ORDER BY criado_em DESC, id DESC"
+                f"SELECT {_COLUNAS_CURRICULO} FROM curriculo WHERE tipo = 'adaptado'{filtro} "
+                "ORDER BY criado_em DESC, id DESC",
+                params,
             )
             return [Curriculo(**linha) for linha in cur.fetchall()]
 
