@@ -80,19 +80,30 @@ def _link(achado: re.Match) -> str:
 
 
 def _limpar(linha: str) -> str:
-    """Tira a marcação inline (o ATS lê o texto, não a ênfase), sem mexer em código, link nem URL."""
-    partes, inicio = [], 0
-    for achado in _INTOCAVEL.finditer(linha):
-        partes.append(_sem_enfase(linha[inicio : achado.start()]))
+    """Tira a marcação inline (o ATS lê o texto, não a ênfase), sem mexer em código, link nem URL.
+
+    Os intocáveis viram marcadores, a ênfase sai da linha INTEIRA (assim `**[LinkedIn](url)**` e
+    `**Stack: `Python`**` também perdem os asteriscos) e os trechos voltam no fim. A URL solta não
+    engole o `*`/`_` de fechamento que vem colado nela."""
+    linha = linha.replace("\x00", "")
+    trechos: list[str] = []
+
+    def guardar(achado: re.Match) -> str:
         if achado.group("codigo") is not None:
-            partes.append(achado.group("codigo"))
-        elif achado.group("link"):
-            partes.append(_LINK.sub(_link, achado.group("link")))
-        else:
-            partes.append(achado.group("url"))
-        inicio = achado.end()
-    partes.append(_sem_enfase(linha[inicio:]))
-    return _latin1("".join(partes)).strip()
+            trechos.append(achado.group("codigo"))
+            return f"\x00{len(trechos) - 1}\x00"
+        if achado.group("link"):
+            trechos.append(_LINK.sub(_link, achado.group("link")))
+            return f"\x00{len(trechos) - 1}\x00"
+        url = achado.group("url")
+        sobra = re.search(r"[*_]+$", url)
+        fecho = sobra.group(0) if sobra else ""
+        trechos.append(url[: len(url) - len(fecho)])
+        return f"\x00{len(trechos) - 1}\x00{fecho}"
+
+    texto = _sem_enfase(_INTOCAVEL.sub(guardar, linha))
+    texto = re.sub(r"\x00(\d+)\x00", lambda m: trechos[int(m.group(1))], texto)
+    return _latin1(texto).strip()
 
 
 def _blocos(conteudo_md: str) -> list[tuple[str, str]]:

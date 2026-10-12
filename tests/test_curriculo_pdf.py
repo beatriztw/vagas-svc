@@ -71,6 +71,12 @@ class BlocosTest(unittest.TestCase):
             "- **Negrito**, *itálico*, __forte__ e _leve_": "Negrito, itálico, forte e leve",
             "- [**SAP** FI](https://sap.example/x_y)": "SAP FI (https://sap.example/x_y)",
             "- 3 * 4 = 12 e 2*3": "3 * 4 = 12 e 2*3",
+            # Ênfase em volta de código, link ou URL também sai (antes os asteriscos iam para o PDF).
+            "- **Stack: `Python`, SQL**": "Stack: Python, SQL",
+            "- **[Portfólio](https://x.dev)**": "Portfólio (https://x.dev)",
+            "- **GitHub: https://github.com/f**": "GitHub: https://github.com/f",
+            "- _veja https://a.dev/x_y_": "veja https://a.dev/x_y",
+            "- `a\x00b` e \x000\x00": "ab e 0",
         }
         for md, esperado in casos.items():
             self.assertEqual(_blocos(md)[0][1], esperado, md)
