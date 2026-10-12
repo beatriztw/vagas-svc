@@ -330,8 +330,28 @@ def normalizar_perfil(perfil: Perfil) -> Perfil:
 MAX_PUBLICADA_DESDE_DIAS = 3650
 
 
+# Teto de cada lista de texto do perfil, o mesmo no `PUT /perfil` (JSON) e no `PUT /tela/perfil` (formulário):
+# um textarea ou corpo colado sem querer não vira gravação gigante, e o que uma rota grava a outra aceita de volta.
+MAX_ITENS_POR_LISTA = 200
+MAX_TAMANHO_ITEM = 200
+_LISTAS_DE_TEXTO = ("termos", "excluir", "localidades", "plataformas", "skills")
+
+
+def _validar_tamanho_das_listas(perfil: Perfil) -> None:
+    for campo in _LISTAS_DE_TEXTO:
+        itens = getattr(perfil, campo)
+        if len(itens) > MAX_ITENS_POR_LISTA or any(isinstance(i, str) and len(i) > MAX_TAMANHO_ITEM for i in itens):
+            raise DadoInvalido(
+                f"{campo}: cada lista aceita até {MAX_ITENS_POR_LISTA} itens de até {MAX_TAMANHO_ITEM} caracteres"
+            )
+
+
 def validar_perfil(perfil: Perfil) -> Perfil:
-    """Perfil normalizado e conferido antes de gravar; inválido levanta ValueError."""
+    """Perfil normalizado e conferido antes de gravar; inválido levanta `DadoInvalido`.
+
+    É a única fonte das regras: a rota JSON e a da tela chamam esta função (e os repositórios também).
+    """
+    _validar_tamanho_das_listas(perfil)
     dias = perfil.publicada_desde_dias
     if dias is not None and not 0 < dias <= MAX_PUBLICADA_DESDE_DIAS:
         raise DadoInvalido(f"publicada_desde_dias tem que estar entre 1 e {MAX_PUBLICADA_DESDE_DIAS}")

@@ -125,10 +125,18 @@ As vagas em que a pessoa aplicou ficam na tabela `candidatura` de `migrations/00
 `GET /` redireciona para `/tela`, uma página HTML renderizada no servidor (Jinja2) com HTMX: `src/templates` (`base.html`, `tela/index.html` e os partials `tela/_*.html`) e `src/static` (`tela.css`, `htmx.min.js`, servidos em `/static`). O htmx 2.0.4 é servido local, com versão, licença e sha256 registrados em `src/static/README.md`. Os caminhos saem de `Path(__file__)`, não do diretório atual.
 
 - A lista da tela é a do histórico pelo perfil (seção "Histórico pelo perfil"): a mesma leitura da rota JSON, com o mesmo contador.
-- Esqueleto: header, lista, detalhe e "Vagas aplicadas" em estado vazio; "Coletar agora" e "Meu perfil" ainda desabilitados. Lista, busca, coleta e candidaturas entram nos PRs seguintes só preenchendo os partials.
+- Esqueleto: header, lista, detalhe e "Vagas aplicadas" em estado vazio; "Coletar agora" e "Meu perfil" já ativos. Lista, busca, coleta e candidaturas entram nos PRs seguintes só preenchendo os partials.
 - `src/controller/tela_seguranca.py` guarda o que as rotas de `/tela` compartilham: o `Jinja2Templates` (autoescape ligado), o filtro `url_segura` (só `http`/`https` com host vira `href`) e a dependência de CSRF das rotas que mudam estado (`HX-Request: true` e `Origin` igual ao host, ou, sem `Origin`, `Sec-Fetch-Site: same-origin`; senão 403).
 - Respostas de `/tela` e `/static` levam `Content-Security-Policy: default-src 'self'; ...`, `X-Content-Type-Options: nosniff` e `Referrer-Policy: same-origin`; `/tela` também `Cache-Control: no-store`. Por isso não há JS nem CSS inline.
 - `DadoInvalido` em rota de `/tela` vira 422 com o partial `_erro.html`; nas rotas JSON continua `{"detail": ...}`. Qualquer outro erro é 500.
+
+### Meu perfil (`/tela/perfil`)
+
+O botão "Meu perfil" do header leva a `GET /tela/perfil` (página inteira; com `HX-Request`, só o formulário). Os campos são os do perfil JSON: termos, excluir, localidades, plataformas e skills em textareas (uma entrada por linha, linha em branco ignorada), modalidades e níveis em checkboxes com os valores dos enums, `publicada_desde_dias` (vazio = sem limite) e `ocultar_candidatadas`. Sem perfil salvo o formulário vem vazio.
+
+- Salvar é `PUT /tela/perfil` (HTMX, nunca GET), protegido pelo mesmo CSRF das outras mutações da tela. Usa o mesmo repositório e a mesma validação de `PUT /perfil` (`validar_perfil`): `DadoInvalido` vira o aviso 422 e não grava nada; repetidos saem na normalização.
+- Depois de salvar, o formulário é relido do repositório e mostra "Perfil salvo" com o link de volta para a lista, que já obedece ao perfil na leitura.
+- Cada lista aceita até 200 itens de até 200 caracteres. O teto está em `validar_perfil`, então vale igual no `PUT /perfil` (JSON): o que uma rota grava a outra aceita de volta, e o 422 diz qual lista passou.
 
 ## Detalhe e expiração
 
