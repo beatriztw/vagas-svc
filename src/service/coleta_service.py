@@ -4,6 +4,7 @@ from datetime import date
 from src.client.base import palavras, radical
 from src.model.erros import DadoInvalido
 from src.repository.base import PerfilBuscaRepository, VagaEncontradaRepository
+from src.repository.trava import TravaColeta, TravaColetaMemoria
 from src.service.recomendacao_service import RecomendacaoService
 
 
@@ -58,12 +59,21 @@ class ColetaService:
         recomendacao: RecomendacaoService,
         perfis: PerfilBuscaRepository,
         vagas: VagaEncontradaRepository,
+        trava: TravaColeta | None = None,
     ):
         self.recomendacao = recomendacao
         self.perfis = perfis
         self.vagas = vagas
+        # A trava mora no serviço: toda porta de entrada (API, tela, CLI) passa por `coletar`.
+        # Sem uma trava compartilhada, vale só dentro deste serviço (testes).
+        self.trava = trava if trava is not None else TravaColetaMemoria()
 
     def coletar(self, hoje: date | None = None) -> ResultadoColeta:
+        """Uma coleta por vez: com outra em andamento levanta `ColetaEmAndamento` sem esperar."""
+        with self.trava.segurar():
+            return self._coletar(hoje)
+
+    def _coletar(self, hoje: date | None) -> ResultadoColeta:
         perfil = self.perfis.obter()
         if perfil is None:
             raise DadoInvalido("Nenhum perfil salvo: salve um perfil com termos (PUT /perfil) antes de coletar")
