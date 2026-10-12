@@ -11,8 +11,11 @@ from src.repository.base import (
     CurriculoRepository,
     PerfilBuscaRepository,
     VagaEncontradaRepository,
+    casa_busca,
+    exigidas_da_busca,
     normalizar_perfil,
     vagas_validas,
+    validar_deslocamento,
     validar_limite,
     validar_perfil,
     validar_termo,
@@ -125,6 +128,9 @@ class CurriculoRepositoryPostgres(CurriculoRepository):
             return [Curriculo(**linha) for linha in cur.fetchall()]
 
 
+_ORDEM = 'ORDER BY primeira_vez_em DESC, publicada_em DESC NULLS LAST, url COLLATE "C"'
+
+
 class VagaEncontradaRepositoryPostgres(VagaEncontradaRepository):
     def __init__(self, conn: psycopg.Connection) -> None:
         self._conn = conn
@@ -166,16 +172,47 @@ class VagaEncontradaRepositoryPostgres(VagaEncontradaRepository):
                 )
         return novas
 
-    def listar(self, somente_novas: bool, limite: int) -> list[VagaEncontrada]:
+    def listar(
+        self, somente_novas: bool, limite: int, q: str | None = None, deslocamento: int = 0
+    ) -> list[VagaEncontrada]:
         limite = validar_limite(limite)
-        filtro = "WHERE vista_em IS NULL " if somente_novas else ""
+        deslocamento = validar_deslocamento(deslocamento)
+        exigidas = exigidas_da_busca(q)
+        # Sem q, paginação no SQL. Com q, o radical não existe no SQL: busca as linhas do filtro
+        # `vista_em` na mesma ordem e filtra em Python com o `casa_busca` da memória; custo O(n)
+        # do histórico por chamada (aceito para o tamanho esperado; índice de texto fica para depois).
+        sql = f"SELECT {_COLUNAS_VAGA} FROM vaga_encontrada {self._filtro(somente_novas)}" + _ORDEM
+        params: tuple = ()
+        if not exigidas:
+            sql += " LIMIT %s OFFSET %s"
+            params = (limite, deslocamento)
         with self._conn.cursor(row_factory=dict_row) as cur:
-            cur.execute(
-                f"SELECT {_COLUNAS_VAGA} FROM vaga_encontrada {filtro}"
-                'ORDER BY primeira_vez_em DESC, publicada_em DESC NULLS LAST, url COLLATE "C" LIMIT %s',
-                (limite,),
-            )
-            return [VagaEncontrada(**{**linha, "termos": list(linha["termos"])}) for linha in cur.fetchall()]
+            cur.execute(sql, params)
+            vagas = [VagaEncontrada(**{**linha, "termos": list(linha["termos"])}) for linha in cur.fetchall()]
+        if exigidas:
+            vagas = [v for v in vagas if casa_busca(v, exigidas)][deslocamento : deslocamento + limite]
+        return vagas
+
+    def contar(self, somente_novas: bool, q: str | None = None) -> int:
+        exigidas = exigidas_da_busca(q)
+        with self._conn.cursor(row_factory=dict_row) as cur:
+            if not exigidas:
+                cur.execute(f"SELECT count(*) AS n FROM vaga_encontrada {self._filtro(somente_novas)}")
+                return cur.fetchone()["n"]
+            cur.execute(f"SELECT {_COLUNAS_VAGA} FROM vaga_encontrada {self._filtro(somente_novas)}")
+            return sum(1 for linha in cur.fetchall() if casa_busca(VagaEncontrada(**linha), exigidas))
+
+    def obter(self, url: str) -> VagaEncontrada | None:
+        if not isinstance(url, str) or "\x00" in url:
+            return None
+        with self._conn.cursor(row_factory=dict_row) as cur:
+            cur.execute(f"SELECT {_COLUNAS_VAGA} FROM vaga_encontrada WHERE url = %s", (url,))
+            linha = cur.fetchone()
+        return VagaEncontrada(**{**linha, "termos": list(linha["termos"])}) if linha else None
+
+    @staticmethod
+    def _filtro(somente_novas: bool) -> str:
+        return "WHERE vista_em IS NULL " if somente_novas else ""
 
     def marcar_vistas(self, urls: list[str]) -> int:
         urls = validar_urls(urls)

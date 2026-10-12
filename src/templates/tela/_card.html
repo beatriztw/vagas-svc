@@ -1,0 +1,15 @@
+{# Card de vaga. O `href` é o mesmo da navegação do HTMX: sem JS o link recarrega a página na vaga. #}
+{% macro card(vaga, selecionada) -%}
+{%- set destino = vaga.url | urlencode -%}
+<li>
+  <a class="card" data-url="{{ vaga.url }}"{% if selecionada %} aria-current="true"{% endif %}
+     href="/tela?url={{ destino }}"
+     hx-get="/tela/vagas/detalhe?url={{ destino }}"
+     hx-target="#detalhe" hx-swap="outerHTML"
+     hx-push-url="/tela?url={{ destino }}">
+    <span class="card-titulo">{{ vaga.titulo }}</span>
+    <span class="card-sec">{{ vaga.empresa }} - {{ vaga.local or "—" }}</span>
+    <span class="mono">{{ "remoto" if vaga.remoto is true else "presencial" if vaga.remoto is false else "não informado" }}</span>
+  </a>
+</li>
+{%- endmacro %}

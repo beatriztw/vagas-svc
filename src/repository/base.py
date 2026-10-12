@@ -2,6 +2,7 @@ from abc import ABC, abstractmethod
 from dataclasses import replace
 from datetime import date, datetime, timezone
 
+from src.client.base import _LIGACAO, _equivalentes, _formas_do_titulo, palavras, radical
 from src.model.curriculo import Curriculo
 from src.model.erros import DadoInvalido
 from src.model.perfil import Perfil
@@ -40,6 +41,10 @@ class CurriculoRepository(ABC):
 
 # Teto de GET /vagas/encontradas: a lista inteira de uma vez não serve para ler.
 MAX_LIMITE_VAGAS = 500
+# Teto do "carregar mais": ninguém rola dez mil vagas, e o OFFSET enorme só custa.
+MAX_DESLOCAMENTO_VAGAS = 10_000
+# Teto do texto da busca: mais que isso não é uma busca digitada.
+MAX_TAMANHO_BUSCA = 200
 
 
 class VagaEncontradaRepository(ABC):
@@ -54,8 +59,22 @@ class VagaEncontradaRepository(ABC):
         """
 
     @abstractmethod
-    def listar(self, somente_novas: bool, limite: int) -> list[VagaEncontrada]:
-        """Mais recentes (`primeira_vez_em`) primeiro; `somente_novas` deixa só as não vistas."""
+    def listar(
+        self, somente_novas: bool, limite: int, q: str | None = None, deslocamento: int = 0
+    ) -> list[VagaEncontrada]:
+        """Mais recentes (`primeira_vez_em`) primeiro; `somente_novas` deixa só as não vistas.
+
+        `q` filtra o histórico por palavra (ver `casa_busca`); `deslocamento` pula as primeiras
+        já filtradas, para o "carregar mais".
+        """
+
+    @abstractmethod
+    def contar(self, somente_novas: bool, q: str | None = None) -> int:
+        """Quantas vagas `listar` devolveria sem limite nem deslocamento."""
+
+    @abstractmethod
+    def obter(self, url: str) -> VagaEncontrada | None:
+        """A vaga pela URL exatamente como foi gravada (é a chave: não se normaliza); None se não existe."""
 
     @abstractmethod
     def marcar_vistas(self, urls: list[str]) -> int:
@@ -74,6 +93,59 @@ def validar_limite(limite: int) -> int:
     if isinstance(limite, bool) or not isinstance(limite, int) or not 1 <= limite <= MAX_LIMITE_VAGAS:
         raise DadoInvalido(f"limite tem que estar entre 1 e {MAX_LIMITE_VAGAS}")
     return limite
+
+
+def validar_deslocamento(deslocamento: int) -> int:
+    if (
+        isinstance(deslocamento, bool)
+        or not isinstance(deslocamento, int)
+        or not 0 <= deslocamento <= MAX_DESLOCAMENTO_VAGAS
+    ):
+        raise DadoInvalido(f"deslocamento tem que estar entre 0 e {MAX_DESLOCAMENTO_VAGAS}")
+    return deslocamento
+
+
+def exigidas_da_busca(q: str | None) -> list[str]:
+    """Radicais das palavras úteis de `q`; vazio quando não há filtro (None, "", só pontuação ou só ligação)."""
+    if q is None:
+        return []
+    if not isinstance(q, str) or len(q) > MAX_TAMANHO_BUSCA:
+        raise DadoInvalido(f"q tem que ser um texto de até {MAX_TAMANHO_BUSCA} caracteres")
+    return [radical(p) for p in palavras(q) if p not in _LIGACAO]
+
+
+def casa_busca(vaga: VagaEncontrada, exigidas: list[str]) -> bool:
+    """Toda palavra de `q` casa com uma palavra de título, empresa ou local (E entre elas).
+
+    Mesma comparação da relevância da recomendação: palavra inteira por radical, nunca por
+    pedaço (`java` não casa com JavaScript, `sql` não casa com NoSQL), sem acento, caixa,
+    hífen, gênero e plural; "front end" = "front-end" = "frontend". Sem palavras, não filtra.
+    """
+    formas: set[str] = set()
+    for campo in (vaga.titulo, vaga.empresa, vaga.local):
+        # Por campo: o par vizinho não atravessa do fim do título para o começo da empresa.
+        formas.update(_formas_do_titulo(campo or ""))
+    i = 0
+    while i < len(exigidas):
+        if i + 1 < len(exigidas) and (exigidas[i] + exigidas[i + 1]) in formas:
+            i += 2
+            continue
+        if not _equivalentes(exigidas[i]) & formas:
+            return False
+        i += 1
+    return True
+
+
+def filtrar_e_ordenar(
+    linhas: list[VagaEncontrada], somente_novas: bool, q: str | None
+) -> list[VagaEncontrada]:
+    """O filtro e a ordem do contrato, em Python (a memória usa direto)."""
+    exigidas = exigidas_da_busca(q)
+    linhas = [
+        v for v in linhas if (not somente_novas or v.vista_em is None) and casa_busca(v, exigidas)
+    ]
+    # Mesma ordem do Postgres: primeira_vez_em desc, publicada_em desc (sem data por último), url.
+    return sorted(sorted(linhas, key=lambda v: v.url), key=_chave_listagem, reverse=True)
 
 
 def validar_urls(urls: list[str]) -> list[str]:
@@ -225,12 +297,20 @@ class VagaEncontradaRepositoryMemoria(VagaEncontradaRepository):
             )
         return novas
 
-    def listar(self, somente_novas: bool, limite: int) -> list[VagaEncontrada]:
+    def listar(
+        self, somente_novas: bool, limite: int, q: str | None = None, deslocamento: int = 0
+    ) -> list[VagaEncontrada]:
         limite = validar_limite(limite)
-        linhas = [v for v in self._linhas.values() if not somente_novas or v.vista_em is None]
-        # Mesma ordem do Postgres: primeira_vez_em desc, publicada_em desc (sem data por último), url.
-        linhas = sorted(sorted(linhas, key=lambda v: v.url), key=_chave_listagem, reverse=True)
-        return [replace(v, termos=list(v.termos)) for v in linhas[:limite]]
+        deslocamento = validar_deslocamento(deslocamento)
+        linhas = filtrar_e_ordenar(list(self._linhas.values()), somente_novas, q)
+        return [replace(v, termos=list(v.termos)) for v in linhas[deslocamento : deslocamento + limite]]
+
+    def contar(self, somente_novas: bool, q: str | None = None) -> int:
+        return len(filtrar_e_ordenar(list(self._linhas.values()), somente_novas, q))
+
+    def obter(self, url: str) -> VagaEncontrada | None:
+        vaga = self._linhas.get(url) if isinstance(url, str) else None
+        return replace(vaga, termos=list(vaga.termos)) if vaga else None
 
     def marcar_vistas(self, urls: list[str]) -> int:
         urls = validar_urls(urls)

@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+{% block titulo %}Vagas - vagas-svc{% endblock %}
+{% block conteudo %}
+<div class="colunas">
+  <section class="painel col-lista" aria-labelledby="t-vagas">
+    <div class="painel-cabecalho">
+      <h2 id="t-vagas">Vagas</h2>
+    </div>
+    {% include "tela/_lista.html" %}
+  </section>
+  <div class="painel col-detalhe">
+    {% include "tela/_detalhe.html" %}
+  </div>
+</div>
+<section class="painel" aria-labelledby="t-aplicadas">
+  {% include "tela/_aplicadas.html" %}
+</section>
+{% endblock %}

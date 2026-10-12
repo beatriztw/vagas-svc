@@ -7,11 +7,14 @@ from datetime import date, datetime
 from typing import Any
 
 from fastapi import FastAPI, HTTPException, Query, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, RedirectResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field
 
 from src.client.armazenamento import Armazenamento
 from src.controller.candidaturas import criar_router_candidaturas
+from src.controller.tela import criar_router_tela
+from src.controller.tela_seguranca import DIRETORIO_STATIC, caminho_da_tela, eh_htmx, templates
 from src.model.curriculo import Curriculo
 from src.model.erros import DadoInvalido
 from src.model.perfil import Perfil
@@ -19,8 +22,10 @@ from src.model.vaga import Modalidade, Nivel
 from src.model.vaga_encontrada import VagaEncontrada
 from src.model.vaga_externa import VagaExterna
 from src.repository.base import (
+    MAX_DESLOCAMENTO_VAGAS,
     MAX_LIMITE_VAGAS,
     MAX_PUBLICADA_DESDE_DIAS,
+    MAX_TAMANHO_BUSCA,
     CurriculoRepository,
     PerfilBuscaRepository,
     VagaEncontradaRepository,
@@ -151,6 +156,10 @@ class VistasJson(BaseModel):
     marcadas: int
 
 
+# Sem CSS nem JS inline: tudo vem de /static (o htmx roda com includeIndicatorStyles=false).
+CSP = "default-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'"
+
+
 def criar_app(
     perfis: PerfilBuscaRepository,
     curriculos: CurriculoRepository,
@@ -172,10 +181,43 @@ def criar_app(
     app.include_router(criar_router_candidaturas(CandidaturaService(candidaturas)))
 
     @app.exception_handler(DadoInvalido)
-    def valor_invalido(_: Request, erro: DadoInvalido) -> JSONResponse:
+    def valor_invalido(request: Request, erro: DadoInvalido):
         # Só a validação do domínio vira 422; um ValueError qualquer (PGPORT inválido, dado
         # inesperado do banco) é falha do servidor e sai como 500.
+        if caminho_da_tela(request.url.path):
+            # A tela troca HTML: o erro volta como HTML, não como JSON.
+            contexto = {"mensagem": str(erro)}
+            if eh_htmx(request):
+                # O 422 é trocado no alvo de quem chamou (uma linha de tabela, por exemplo): o
+                # servidor redireciona a troca para o aviso da página.
+                return templates.TemplateResponse(
+                    request,
+                    "tela/_erro.html",
+                    contexto,
+                    status_code=422,
+                    headers={"HX-Retarget": "#aviso", "HX-Reswap": "outerHTML"},
+                )
+            return templates.TemplateResponse(request, "tela/erro.html", contexto, status_code=422)
         return JSONResponse(status_code=422, content={"detail": str(erro)})
+
+    @app.middleware("http")
+    async def cabecalhos_da_tela(request: Request, chamar):
+        resposta = await chamar(request)
+        caminho = request.url.path
+        if caminho_da_tela(caminho) or caminho == "/static" or caminho.startswith("/static/"):
+            resposta.headers["Content-Security-Policy"] = CSP
+            resposta.headers["X-Content-Type-Options"] = "nosniff"
+            resposta.headers["Referrer-Policy"] = "same-origin"
+        if caminho_da_tela(caminho):
+            resposta.headers["Cache-Control"] = "no-store"
+        return resposta
+
+    app.mount("/static", StaticFiles(directory=DIRETORIO_STATIC), name="static")
+    app.include_router(criar_router_tela(encontradas))
+
+    @app.get("/", include_in_schema=False)
+    def raiz() -> RedirectResponse:
+        return RedirectResponse("/tela", status_code=307)
 
     @app.exception_handler(ColetaEmAndamento)
     def coleta_em_andamento(_: Request, erro: ColetaEmAndamento) -> JSONResponse:
@@ -251,9 +293,13 @@ def criar_app(
 
     @app.get("/vagas/encontradas")
     def listar_encontradas(
-        novas: bool = True, limite: int = Query(default=50, ge=1, le=MAX_LIMITE_VAGAS)
+        novas: bool = True,
+        limite: int = Query(default=50, ge=1, le=MAX_LIMITE_VAGAS),
+        q: str | None = Query(default=None, max_length=MAX_TAMANHO_BUSCA),
+        deslocamento: int = Query(default=0, ge=0, le=MAX_DESLOCAMENTO_VAGAS),
     ) -> list[VagaEncontradaJson]:
-        return [VagaEncontradaJson.de(v) for v in encontradas.listar(somente_novas=novas, limite=limite)]
+        vagas = encontradas.listar(somente_novas=novas, limite=limite, q=q, deslocamento=deslocamento)
+        return [VagaEncontradaJson.de(v) for v in vagas]
 
     @app.post("/vagas/vistas")
     def marcar_vistas(corpo: VagasVistas) -> VistasJson:
