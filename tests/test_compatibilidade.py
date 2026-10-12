@@ -110,6 +110,25 @@ class NivelETituloTest(unittest.TestCase):
             self.assertEqual(r.percentual, 0, titulo)
             self.assertEqual(r.lacunas, ["Nível Sênior fora do perfil (Júnior, Pleno)"])
 
+    def test_pl_sql_nao_e_pleno(self):
+        p = perfil(skills=[], termos=[], niveis=[Nivel.JUNIOR, Nivel.PLENO])
+        r = compatibilidade("Analista PL/SQL Sênior", None, p)
+        self.assertEqual(r.lacunas, ["Nível Sênior fora do perfil (Júnior, Pleno)"])
+        self.assertNotIn("Nível Pleno", r.pontos_fortes)
+        # Sem outro nível no título, nem entra na conta do nível.
+        r = compatibilidade("Desenvolvedor PL/SQL", None, perfil(skills=[], termos=[], niveis=[Nivel.SENIOR]))
+        self.assertEqual((r.percentual, r.lacunas, r.pontos_fortes), (0, [], []))
+        self.assertEqual(compatibilidade("Dev PL SQL", None, p).lacunas, [])
+        # "Pl" sozinho continua sendo Pleno.
+        self.assertIn("Nível Pleno", compatibilidade("Analista Pl SQL Pl", None, p).pontos_fortes)
+
+    def test_mid_market_nao_e_nivel_mas_mid_sozinho_e(self):
+        p = perfil(skills=[], termos=[], niveis=[Nivel.SENIOR])
+        for titulo in ("Mid-Market Analyst", "Mid Market Analyst"):
+            r = compatibilidade(titulo, None, p)
+            self.assertEqual((r.lacunas, r.pontos_fortes), ([], []), titulo)
+        self.assertEqual(compatibilidade("Mid Data Analyst", None, p).lacunas, ["Nível Pleno fora do perfil (Sênior)"])
+
     def test_titulo_com_dois_niveis_basta_um(self):
         p = perfil(skills=[], termos=[], niveis=[Nivel.JUNIOR])
         self.assertEqual(compatibilidade("Analista Júnior/Pleno", None, p).percentual, 100)

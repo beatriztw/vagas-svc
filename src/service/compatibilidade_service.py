@@ -106,8 +106,21 @@ def _skills_do_perfil(perfil: Perfil) -> list[tuple[str, tuple[tuple[str, ...], 
     return skills
 
 
+# Abreviações que viram outra coisa quando seguidas de certa palavra: "PL/SQL" é uma linguagem
+# (não Pleno) e "Mid Market" é segmento de mercado (não nível). "Mid-Market" já vira uma palavra só.
+_NAO_E_NIVEL_SE_SEGUIDA_DE = {"pl": {"sql"}, "mid": {"market"}}
+
+
 def _niveis_do_titulo(titulo: str | None) -> list[Nivel]:
-    achados = [_NIVEL_DA_PALAVRA[r] for r in _raizes(titulo) if r in _NIVEL_DA_PALAVRA]
+    raizes = _raizes(titulo)
+    achados = []
+    for i, r in enumerate(raizes):
+        if r not in _NIVEL_DA_PALAVRA:
+            continue
+        seguinte = raizes[i + 1] if i + 1 < len(raizes) else None
+        if seguinte in _NAO_E_NIVEL_SE_SEGUIDA_DE.get(r, ()):
+            continue
+        achados.append(_NIVEL_DA_PALAVRA[r])
     return list(dict.fromkeys(achados))
 
 
