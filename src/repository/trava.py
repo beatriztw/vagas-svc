@@ -7,6 +7,7 @@ tempo. Quem não pega a trava recebe `ColetaEmAndamento` na hora, sem esperar.
 
 import logging
 import threading
+import time
 from abc import ABC, abstractmethod
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
@@ -33,9 +34,17 @@ class TravaColeta(ABC):
         """Pega a trava sem esperar e devolve a função que a libera; None se já estava presa."""
 
     @contextmanager
-    def segurar(self) -> Iterator[None]:
-        """Segura a trava durante o bloco (inclusive se ele levantar); `ColetaEmAndamento` se já estava presa."""
+    def segurar(
+        self, esperar_s: float = 0, intervalo_s: float = 0.2, dormir: Callable[[float], None] = time.sleep
+    ) -> Iterator[None]:
+        """Segura a trava durante o bloco (inclusive se ele levantar). Presa: tenta de novo a cada
+        `intervalo_s` por até `esperar_s` (0 = não espera, o caso da coleta) e então `ColetaEmAndamento`."""
         liberar = self._tentar()
+        tentativas = int(esperar_s / intervalo_s) if esperar_s > 0 else 0
+        while liberar is None and tentativas > 0:
+            dormir(intervalo_s)
+            tentativas -= 1
+            liberar = self._tentar()
         if liberar is None:
             raise ColetaEmAndamento
         try:

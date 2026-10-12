@@ -243,6 +243,17 @@ class TravaPostgresTest(unittest.TestCase):
         with TravaColetaPostgres(conectar).segurar():
             pass
 
+    def test_esperar_tenta_de_novo_ate_o_teto_e_entao_desiste(self):
+        from src.repository.conexao import conectar
+        from src.repository.trava import CHAVE_TRAVA_LOTE_IA, TravaColetaPostgres
+
+        dormidas = []
+        with TravaColetaPostgres(conectar, chave=CHAVE_TRAVA_LOTE_IA).segurar():
+            with self.assertRaises(ColetaEmAndamento):
+                with TravaColetaPostgres(conectar, chave=CHAVE_TRAVA_LOTE_IA).segurar(esperar_s=1, intervalo_s=0.25, dormir=dormidas.append):
+                    self.fail("não devia entrar")
+        self.assertEqual(dormidas, [0.25] * 4)
+
     def test_trava_do_lote_da_ia_tem_chave_propria(self):
         # Coleta rodando não segura o lote, e dois lotes não rodam juntos.
         from src.repository.conexao import conectar
