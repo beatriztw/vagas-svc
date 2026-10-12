@@ -5,10 +5,25 @@ from src.model.curriculo import Curriculo
 from src.model.erros import DadoInvalido
 from src.model.perfil import Perfil
 from src.model.vaga import Modalidade, Nivel
-from src.repository.base import CurriculoRepository, PerfilBuscaRepository, normalizar_perfil, validar_perfil
+from src.model.vaga_encontrada import VagaEncontrada
+from src.model.vaga_externa import VagaExterna
+from src.repository.base import (
+    CurriculoRepository,
+    PerfilBuscaRepository,
+    VagaEncontradaRepository,
+    normalizar_perfil,
+    vagas_validas,
+    validar_limite,
+    validar_perfil,
+    validar_termo,
+    validar_urls,
+)
 
 _LISTAS = ("termos", "excluir", "localidades", "plataformas", "skills")
 _COLUNAS_CURRICULO = "id, tipo, titulo, conteudo_md, base_id, vaga_url, arquivo_s3, criado_em"
+_COLUNAS_VAGA = (
+    "url, titulo, empresa, plataforma, local, remoto, publicada_em, termos, primeira_vez_em, ultima_vez_em, vista_em"
+)
 
 
 def perfil_para_linha(perfil: Perfil) -> dict:
@@ -108,3 +123,68 @@ class CurriculoRepositoryPostgres(CurriculoRepository):
                 "ORDER BY criado_em DESC, id DESC"
             )
             return [Curriculo(**linha) for linha in cur.fetchall()]
+
+
+class VagaEncontradaRepositoryPostgres(VagaEncontradaRepository):
+    def __init__(self, conn: psycopg.Connection) -> None:
+        self._conn = conn
+
+    def registrar(self, vagas: list[VagaExterna], termo: str) -> int:
+        termo = validar_termo(termo)
+        validas = vagas_validas(vagas)
+        novas = 0
+        with self._conn.transaction(), self._conn.cursor() as cur:
+            for vaga in validas:
+                params = {**vars(vaga), "termo": termo}
+                # ON CONFLICT DO NOTHING espera a transação concorrente que gravou a mesma URL;
+                # sem linha devolvida, a vaga já existia e cai no UPDATE abaixo.
+                cur.execute(
+                    "INSERT INTO vaga_encontrada "
+                    "(url, titulo, empresa, plataforma, local, remoto, publicada_em, termos) "
+                    "VALUES (%(url)s, %(titulo)s, %(empresa)s, %(plataforma)s, %(local)s, %(remoto)s, "
+                    "%(publicada_em)s, ARRAY[%(termo)s::text]) "
+                    "ON CONFLICT (url) DO NOTHING RETURNING url",
+                    params,
+                )
+                if cur.fetchone() is not None:
+                    novas += 1
+                    continue
+                # Só os campos que vieram preenchidos; primeira_vez_em e vista_em ficam como estão.
+                cur.execute(
+                    "UPDATE vaga_encontrada SET "
+                    "titulo = COALESCE(NULLIF(%(titulo)s::text, ''), titulo), "
+                    "empresa = COALESCE(NULLIF(%(empresa)s::text, ''), empresa), "
+                    "plataforma = COALESCE(NULLIF(%(plataforma)s::text, ''), plataforma), "
+                    "local = COALESCE(%(local)s::text, local), "
+                    "remoto = COALESCE(%(remoto)s::boolean, remoto), "
+                    "publicada_em = COALESCE(%(publicada_em)s::date, publicada_em), "
+                    "termos = CASE WHEN %(termo)s::text = ANY(termos) THEN termos "
+                    "ELSE array_append(termos, %(termo)s::text) END, "
+                    "ultima_vez_em = now() "
+                    "WHERE url = %(url)s",
+                    params,
+                )
+        return novas
+
+    def listar(self, somente_novas: bool, limite: int) -> list[VagaEncontrada]:
+        limite = validar_limite(limite)
+        filtro = "WHERE vista_em IS NULL " if somente_novas else ""
+        with self._conn.cursor(row_factory=dict_row) as cur:
+            cur.execute(
+                f"SELECT {_COLUNAS_VAGA} FROM vaga_encontrada {filtro}"
+                'ORDER BY primeira_vez_em DESC, publicada_em DESC NULLS LAST, url COLLATE "C" LIMIT %s',
+                (limite,),
+            )
+            return [VagaEncontrada(**{**linha, "termos": list(linha["termos"])}) for linha in cur.fetchall()]
+
+    def marcar_vistas(self, urls: list[str]) -> int:
+        urls = validar_urls(urls)
+        if not urls:
+            return 0
+        with self._conn.transaction(), self._conn.cursor() as cur:
+            # Já vista fica com a data da primeira vez.
+            cur.execute(
+                "UPDATE vaga_encontrada SET vista_em = now() WHERE url = ANY(%s) AND vista_em IS NULL",
+                (urls,),
+            )
+            return cur.rowcount
