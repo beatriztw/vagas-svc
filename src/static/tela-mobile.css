@@ -1,0 +1,48 @@
+/* Celular (<= 640 px): o detalhe da vaga abre por cima da lista, em tela cheia, com botão "Voltar".
+   Quem abre e fecha é o tela-mobile.js (atributos em #detalhe); aqui só aparência.
+   Acima de 640 px nada muda: o botão fica escondido e as colunas seguem como no tela.css. */
+.voltar { display: none; }
+
+@media (max-width: 640px) {
+  /* Fechado: a coluna do detalhe some (o "Selecione uma vaga" ficaria embaixo de 50 cards). */
+  .col-detalhe { display: none; }
+
+  /* Aberto: o JS põe data-aberto quando a pessoa pediu a vaga (card ou link com ?url=). Sem isso a vaga
+     que o servidor já deixa selecionada na 1ª visita abriria sozinha. data-fechado = fechou sem sair da página. */
+  .col-detalhe:has(#detalhe[data-aberto]:not([data-fechado])) {
+    display: flex;
+    position: fixed;
+    inset: 0;
+    z-index: 100;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    border: 0;
+    border-radius: 0;
+    padding: 0 16px 24px;
+  }
+
+  .col-detalhe .voltar {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    align-self: stretch;
+    min-height: 48px;
+    margin: 0 -16px;
+    padding: 0 16px;
+    border: 0;
+    border-bottom: 1px solid var(--borda);
+    background: #FFFFFF;
+    color: #0F5F58;
+    font: inherit;
+    font-weight: 600;
+    text-align: left;
+    cursor: pointer;
+  }
+  .col-detalhe .voltar:focus-visible,
+  .col-detalhe .detalhe:focus-visible { outline: 3px solid #0F5F58; outline-offset: -3px; }
+  .col-detalhe .detalhe:focus { outline: none; }
+  .col-detalhe .detalhe { padding-top: 16px; }
+}
