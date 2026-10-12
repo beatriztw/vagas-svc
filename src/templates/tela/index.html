@@ -6,6 +6,14 @@
     <div class="painel-cabecalho">
       <h2 id="t-vagas">Vagas</h2>
     </div>
+    <div class="busca">
+      <label for="busca">Buscar</label>
+      {# Fora do bloco #vagas: o swap troca só a lista e o campo mantém foco e texto. O htmx codifica `q`. #}
+      <input id="busca" type="search" name="q" value="{{ q or '' }}" placeholder="cargo, empresa, palavra-chave"
+             autocomplete="off" maxlength="{{ max_busca }}"
+             hx-get="/tela/vagas" hx-trigger="input changed delay:300ms, search"
+             hx-target="#vagas" hx-swap="outerHTML" hx-push-url="true" hx-sync="this:replace">
+    </div>
     {% include "tela/_lista.html" %}
   </section>
   <div class="painel col-detalhe">

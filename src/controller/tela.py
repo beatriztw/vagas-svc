@@ -48,7 +48,7 @@ def criar_router_tela(encontradas: VagaEncontradaRepository) -> APIRouter:
             parametros = {"deslocamento": proximo, **({"q": q} if q else {})}
             # Codificado aqui, uma vez: o template só imprime (e escapa para atributo).
             query_proximo = urlencode(parametros, quote_via=quote)
-        return {"vagas": vagas, "total": total, "q": q, "query_proximo": query_proximo}
+        return {"vagas": vagas, "total": total, "q": q, "query_proximo": query_proximo, "max_busca": MAX_TAMANHO_BUSCA}
 
     def pagina(request: Request, q: str | None, vaga, pedida: bool):
         """A página inteira. `vaga` é a selecionada; `pedida` sem vaga é um link para o que não existe."""
