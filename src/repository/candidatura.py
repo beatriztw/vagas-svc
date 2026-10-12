@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 from src.model.candidatura import STATUS_PADRAO, CandidaturaComVaga, StatusCandidatura
 from src.model.erros import DadoInvalido
 from src.model.vaga_encontrada import VagaEncontrada
-from src.repository.base import MAX_LIMITE_VAGAS, VagaEncontradaRepository
+from src.repository.base import VagaEncontradaRepository
 
 
 class CandidaturaRepository(ABC):
@@ -70,16 +70,12 @@ def id_possivel(id: int) -> bool:
 
 
 def vaga_por_url_em(encontradas: VagaEncontradaRepository) -> Callable[[str], VagaEncontrada | None]:
-    """Busca de vaga por URL para a memória, em cima do que `VagaEncontradaRepository` oferece hoje.
+    """Busca de vaga por URL para a memória: faz o papel da chave estrangeira do Postgres.
 
-    Varre a página máxima do histórico (MAX_LIMITE_VAGAS): serve para testes e para o modo sem banco,
-    não para a produção (lá a chave estrangeira cuida disso).
+    Usa `VagaEncontradaRepository.obter`, que acha a vaga em qualquer ponto do histórico (não só na
+    primeira página da listagem).
     """
-
-    def achar(url: str) -> VagaEncontrada | None:
-        return next((v for v in encontradas.listar(False, MAX_LIMITE_VAGAS) if v.url == url), None)
-
-    return achar
+    return encontradas.obter
 
 
 class CandidaturaRepositoryMemoria(CandidaturaRepository):
