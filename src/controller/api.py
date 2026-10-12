@@ -11,6 +11,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field
 
 from src.client.armazenamento import Armazenamento
+from src.controller.candidaturas import criar_router_candidaturas
 from src.model.curriculo import Curriculo
 from src.model.erros import DadoInvalido
 from src.model.perfil import Perfil
@@ -26,7 +27,9 @@ from src.repository.base import (
     VagaEncontradaRepositoryMemoria,
     validar_perfil,
 )
+from src.repository.candidatura import CandidaturaRepository, CandidaturaRepositoryMemoria, vaga_por_url_em
 from src.service.busca_service import BuscaService
+from src.service.candidatura_service import CandidaturaService
 from src.service.coleta_service import ColetaService
 from src.service.recomendacao_service import RecomendacaoService
 
@@ -153,13 +156,18 @@ def criar_app(
     busca: BuscaService,
     armazenamento: Armazenamento | None = None,
     encontradas: VagaEncontradaRepository | None = None,
+    candidaturas: CandidaturaRepository | None = None,
 ) -> FastAPI:
-    """Sem `encontradas`, o histórico da coleta fica em memória (testes); a produção passa o do Postgres."""
+    """Sem `encontradas` e `candidaturas`, o histórico da coleta e as candidaturas ficam em memória (testes);
+    a produção passa os do Postgres."""
     app = FastAPI(title="vagas-svc")
     app.state.armazenamento = armazenamento
     recomendacao = RecomendacaoService(busca)
     encontradas = encontradas if encontradas is not None else VagaEncontradaRepositoryMemoria()
     coleta = ColetaService(recomendacao, perfis, encontradas)
+    if candidaturas is None:
+        candidaturas = CandidaturaRepositoryMemoria(vaga_por_url_em(encontradas))
+    app.include_router(criar_router_candidaturas(CandidaturaService(candidaturas)))
 
     @app.exception_handler(DadoInvalido)
     def valor_invalido(_: Request, erro: DadoInvalido) -> JSONResponse:
@@ -352,6 +360,12 @@ def _encontradas_postgres() -> type:
     return VagaEncontradaRepositoryPostgres
 
 
+def _candidaturas_postgres() -> type:
+    from src.repository.candidatura_postgres import CandidaturaRepositoryPostgres
+
+    return CandidaturaRepositoryPostgres
+
+
 def criar_app_producao() -> FastAPI:
     pool = _PoolPreguicoso()
     return criar_app(
@@ -360,6 +374,7 @@ def criar_app_producao() -> FastAPI:
         busca=BuscaService(providers_padrao()),
         armazenamento=Armazenamento(),
         encontradas=_PorChamada(pool, _encontradas_postgres),
+        candidaturas=_PorChamada(pool, _candidaturas_postgres),
     )
 
 
