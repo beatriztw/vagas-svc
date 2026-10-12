@@ -16,6 +16,8 @@ log = logging.getLogger(__name__)
 # Chave fixa do `pg_try_advisory_lock` (bigint): vale entre processos e é só desta coleta.
 # Outro uso de advisory lock neste banco tem que escolher outra chave.
 CHAVE_TRAVA_COLETA = 7_650_001_001
+# Enfileirar o lote da IA (teto diário): dois disparos ao mesmo tempo leriam a mesma contagem.
+CHAVE_TRAVA_LOTE_IA = 7_650_001_002
 
 
 class ColetaEmAndamento(Exception):
@@ -61,8 +63,9 @@ class TravaColetaPostgres(TravaColeta):
     coleta e das outras requisições. A trava é por sessão, então cada coleta tem a sua conexão.
     """
 
-    def __init__(self, conectar: Callable[[], object] | None = None) -> None:
+    def __init__(self, conectar: Callable[[], object] | None = None, chave: int = CHAVE_TRAVA_COLETA) -> None:
         self._conectar = conectar
+        self._chave = chave
 
     def _tentar(self) -> Callable[[], None] | None:
         if self._conectar is None:
@@ -71,7 +74,7 @@ class TravaColetaPostgres(TravaColeta):
             self._conectar = conectar
         conn = self._conectar()
         try:
-            pegou = conn.execute("SELECT pg_try_advisory_lock(%s)", (CHAVE_TRAVA_COLETA,)).fetchone()[0]
+            pegou = conn.execute("SELECT pg_try_advisory_lock(%s)", (self._chave,)).fetchone()[0]
         except BaseException:
             conn.close()
             raise
@@ -83,7 +86,7 @@ class TravaColetaPostgres(TravaColeta):
             # A coleta já terminou (ou falhou por outro motivo): erro ao soltar não pode mudar o
             # resultado. A sessão que caiu já perdeu o lock sozinha; fechar também o solta.
             try:
-                conn.execute("SELECT pg_advisory_unlock(%s)", (CHAVE_TRAVA_COLETA,))
+                conn.execute("SELECT pg_advisory_unlock(%s)", (self._chave,))
             except Exception:
                 log.warning("não consegui soltar a trava da coleta; ela some com a sessão", exc_info=True)
             finally:

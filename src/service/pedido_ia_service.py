@@ -29,6 +29,7 @@ from src.model.resultado_ia import (
     validar_resultado_curriculo,
 )
 from src.repository.base import CurriculoRepository, PerfilBuscaRepository, VagaEncontradaRepository
+from src.repository.trava import ColetaEmAndamento, TravaColeta, TravaColetaMemoria
 from src.repository.candidatura import validar_vaga_url
 from src.repository.pedido_ia import PedidoIARepository, validar_faixa, validar_tipo
 from src.service.metricas_ia import maior_versao
@@ -81,6 +82,7 @@ class PedidoIAService:
         curriculos: CurriculoRepository,
         max_lote_por_dia: int | None = None,
         relogio: Callable[[], datetime] | None = None,
+        trava_lote: TravaColeta | None = None,
     ):
         self.pedidos = pedidos
         self.encontradas = encontradas
@@ -88,6 +90,9 @@ class PedidoIAService:
         self.curriculos = curriculos
         self.max_lote_por_dia = lote_max_por_dia() if max_lote_por_dia is None else max_lote_por_dia
         self._relogio = relogio or (lambda: datetime.now(timezone.utc))
+        # Um enfileiramento por vez (coleta do timer, botão, duas abas): sem isso as chamadas leriam
+        # a mesma contagem do teto diário e cada uma criaria até o teto. Produção usa a do Postgres.
+        self.trava_lote = trava_lote if trava_lote is not None else TravaColetaMemoria()
 
     def pedir(self, vaga_url: str, tipo: TipoPedidoIA | str) -> tuple[PedidoIA, bool]:
         """(pedido, criado). Já havendo um ativo para (vaga, tipo), devolve o ativo com criado=False."""
@@ -118,6 +123,16 @@ class PedidoIAService:
         return self.pedidos.notas_compatibilidade(base.id, self.versao_compatibilidade())
 
     def enfileirar_lote(self, candidatas: Iterable, limite: int | None = None) -> int:
+        """`_enfileirar_lote` sob a trava do lote. Outro enfileiramento rodando: não cria nada (0),
+        e o que está rodando já respeita o teto."""
+        try:
+            with self.trava_lote.segurar():
+                return self._enfileirar_lote(candidatas, limite)
+        except ColetaEmAndamento:
+            log.info("pedido_ia lote já em andamento; nada enfileirado")
+            return 0
+
+    def _enfileirar_lote(self, candidatas: Iterable, limite: int | None = None) -> int:
         """Cria pedidos de compatibilidade do lote (prioridade 1) para as `candidatas`, na ordem dada,
         pulando as que já têm pedido ativo ou nota válida. Devolve quantos criou.
 

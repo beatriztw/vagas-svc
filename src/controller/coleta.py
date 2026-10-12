@@ -63,7 +63,7 @@ def rodar(
 def main() -> int:
     from src.controller.api import providers_padrao
     from src.repository.conexao import conectar
-    from src.repository.trava import TravaColetaPostgres
+    from src.repository.trava import CHAVE_TRAVA_LOTE_IA, TravaColetaPostgres
     from src.repository.pedido_ia_postgres import PedidoIARepositoryPostgres
     from src.repository.postgres import (
         CurriculoRepositoryPostgres,
@@ -84,7 +84,13 @@ def main() -> int:
         conn = conectar()
         conexoes.append(conn)
         perfis, vagas = PerfilBuscaRepositoryPostgres(conn), VagaEncontradaRepositoryPostgres(conn)
-        ia = PedidoIAService(PedidoIARepositoryPostgres(conn), vagas, perfis, CurriculoRepositoryPostgres(conn))
+        ia = PedidoIAService(
+            PedidoIARepositoryPostgres(conn),
+            vagas,
+            perfis,
+            CurriculoRepositoryPostgres(conn),
+            trava_lote=TravaColetaPostgres(chave=CHAVE_TRAVA_LOTE_IA),
+        )
         lote.append(lambda: enfileirar_lote(ia, HistoricoService(vagas, perfis)))
         return ColetaService(RecomendacaoService(BuscaService(providers_padrao())), perfis, vagas, TravaColetaPostgres())
 

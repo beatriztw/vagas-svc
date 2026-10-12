@@ -243,6 +243,23 @@ class LoteTest(unittest.TestCase):
         m.relogio.agora += timedelta(days=1)
         self.assertEqual(m.servico.enfileirar_lote(m.vagas(0)), 1)
 
+    def test_dois_enfileiramentos_juntos_nao_passam_do_teto(self):
+        # O segundo disparo (botão, outra aba, a coleta do timer) chega com o primeiro no meio.
+        m = Montagem(max_por_dia=2)
+        segundo = []
+        criar = m.pedidos.criar
+
+        def criar_e_disparar_outro(*args, **kwargs):
+            if not segundo:
+                segundo.append(None)  # só um disparo concorrente
+                segundo[0] = m.servico.enfileirar_lote(m.vagas(2, 3))
+            return criar(*args, **kwargs)
+
+        m.pedidos.criar = criar_e_disparar_outro
+        self.assertEqual(m.servico.enfileirar_lote(m.vagas(0, 1, 2, 3)), 2)
+        self.assertEqual(segundo, [0])
+        self.assertEqual(m.pedidos.contar_lote_desde(m.relogio() - timedelta(hours=24)), 2)
+
     def test_candidatas_do_historico_seguem_o_perfil(self):
         m = Montagem()
         m.encontradas.registrar(

@@ -43,7 +43,7 @@ from src.repository.base import (
 )
 from src.repository.candidatura import CandidaturaRepository, CandidaturaRepositoryMemoria, vaga_por_url_em
 from src.repository.pedido_ia import PedidoIARepository, PedidoIARepositoryMemoria
-from src.repository.trava import ColetaEmAndamento, TravaColeta, TravaColetaPostgres
+from src.repository.trava import CHAVE_TRAVA_LOTE_IA, ColetaEmAndamento, TravaColeta, TravaColetaPostgres
 from src.service.busca_service import BuscaService
 from src.service.candidatura_service import CandidaturaService
 from src.service.coleta_service import ColetaService
@@ -182,6 +182,7 @@ def criar_app(
     candidaturas: CandidaturaRepository | None = None,
     trava: TravaColeta | None = None,
     pedidos_ia: PedidoIARepository | None = None,
+    trava_lote_ia: TravaColeta | None = None,
     detalhe: DetalheService | None = None,
     ao_subir: Callable[[], object] | None = None,
 ) -> FastAPI:
@@ -205,7 +206,7 @@ def criar_app(
     if pedidos_ia is None:
         pedidos_ia = PedidoIARepositoryMemoria(vaga_por_url_em(encontradas))
     # Um serviço só para as rotas do worker, as da tela e as métricas.
-    servico_ia = PedidoIAService(pedidos_ia, encontradas, perfis, curriculos)
+    servico_ia = PedidoIAService(pedidos_ia, encontradas, perfis, curriculos, trava_lote=trava_lote_ia)
     # Toda coleta (API, tela, CLI) termina mandando as vagas sem nota para a fila da IA em lote.
     coleta = ColetaService(
         recomendacao, perfis, encontradas, trava, ao_terminar=lambda _: servico_ia.enfileirar_lote(historico.visiveis())
@@ -511,6 +512,7 @@ def criar_app_producao() -> FastAPI:
         candidaturas=_PorChamada(pool, _candidaturas_postgres),
         trava=TravaColetaPostgres(),
         pedidos_ia=_PorChamada(pool, _pedidos_ia_postgres),
+        trava_lote_ia=TravaColetaPostgres(chave=CHAVE_TRAVA_LOTE_IA),
         detalhe=DetalheService(encontradas, RemotarClient()),
         # Aplica migrations/*.sql pendentes antes de atender; banco fora além do teto ou migration com erro = não sobe.
         ao_subir=_migrar,
