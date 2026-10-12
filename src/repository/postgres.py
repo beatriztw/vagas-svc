@@ -178,6 +178,8 @@ class VagaEncontradaRepositoryPostgres(VagaEncontradaRepository):
                     **{c: getattr(vaga, c) for c in _CAMPOS_DA_LISTAGEM},
                     "termo": termo,
                     **_parametros_do_detalhe(vaga.detalhe),
+                    # O provider disse que não há prazo: um prazo futuro sai (o vencido fica, pelo CASE).
+                    "limpar_prazo": vaga.tem_prazo is False,
                 }
                 # ON CONFLICT DO NOTHING espera a transação concorrente que gravou a mesma URL;
                 # sem linha devolvida, a vaga já existia e cai no UPDATE abaixo.
@@ -206,9 +208,11 @@ class VagaEncontradaRepositoryPostgres(VagaEncontradaRepository):
                     "publicada_em = COALESCE(%(publicada_em)s::date, publicada_em), "
                     "termos = CASE WHEN %(termo)s::text = ANY(termos) THEN termos "
                     "ELSE array_append(termos, %(termo)s::text) END, "
-                    # Quem já expirou continua expirado; senão vale o prazo novo (pode mudar) ou o que estava.
+                    # Quem já expirou continua expirado; senão vale o prazo novo (pode mudar), nenhum se o provider
+                    # disse que não há prazo, ou o que estava.
                     "expirada_em = CASE WHEN expirada_em IS NOT NULL AND expirada_em <= now() THEN expirada_em "
-                    "ELSE COALESCE(%(expirada_em)s::timestamptz, expirada_em) END, "
+                    "ELSE COALESCE(%(expirada_em)s::timestamptz, "
+                    "CASE WHEN %(limpar_prazo)s::boolean THEN NULL ELSE expirada_em END) END, "
                     # A listagem do Remotar traz o detalhe: sobrescreve; sem detalhe (outros providers), fica.
                     "descricao = CASE WHEN %(tem_detalhe)s THEN %(descricao)s ELSE descricao END, "
                     "requisitos = CASE WHEN %(tem_detalhe)s THEN %(requisitos)s ELSE requisitos END, "
@@ -286,14 +290,20 @@ class VagaEncontradaRepositoryPostgres(VagaEncontradaRepository):
         limpo = detalhe_valido(detalhe)
         if limpo is None or not isinstance(url, str) or "\x00" in url:
             return False
-        parametros = {**_parametros_do_detalhe(limpo), "url": url, "expirada_em": limpo.expirada_em}
+        parametros = {
+            **_parametros_do_detalhe(limpo),
+            "url": url,
+            "expirada_em": limpo.expirada_em,
+            "limpar_prazo": limpo.tem_prazo is False,
+        }
         with self._conn.transaction(), self._conn.cursor() as cur:
             cur.execute(
                 "UPDATE vaga_encontrada SET descricao = %(descricao)s, requisitos = %(requisitos)s, "
                 "salario = %(salario)s, beneficios = %(beneficios)s, subtitulo = %(subtitulo)s, "
                 "detalhada_em = now(), "
                 "expirada_em = CASE WHEN expirada_em IS NOT NULL AND expirada_em <= now() THEN expirada_em "
-                "ELSE COALESCE(%(expirada_em)s::timestamptz, expirada_em) END "
+                "ELSE COALESCE(%(expirada_em)s::timestamptz, "
+                "CASE WHEN %(limpar_prazo)s::boolean THEN NULL ELSE expirada_em END) END "
                 "WHERE url = %(url)s",
                 parametros,
             )

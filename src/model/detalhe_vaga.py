@@ -57,6 +57,9 @@ class DetalheVaga:
 
     `expirada_em`: o `expiresAt` do provider (mesmo futuro: a vaga some quando o prazo passa) ou, se o
     provider diz `expired` sem prazo, o instante da leitura. None = sem expiração conhecida.
+
+    `tem_prazo`: False = o provider disse que a vaga não tem prazo (limpa um prazo futuro gravado
+    antes); True = tem prazo ou expirou; None = não disse ou veio torto (fica o que estava).
     """
 
     descricao: str | None = None
@@ -65,6 +68,7 @@ class DetalheVaga:
     beneficios: list[str] = field(default_factory=list)
     subtitulo: str | None = None
     expirada_em: datetime | None = None
+    tem_prazo: bool | None = None
 
 
 def requisitos_para_json(requisitos: list[Requisito]) -> list[dict]:

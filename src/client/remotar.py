@@ -96,6 +96,17 @@ class RemotarClient(ProviderClient):
             return min(prazo, agora) if prazo is not None else agora
         return prazo
 
+    def _tem_prazo(self, job: dict) -> bool | None:
+        """False só quando o Remotar diz que NÃO há prazo (`expires: false`, sem `expiresAt` e sem
+        `expired: true`): aí um prazo futuro gravado numa coleta anterior é removido. True quando há
+        `expirada_em`. Qualquer outra coisa (campo ausente, torto ou contraditório) é None e o
+        repositório mantém a data que já estava."""
+        if self._expirada_em(job) is not None:
+            return True
+        if job.get("expires") is False and job.get("expired") is not True and job.get("expiresAt") is None:
+            return False
+        return None
+
     def _detalhe_do_job(self, job: dict) -> DetalheVaga:
         """O detalhe de um job (da listagem ou de /jobs/{id}); campo malformado descarta só o campo."""
         requisitos = []
@@ -124,6 +135,7 @@ class RemotarClient(ProviderClient):
             beneficios=beneficios[:MAX_BENEFICIOS],
             subtitulo=html_para_linha(job.get("subtitle"), MAX_TEXTO_SUBTITULO) or None,
             expirada_em=self._expirada_em(job),
+            tem_prazo=self._tem_prazo(job),
         )
 
     def _detalhe_seguro(self, job: dict) -> DetalheVaga | None:
@@ -166,6 +178,7 @@ class RemotarClient(ProviderClient):
                         remoto=job.get("type") == "remote",
                         publicada_em=parse_data(job.get("createdAt")),
                         expirada_em=self._expirada_em(job),
+                        tem_prazo=self._tem_prazo(job),
                         detalhe=self._detalhe_seguro(job),
                     )
                 )

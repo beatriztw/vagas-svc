@@ -105,6 +105,24 @@ class ClienteDetalheTest(unittest.TestCase):
                 job = {**base, **campos}
                 self.assertEqual(cliente_remotar(job).detalhar("166020").expirada_em, esperado)
 
+    def test_tem_prazo_so_e_false_quando_o_remotar_diz_que_nao_ha_prazo(self):
+        base = fixture("remotar_job_166020.json")  # gravada de verdade: expires false, expiresAt null
+        self.assertIs(cliente_remotar(base).detalhar("166020").tem_prazo, False)
+        # Escritos à mão a partir da gravada.
+        for campos, esperado in (
+            ({"expires": True, "expiresAt": "2026-10-24T18:33:25.000-03:00"}, True),
+            ({"expires": False, "expired": True}, True),  # expirou: não é "sem prazo"
+            ({"expires": False, "expiresAt": "2026-10-24T18:33:25.000-03:00"}, True),  # contraditório: a data vale
+            ({"expires": False, "expiresAt": "ontem"}, None),  # data torta: mantém
+            ({"expires": True, "expiresAt": None}, None),
+            ({"expires": "false"}, None),
+            ({"expires": None}, None),
+        ):
+            with self.subTest(campos=campos):
+                self.assertIs(cliente_remotar({**base, **campos}).detalhar("166020").tem_prazo, esperado)
+        sem_campo = {k: v for k, v in base.items() if k != "expires"}
+        self.assertIsNone(cliente_remotar(sem_campo).detalhar("166020").tem_prazo)
+
     def test_id_so_digitos(self):
         for id in ("12a", "../1", "1/2", "", " 1", "1?x=2", "١٢٣", 123, None, "1" * 13):
             with self.subTest(id=id):
@@ -221,6 +239,8 @@ class ListagemExpiracaoTest(unittest.TestCase):
         prazo = datetime.fromisoformat("2026-10-24T18:33:25.000-03:00")
         self.assertEqual(vagas["https://remotar.com.br/job/165963"].expirada_em, prazo)
         self.assertIsNone(vagas["https://remotar.com.br/job/166020"].expirada_em)
+        self.assertIs(vagas["https://remotar.com.br/job/165963"].tem_prazo, True)
+        self.assertIs(vagas["https://remotar.com.br/job/166020"].tem_prazo, False)
 
     def test_a_listagem_traz_o_detalhe_sanitizado(self):
         vagas = {v.url: v for v in self.buscar(fixture("remotar_listagem_expiracao.json"), lambda: HOJE)}

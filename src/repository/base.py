@@ -68,7 +68,7 @@ class VagaEncontradaRepository(ABC):
         ganha o termo em `termos` (sem repetir); `primeira_vez_em` e `vista_em` ficam.
 
         Se a vaga traz `detalhe` (a listagem do Remotar traz), grava/atualiza descrição, requisitos,
-        salário, benefícios e `detalhada_em`; `expirada_em` segue `expiracao_resultante`.
+        salário, benefícios e `detalhada_em`; `expirada_em` segue `expiracao_resultante` (com `tem_prazo`).
         """
 
     @abstractmethod
@@ -103,7 +103,7 @@ class VagaEncontradaRepository(ABC):
 
     @abstractmethod
     def gravar_detalhe(self, url: str, detalhe: DetalheVaga) -> bool:
-        """Grava o detalhe e `detalhada_em` (agora); `detalhe.expirada_em` segue `expiracao_resultante`.
+        """Grava o detalhe e `detalhada_em` (agora); `detalhe.expirada_em` e `detalhe.tem_prazo` seguem `expiracao_resultante`.
 
         Não mexe em `vista_em` nem em `primeira_vez_em`. Devolve False se a URL não existe.
         """
@@ -174,12 +174,17 @@ def no_ar(vaga: VagaEncontrada, agora: datetime) -> bool:
     return vaga.expirada_em is None or vaga.expirada_em > agora
 
 
-def expiracao_resultante(atual: datetime | None, nova: datetime | None, agora: datetime) -> datetime | None:
+def expiracao_resultante(
+    atual: datetime | None, nova: datetime | None, agora: datetime, tem_prazo: bool | None = None
+) -> datetime | None:
     """A expiração depois de a listagem ou o detalhe trazer `nova`: quem já expirou continua expirado
-    (a data fica), senão vale a nova (o prazo pode mudar) e, sem nova, a que já estava."""
+    (a data fica), senão vale a nova (o prazo pode mudar). Sem nova, `tem_prazo is False` (o provider
+    disse que não há prazo) remove o prazo futuro; qualquer outro caso mantém a que já estava."""
     if atual is not None and atual <= agora:
         return atual
-    return nova if nova is not None else atual
+    if nova is not None:
+        return nova
+    return None if tem_prazo is False else atual
 
 
 def _agora() -> datetime:
@@ -249,7 +254,20 @@ def detalhe_valido(detalhe: object) -> DetalheVaga | None:
     ]
     salario = detalhe.salario if isinstance(detalhe.salario, Salario) and _salario_gravavel(detalhe.salario) else None
     expirada_em = detalhe.expirada_em if _instante_valido(detalhe.expirada_em) else None
-    return DetalheVaga(descricao, requisitos[:MAX_REQUISITOS], salario, beneficios[:MAX_BENEFICIOS], subtitulo, expirada_em)
+    return DetalheVaga(
+        descricao,
+        requisitos[:MAX_REQUISITOS],
+        salario,
+        beneficios[:MAX_BENEFICIOS],
+        subtitulo,
+        expirada_em,
+        tem_prazo_valido(detalhe.tem_prazo),
+    )
+
+
+def tem_prazo_valido(valor) -> bool | None:
+    """Só um bool de verdade conta; qualquer outra coisa é None (mantém a data que estava)."""
+    return valor if isinstance(valor, bool) else None
 
 
 def _salario_gravavel(s: Salario) -> bool:
@@ -280,6 +298,8 @@ def vagas_validas(vagas: list[VagaExterna]) -> list[VagaExterna]:
         # Data de expiração ou detalhe estranho descarta só esse campo: a vaga entra como no ar, sem detalhe.
         if vaga.expirada_em is not None and not _instante_valido(vaga.expirada_em):
             vaga = replace(vaga, expirada_em=None)
+        if vaga.tem_prazo is not None and tem_prazo_valido(vaga.tem_prazo) is None:
+            vaga = replace(vaga, tem_prazo=None)  # torto: mantém a data que estava
         if vaga.detalhe is not None:
             vaga = replace(vaga, detalhe=detalhe_valido(vaga.detalhe))
         validas.setdefault(vaga.url, vaga)
@@ -425,7 +445,7 @@ class VagaEncontradaRepositoryMemoria(VagaEncontradaRepository):
                 remoto=vaga.remoto if vaga.remoto is not None else atual.remoto,
                 publicada_em=vaga.publicada_em if vaga.publicada_em is not None else atual.publicada_em,
                 termos=atual.termos if termo in atual.termos else [*atual.termos, termo],
-                expirada_em=expiracao_resultante(atual.expirada_em, vaga.expirada_em, agora),
+                expirada_em=expiracao_resultante(atual.expirada_em, vaga.expirada_em, agora, vaga.tem_prazo),
                 ultima_vez_em=agora,
             )
             self._linhas[vaga.url] = com_detalhe(atualizada, vaga.detalhe, agora)
@@ -460,7 +480,7 @@ class VagaEncontradaRepositoryMemoria(VagaEncontradaRepository):
         agora = self._agora()
         gravada = com_detalhe(atual, limpo, agora)
         self._linhas[url] = replace(
-            gravada, expirada_em=expiracao_resultante(atual.expirada_em, limpo.expirada_em, agora)
+            gravada, expirada_em=expiracao_resultante(atual.expirada_em, limpo.expirada_em, agora, limpo.tem_prazo)
         )
         return True
 

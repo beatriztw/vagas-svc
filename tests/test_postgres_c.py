@@ -138,6 +138,39 @@ class ContratoDetalhe:
         self.repo.registrar([vaga(A, expirada_em=novo)], "dados")
         self.assertEqual(self.repo.obter(A).expirada_em, novo)
 
+    def test_provider_sem_prazo_remove_o_prazo_futuro_e_a_vaga_segue_no_ar(self):
+        # O anunciante tirou o prazo: a coleta seguinte traz `expires: false` (tem_prazo=False).
+        self.repo.registrar([vaga(A, expirada_em=self.agora() + timedelta(seconds=2), tem_prazo=True)], "dados")
+        self.repo.registrar([vaga(A, tem_prazo=False)], "dados")
+        self.assertIsNone(self.repo.obter(A).expirada_em)
+        self.passar_tempo(3)  # depois da data antiga
+        self.assertEqual([v.url for v in self.repo.listar(False, 10)], [A])
+        self.assertEqual(self.repo.contar(False), 1)
+
+    def test_detalhe_sem_prazo_remove_o_prazo_futuro(self):
+        self.repo.registrar([vaga(A, expirada_em=self.agora() + timedelta(days=9), tem_prazo=True)], "dados")
+        self.repo.gravar_detalhe(A, DetalheVaga(descricao="x", tem_prazo=False))
+        self.assertIsNone(self.repo.obter(A).expirada_em)
+        self.assertEqual(self.repo.contar(False), 1)
+
+    def test_sem_prazo_nao_ressuscita_a_vaga_ja_expirada(self):
+        quando = datetime(2026, 10, 1, tzinfo=timezone.utc)
+        self.repo.registrar([vaga(A, expirada_em=quando, tem_prazo=True)], "dados")
+        self.repo.registrar([vaga(A, tem_prazo=False)], "dados")
+        self.repo.gravar_detalhe(A, DetalheVaga(descricao="x", tem_prazo=False))
+        self.assertEqual(self.repo.obter(A).expirada_em, quando)
+        self.assertEqual(self.repo.contar(False), 0)
+
+    def test_sem_dizer_do_prazo_ou_com_valor_torto_mantem_o_prazo_futuro(self):
+        prazo = self.agora() + timedelta(days=9)
+        self.repo.registrar([vaga(A, expirada_em=prazo, tem_prazo=True)], "dados")
+        self.repo.registrar([vaga(A)], "dados")  # tem_prazo=None: campo ausente
+        self.repo.registrar([vaga(A, tem_prazo="não")], "dados")  # torto: não é bool
+        self.repo.registrar([vaga(A, tem_prazo=0)], "dados")  # 0 == False, mas não é bool
+        self.repo.gravar_detalhe(A, DetalheVaga(descricao="x"))
+        self.repo.gravar_detalhe(A, DetalheVaga(descricao="x", tem_prazo=0))
+        self.assertEqual(self.repo.obter(A).expirada_em, prazo)
+
     def test_404_com_prazo_futuro_expira_agora(self):
         self.repo.registrar([vaga(A, expirada_em=self.agora() + timedelta(days=9))], "dados")
         self.repo.marcar_expirada(A)
