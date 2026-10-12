@@ -3,6 +3,7 @@
 import os
 import threading
 from collections.abc import Callable
+from contextlib import asynccontextmanager
 from datetime import date, datetime
 from typing import Any
 
@@ -15,6 +16,7 @@ from src.client.armazenamento import Armazenamento
 from src.controller.candidaturas import criar_router_candidaturas
 from src.controller.tela import criar_router_tela
 from src.controller.tela_candidaturas import criar_router_tela_candidaturas
+from src.controller.tela_curriculos import criar_router_tela_curriculos
 from src.controller.tela_seguranca import DIRETORIO_STATIC, caminho_da_tela, eh_htmx, templates
 from src.model.curriculo import Curriculo
 from src.model.erros import DadoInvalido
@@ -172,10 +174,19 @@ def criar_app(
     candidaturas: CandidaturaRepository | None = None,
     trava: TravaColeta | None = None,
     detalhe: DetalheService | None = None,
+    ao_subir: Callable[[], object] | None = None,
 ) -> FastAPI:
     """Sem `encontradas` e `candidaturas`, o histórico da coleta e as candidaturas ficam em memória (testes);
-    a produção passa os do Postgres. Sem `detalhe`, a tela não busca o detalhe no provider (testes)."""
-    app = FastAPI(title="vagas-svc")
+    a produção passa os do Postgres. Sem `detalhe`, a tela não busca o detalhe no provider (testes).
+    `ao_subir` roda no startup (lifespan); se levantar, a app não sobe."""
+
+    @asynccontextmanager
+    async def ciclo_de_vida(_: FastAPI):
+        if ao_subir is not None:
+            ao_subir()
+        yield
+
+    app = FastAPI(title="vagas-svc", lifespan=ciclo_de_vida)
     app.state.armazenamento = armazenamento
     recomendacao = RecomendacaoService(busca)
     encontradas = encontradas if encontradas is not None else VagaEncontradaRepositoryMemoria()
@@ -228,6 +239,7 @@ def criar_app(
     app.mount("/static", StaticFiles(directory=DIRETORIO_STATIC), name="static")
     app.include_router(criar_router_tela(encontradas, historico, coleta, servico_candidaturas, detalhe))
     app.include_router(criar_router_tela_candidaturas(servico_candidaturas))
+    app.include_router(criar_router_tela_curriculos(curriculos))
 
     @app.get("/", include_in_schema=False)
     def raiz() -> RedirectResponse:
@@ -435,6 +447,12 @@ def _candidaturas_postgres() -> type:
     return CandidaturaRepositoryPostgres
 
 
+def _migrar() -> list[str]:
+    from src.repository.migracoes import aplicar_com_retry
+
+    return aplicar_com_retry()
+
+
 def criar_app_producao() -> FastAPI:
     from src.client.remotar import RemotarClient
 
@@ -449,6 +467,8 @@ def criar_app_producao() -> FastAPI:
         candidaturas=_PorChamada(pool, _candidaturas_postgres),
         trava=TravaColetaPostgres(),
         detalhe=DetalheService(encontradas, RemotarClient()),
+        # Aplica migrations/*.sql pendentes antes de atender; banco fora além do teto ou migration com erro = não sobe.
+        ao_subir=_migrar,
     )
 
 

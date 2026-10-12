@@ -44,11 +44,12 @@ resultado = BuscaService([GreenhouseClient(["stone"]), RemotarClient()]).buscar(
 
 ## Banco
 
-O estado (perfil de busca e currículos) fica num Postgres. O schema começa em `migrations/001_curriculo_perfil.sql` (as seguintes, até a `004_detalhe_vaga.sql`, estão descritas nas seções de coleta, candidaturas e "Detalhe e expiração"), idempotente (`CREATE TABLE IF NOT EXISTS`), aplicado à mão:
+O estado (perfil de busca e currículos) fica num Postgres. O schema está em `migrations/*.sql` (de `001_curriculo_perfil.sql` até `004_detalhe_vaga.sql`, descritas nas seções de coleta, candidaturas e "Detalhe e expiração") e **é aplicado sozinho na subida da app**: as pendentes, em ordem lexicográfica do nome (`001_...`, `002_...`; numere com largura fixa), cada uma numa transação junto com o registro em `schema_migrations` e sob `pg_advisory_lock` (réplicas subindo juntas não aplicam duas vezes; quem chega depois espera).
 
-```bash
-psql -f migrations/001_curriculo_perfil.sql
-```
+- Migration com erro é desfeita (nada fica, nem registro) e a app **não sobe**: o erro aparece no log. Banco inacessível na subida é tentado de novo com backoff por ~60 s; depois disso a subida falha (o orquestrador reinicia o container). Por isso `/saude` só responde com o banco no ar.
+- Escreva migration idempotente (`IF NOT EXISTS`), sem `BEGIN`/`COMMIT` e sem `CREATE INDEX CONCURRENTLY` (rodam dentro de uma transação). Não edite uma migration já publicada: crie outra.
+- As 001–003 foram aplicadas à mão antes desta regra; no primeiro boot rodam de novo sem erro e passam a constar em `schema_migrations`. A coleta por linha de comando (`python -m src.controller.coleta`) não aplica migrations: só a app.
+- Aplicar à mão só serve para um banco que a app ainda não tocou: `psql -f migrations/001_curriculo_perfil.sql`.
 
 - `perfil_busca`: uma linha só (id = 1), gravada por upsert. Os CHECK de `modalidades` e `niveis` espelham `Modalidade` e `Nivel` de `src/model/vaga.py`.
 - `curriculo`: `tipo` é `base` ou `adaptado`; adaptado sempre aponta para uma base (`base_id`). A base vigente é a base mais recente; as anteriores ficam como histórico.
@@ -78,7 +79,7 @@ A app de produção lê o Postgres pelas variáveis `PG*` (`PGHOST`, `PGPORT`, `
 
 ## Coleta
 
-`GET /vagas` busca ao vivo a cada chamada. A coleta roda a mesma recomendação para cada termo do perfil salvo (termos repetidos por grafia, como `Front-end` e `front end`, rodam uma vez) e guarda as vagas na tabela `vaga_encontrada` de `migrations/002_vaga_encontrada.sql` (idempotente, aplicada à mão como a 001: `psql -f migrations/002_vaga_encontrada.sql`). A chave é a URL: a mesma vaga achada por dois termos é uma linha só, com os dois em `termos`; uma coleta seguinte atualiza `ultima_vez_em` e os campos que vieram preenchidos, sem contar a vaga como nova e sem mexer em `primeira_vez_em` nem em `vista_em`. Nova = ainda não marcada como vista.
+`GET /vagas` busca ao vivo a cada chamada. A coleta roda a mesma recomendação para cada termo do perfil salvo (termos repetidos por grafia, como `Front-end` e `front end`, rodam uma vez) e guarda as vagas na tabela `vaga_encontrada` de `migrations/002_vaga_encontrada.sql` (idempotente, aplicada sozinha na subida). A chave é a URL: a mesma vaga achada por dois termos é uma linha só, com os dois em `termos`; uma coleta seguinte atualiza `ultima_vez_em` e os campos que vieram preenchidos, sem contar a vaga como nova e sem mexer em `primeira_vez_em` nem em `vista_em`. Nova = ainda não marcada como vista.
 
 | Método e rota | O que faz |
 |---|---|
@@ -108,7 +109,7 @@ A imagem é construída pelo `Dockerfile` da raiz (`docker build -t vagas-svc .`
 
 ## Candidaturas
 
-As vagas em que a pessoa aplicou ficam na tabela `candidatura` de `migrations/003_candidatura.sql` (idempotente, aplicada à mão depois da 002: `psql -f migrations/003_candidatura.sql`). A chave é a URL da vaga, que tem que existir em `vaga_encontrada` (chave estrangeira): marcar de novo a mesma vaga devolve a candidatura que já existe. O status é um de `enviada` (padrão), `em_analise`, `entrevista`, `recusada`, `oferta`; fora disso, 422. Aplicada pode ser desfeita (`DELETE`).
+As vagas em que a pessoa aplicou ficam na tabela `candidatura` de `migrations/003_candidatura.sql` (idempotente, aplicada sozinha na subida, depois da 002). A chave é a URL da vaga, que tem que existir em `vaga_encontrada` (chave estrangeira): marcar de novo a mesma vaga devolve a candidatura que já existe. O status é um de `enviada` (padrão), `em_analise`, `entrevista`, `recusada`, `oferta`; fora disso, 422. Aplicada pode ser desfeita (`DELETE`).
 
 | Método e rota | O que faz |
 |---|---|
