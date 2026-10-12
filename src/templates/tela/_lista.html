@@ -25,6 +25,7 @@
     <button type="button" class="botao botao-primario" hx-post="/tela/coletas" hx-include="#busca, #estado-lista"
             hx-target="#vagas" hx-swap="outerHTML" hx-disabled-elt="this">Coletar agora</button>
   </div>
+  {% if lote %}{% include "tela/_lote_ia.html" %}{% endif %}
   <ul id="lista-vagas" class="lista-vagas">
     {% if total == 0 %}
     <li class="vazio">

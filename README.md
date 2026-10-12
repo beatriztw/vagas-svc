@@ -197,6 +197,17 @@ As rotas `/pedidos-ia/*` não aparecem no `/docs`. Respondem com `Cache-Control:
 
 Rodando há mais de 15 minutos (`reivindicado_em`) é pedido preso: o worker morreu. O `proximo`, numa transação, (1) marca como `erro` ("O worker não terminou depois de 3 tentativas") o preso que já gastou 3 tentativas, (2) escolhe um pendente ou preso (pendente primeiro, depois o mais antigo; `FOR UPDATE SKIP LOCKED`, então dois workers nunca pegam o mesmo) e (3) marca `rodando`, soma 1 em `tentativas` e grava `reivindicado_em`. A tentativa antiga que chegar depois no `PUT` recebe `409`.
 
+### Lote: a IA avalia as vagas do histórico
+
+Além do clique da pessoa, a compatibilidade roda em lote, uma vaga por vez, pela mesma fila e pelo mesmo worker (`migrations/007_pedido_ia_lote.sql`).
+
+- **Quem dispara**: o fim de toda coleta (`POST /coletas`, o botão da tela e `python -m src.controller.coleta`, que o timer do Pi roda às 08:00 e 18:00; a CLI imprime `ia: N vagas na fila`) e o botão "Avaliar vagas com IA" da tela (`POST /tela/ia/lote`, com o CSRF da tela). Falha ao enfileirar só vai para o log: a coleta não falha por causa disso.
+- **Quais vagas**: as da lista da tela (as que passam no perfil, sem as expiradas, na mesma ordem), menos as que já têm pedido de compatibilidade ativo e as que já têm nota válida.
+- **Nota válida**: pronto de compatibilidade feito com o currículo base vigente (`curriculo_base_id`, gravado quando o pedido é criado) e com a versão atual do prompt (a maior `compatibilidade-vN` já vista nos prontos). Trocou a base ou subiu a versão, a vaga volta para o lote. Pedido de antes da 007 não tem base gravada e não conta.
+- **Prioridade**: o clique da pessoa (`prioridade` 0) passa na frente do lote (1) na fila; pedir pela tela uma vaga que já está no lote sobe o pedido para a prioridade da pessoa.
+- **Teto**: no máximo `IA_LOTE_MAX_POR_DIA` pedidos do lote criados nas últimas 24 h (padrão 40; `0` desliga o lote; valor inválido cai no padrão). A cota é a do Pro da Beatriz: cota estourada deixa o pedido `rodando` e o worker espera, como no clique.
+- **Na tela**: a barra da lista mostra `IA: N avaliadas · M na fila` (entre as vagas da lista).
+
 ### Token do worker (Bearer)
 
 `/pedidos-ia/*` exige `Authorization: Bearer <token>`. O token vem do arquivo em `VAGAS_IA_TOKEN_FILE` (no Swarm, `/run/secrets/vagas_ia_token`) ou, na falta dele, de `VAGAS_IA_TOKEN`; a comparação usa `hmac.compare_digest`. Sem token configurado (ausente, ilegível ou vazio) as rotas respondem `503` e a app continua de pé; token ausente ou errado é `401` com `WWW-Authenticate: Bearer`.

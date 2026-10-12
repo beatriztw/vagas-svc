@@ -1,0 +1,13 @@
+{# IA em lote: quantas vagas da lista já têm nota e quantas estão na fila; o botão manda as que faltam. Alvo do POST /tela/ia/lote. #}
+<div id="lote-ia" class="lote-ia">
+  <span class="mono lote-ia-progresso">IA: {{ lote.avaliadas }} avaliadas · {{ lote.na_fila }} na fila</span>
+  {% if lote.sem_base %}
+  <span class="mono">Salve um currículo base para a IA avaliar as vagas</span>
+  {% else %}
+  <button type="button" class="botao botao-ai" hx-post="/tela/ia/lote" hx-target="#lote-ia" hx-swap="outerHTML"
+          hx-disabled-elt="this">Avaliar vagas com IA</button>
+  {% endif %}
+  {% if lote.criados is not none %}
+  <span class="mono" role="status">{{ lote.criados }} {{ "vaga" if lote.criados == 1 else "vagas" }} na fila da IA</span>
+  {% endif %}
+</div>

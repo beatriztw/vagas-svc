@@ -200,9 +200,16 @@ def criar_app(
     app.state.armazenamento = armazenamento
     recomendacao = RecomendacaoService(busca)
     encontradas = encontradas if encontradas is not None else VagaEncontradaRepositoryMemoria()
-    coleta = ColetaService(recomendacao, perfis, encontradas, trava)
     # Lista do histórico (JSON e tela) com o perfil salvo aplicado na leitura.
     historico = HistoricoService(encontradas, perfis)
+    if pedidos_ia is None:
+        pedidos_ia = PedidoIARepositoryMemoria(vaga_por_url_em(encontradas))
+    # Um serviço só para as rotas do worker, as da tela e as métricas.
+    servico_ia = PedidoIAService(pedidos_ia, encontradas, perfis, curriculos)
+    # Toda coleta (API, tela, CLI) termina mandando as vagas sem nota para a fila da IA em lote.
+    coleta = ColetaService(
+        recomendacao, perfis, encontradas, trava, ao_terminar=lambda _: servico_ia.enfileirar_lote(historico.visiveis())
+    )
     if candidaturas is None:
         candidaturas = CandidaturaRepositoryMemoria(vaga_por_url_em(encontradas))
     # Um serviço só, para as rotas JSON e as da tela (na produção, o repositório é o _PorChamada).
@@ -210,10 +217,7 @@ def criar_app(
     # Só para os testes alcançarem o serviço; as rotas recebem o serviço explicitamente.
     app.state.candidaturas = servico_candidaturas
     app.include_router(criar_router_candidaturas(servico_candidaturas))
-    if pedidos_ia is None:
-        pedidos_ia = PedidoIARepositoryMemoria(vaga_por_url_em(encontradas))
-    # Um serviço só para as rotas do worker e, depois, as da tela e as métricas.
-    app.state.pedido_ia_service = PedidoIAService(pedidos_ia, encontradas, perfis, curriculos)
+    app.state.pedido_ia_service = servico_ia
     app.include_router(criar_router_pedidos_ia(app.state.pedido_ia_service))
     app.include_router(criar_router_ia_metricas(pedidos_ia))
 
@@ -253,7 +257,7 @@ def criar_app(
         return resposta
 
     app.mount("/static", StaticFiles(directory=DIRETORIO_STATIC), name="static")
-    app.include_router(criar_router_tela(encontradas, historico, coleta, servico_candidaturas, detalhe))
+    app.include_router(criar_router_tela(encontradas, historico, coleta, servico_candidaturas, detalhe, servico_ia))
     app.include_router(criar_router_tela_candidaturas(servico_candidaturas))
     app.include_router(criar_router_tela_ia(app.state.pedido_ia_service))
     app.include_router(criar_router_tela_perfil(perfis))

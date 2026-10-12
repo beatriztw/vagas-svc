@@ -12,6 +12,7 @@ from src.service.candidatura_service import CandidaturaService
 from src.service.coleta_service import ColetaService
 from src.service.detalhe_service import DetalheService, VagaAberta
 from src.service.historico_service import HistoricoService
+from src.service.pedido_ia_service import PedidoIAService
 
 # D11: 50 por vez; o resto vem pelo "carregar mais".
 TAMANHO_PAGINA = 50
@@ -58,6 +59,7 @@ def criar_router_tela(
     coleta: ColetaService,
     candidaturas: CandidaturaService,
     servico_detalhe: DetalheService | None = None,
+    ia: PedidoIAService | None = None,
 ) -> APIRouter:
     """Recebe o que `criar_app` já tem: os repositories (na produção, os `_PorChamada`), o MESMO
     `HistoricoService` da rota JSON (a lista com o perfil salvo aplicado), o MESMO `ColetaService`
@@ -72,6 +74,18 @@ def criar_router_tela(
         if not url or len(url) > MAX_TAMANHO_URL:
             return None
         return servico_detalhe.abrir(url)
+
+    def contexto_lote(criados: int | None = None) -> dict | None:
+        """O indicador da IA em lote (avaliadas / na fila, entre as vagas da lista); sem o serviço, nada."""
+        if ia is None:
+            return None
+        avaliadas, na_fila = ia.progresso_lote(historico.visiveis())
+        return {
+            "avaliadas": avaliadas,
+            "na_fila": na_fila,
+            "criados": criados,
+            "sem_base": ia.curriculos.obter_base() is None,
+        }
 
     def candidatura_da(vaga):
         """A candidatura da vaga aberta, para o detalhe mostrar "Aplicada em dd/mm" em vez do botão."""
@@ -98,6 +112,8 @@ def criar_router_tela(
             "query_todas": _query(q=q),
             "query_novas": _query(q=q, novas=True),
             "max_busca": MAX_TAMANHO_BUSCA,
+            # Só no 1º bloco (a barra da lista); os blocos do "carregar mais" não têm barra.
+            "lote": contexto_lote() if deslocamento == 0 else None,
         }
 
     def pagina(request: Request, q: str | None, novas: bool, aberta: VagaAberta | None, pedida: bool):
@@ -195,6 +211,14 @@ def criar_router_tela(
             raise DadoInvalido("url da vaga inválida")
         encontradas.marcar_vistas([url])
         return Response(status_code=204)
+
+    @router.post("/ia/lote", dependencies=[Depends(exigir_mutacao_da_tela)])
+    def lote_ia(request: Request):
+        """Manda as vagas da lista sem nota válida para a fila da IA (prioridade do lote, teto diário)."""
+        if ia is None:
+            return Response(status_code=404)
+        criados = ia.enfileirar_lote(historico.visiveis())
+        return templates.TemplateResponse(request, "tela/_lote_ia.html", {"lote": contexto_lote(criados)})
 
     @router.post("/coletas", dependencies=[Depends(exigir_mutacao_da_tela)])
     def coletar(request: Request, q: str = Form(""), novas: str = Form("")):

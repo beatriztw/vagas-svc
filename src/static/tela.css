@@ -226,6 +226,8 @@ input[type="search"], input[type="text"], select {
   vertical-align: middle;
 }
 .lista-barra { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin: 0 0 12px; }
+.lote-ia { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; margin: 0 0 12px; font-size: 13px; }
+.lote-ia .mono { color: var(--sec); }
 .lista-barra .contador { margin: 0; flex: 1 1 auto; }
 .alternancia { display: flex; gap: 6px; }
 .alternancia .botao { text-decoration: none; display: inline-flex; align-items: center; }
