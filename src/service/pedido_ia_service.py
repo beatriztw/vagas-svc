@@ -39,7 +39,7 @@ MAX_URL = 2048
 MSG_SEM_BASE = "Salve um currículo base antes de usar a IA"
 # Teto de pedidos sem base descartados numa só chamada de `proximo`: a próxima chamada continua.
 _MAX_DESCARTES = 100
-# Lote: no máximo tantos pedidos de prioridade 1 criados em 24 h (a cota do Pro da Beatriz é curta).
+# Lote: no máximo tantos pedidos de prioridade 1 criados em 24 h (a cota da assinatura do worker é curta).
 LOTE_MAX_POR_DIA_PADRAO = 40
 _JANELA_LOTE = timedelta(hours=24)
 
