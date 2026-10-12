@@ -170,7 +170,6 @@ def criar_app(
     if candidaturas is None:
         candidaturas = CandidaturaRepositoryMemoria(vaga_por_url_em(encontradas))
     app.include_router(criar_router_candidaturas(CandidaturaService(candidaturas)))
-    coleta = ColetaService(recomendacao, perfis, encontradas, trava)
 
     @app.exception_handler(DadoInvalido)
     def valor_invalido(_: Request, erro: DadoInvalido) -> JSONResponse:
