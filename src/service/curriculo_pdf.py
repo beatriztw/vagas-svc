@@ -142,7 +142,7 @@ def gerar_pdf(conteudo_md: str, titulo: str) -> bytes:
         elif tipo == "secao":
             pdf.ln(3)
             pdf.set_font("Helvetica", "B", 12)
-            pdf.multi_cell(largura, 6.5, texto.upper(), new_x="LMARGIN", new_y="NEXT", align="L")
+            pdf.multi_cell(largura, 6.5, _latin1(texto.upper()), new_x="LMARGIN", new_y="NEXT", align="L")
             y = pdf.get_y()
             pdf.set_line_width(0.2)
             pdf.line(MARGEM_MM, y, MARGEM_MM + largura, y)

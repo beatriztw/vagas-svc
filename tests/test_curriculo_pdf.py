@@ -118,6 +118,11 @@ class GerarPdfTest(unittest.TestCase):
 
         self.assertGreater(len(PdfReader(io.BytesIO(gerar_pdf(md, "x"))).pages), 1)
 
+    def test_maiusculo_da_secao_que_sai_do_latin1_nao_quebra(self):
+        # "µ".upper() é o mu grego e "ÿ".upper() é U+0178: fora da fonte padrão do PDF.
+        texto = texto_do_pdf(gerar_pdf("# Nome\n\n## Latência em µs e ÿ\n- x", "x"))
+        self.assertIn("LATÊNCIA EM ?S E ?", texto)
+
     def test_markdown_vazio_ou_so_marcacao_gera_pdf(self):
         for md in ("", "   \n\n", "---"):
             self.assertTrue(gerar_pdf(md, "x").startswith(b"%PDF-"), repr(md))
