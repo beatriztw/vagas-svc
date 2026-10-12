@@ -3,6 +3,7 @@
 import os
 import threading
 from collections.abc import Callable
+from contextlib import asynccontextmanager
 from datetime import date, datetime
 from typing import Any
 
@@ -170,10 +171,18 @@ def criar_app(
     encontradas: VagaEncontradaRepository | None = None,
     candidaturas: CandidaturaRepository | None = None,
     trava: TravaColeta | None = None,
+    ao_subir: Callable[[], object] | None = None,
 ) -> FastAPI:
     """Sem `encontradas` e `candidaturas`, o histórico da coleta e as candidaturas ficam em memória (testes);
-    a produção passa os do Postgres."""
-    app = FastAPI(title="vagas-svc")
+    a produção passa os do Postgres. `ao_subir` roda no startup (lifespan); se levantar, a app não sobe."""
+
+    @asynccontextmanager
+    async def ciclo_de_vida(_: FastAPI):
+        if ao_subir is not None:
+            ao_subir()
+        yield
+
+    app = FastAPI(title="vagas-svc", lifespan=ciclo_de_vida)
     app.state.armazenamento = armazenamento
     recomendacao = RecomendacaoService(busca)
     encontradas = encontradas if encontradas is not None else VagaEncontradaRepositoryMemoria()
@@ -433,6 +442,12 @@ def _candidaturas_postgres() -> type:
     return CandidaturaRepositoryPostgres
 
 
+def _migrar() -> list[str]:
+    from src.repository.migracoes import aplicar_com_retry
+
+    return aplicar_com_retry()
+
+
 def criar_app_producao() -> FastAPI:
     pool = _PoolPreguicoso()
     return criar_app(
@@ -443,6 +458,8 @@ def criar_app_producao() -> FastAPI:
         encontradas=_PorChamada(pool, _encontradas_postgres),
         candidaturas=_PorChamada(pool, _candidaturas_postgres),
         trava=TravaColetaPostgres(),
+        # Aplica migrations/*.sql pendentes antes de atender; banco fora além do teto ou migration com erro = não sobe.
+        ao_subir=_migrar,
     )
 
 

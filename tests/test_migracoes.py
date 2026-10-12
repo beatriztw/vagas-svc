@@ -12,7 +12,9 @@ import unittest
 import uuid
 from pathlib import Path
 
-from src.repository.migracoes import MigracaoFalhou, PASTA_MIGRATIONS, aplicar_pendentes
+import psycopg
+
+from src.repository.migracoes import MigracaoFalhou, PASTA_MIGRATIONS, aplicar_com_retry, aplicar_pendentes
 
 
 @unittest.skipUnless(os.environ.get("PGHOST"), "PGHOST não definido: integração com Postgres pulada")
@@ -88,6 +90,27 @@ class MigracoesTest(unittest.TestCase):
         self.assertFalse(self.existe("c"))  # as seguintes não rodam
         self.assertEqual(self.registradas(), ["001_a.sql"])
 
+    def test_falha_ao_registrar_desfaz_tambem_o_sql_da_migration(self):
+        # Atomicidade SQL + registro: o SQL da migration roda sem erro, mas o INSERT em
+        # schema_migrations é barrado por um trigger; a tabela criada pelo SQL tem que sumir junto.
+        # (Sem `with conn.transaction()`, o SQL já teria sido confirmado em autocommit.)
+        self.admin.execute(
+            "CREATE TABLE IF NOT EXISTS schema_migrations ("
+            "nome TEXT PRIMARY KEY, aplicada_em TIMESTAMPTZ NOT NULL DEFAULT now())"
+        )
+        self.admin.execute(
+            "CREATE FUNCTION barra_registro() RETURNS trigger LANGUAGE plpgsql AS "
+            "$$ BEGIN RAISE EXCEPTION 'registro barrado de propósito'; END $$"
+        )
+        self.admin.execute(
+            "CREATE TRIGGER barra BEFORE INSERT ON schema_migrations FOR EACH ROW EXECUTE FUNCTION barra_registro()"
+        )
+        self.migration("001_x.sql", "CREATE TABLE x (id int);")
+        with self.assertLogs("src.repository.migracoes", level="ERROR"), self.assertRaises(MigracaoFalhou):
+            self.aplicar()
+        self.assertFalse(self.existe("x"))
+        self.assertEqual(self.registradas(), [])
+
     def test_corrigida_a_migration_a_proxima_subida_aplica(self):
         self.migration("001_ruim.sql", "SELECT * FROM nao_existe;")
         with self.assertLogs("src.repository.migracoes", level="ERROR"), self.assertRaises(MigracaoFalhou):
@@ -160,3 +183,114 @@ class MigracoesTest(unittest.TestCase):
         os.chdir(tempfile.gettempdir())
         self.assertTrue(PASTA_MIGRATIONS.is_absolute())
         self.assertEqual(aplicar_pendentes(conectar=self.conectar), sorted(p.name for p in PASTA_MIGRATIONS.glob("*.sql")))
+
+
+class RetryTest(unittest.TestCase):
+    """Sem Postgres: `conectar` falso e relógio/sleep injetados (nada espera de verdade)."""
+
+    def setUp(self):
+        self.pasta = Path(self.enterContext(tempfile.TemporaryDirectory()))
+        self.agora = 0.0
+        self.pausas = []
+
+    def dormir(self, s):
+        self.pausas.append(s)
+        self.agora += s
+
+    def relogio(self):
+        return self.agora
+
+    def test_tenta_de_novo_ate_o_banco_voltar(self):
+        chamadas = []
+
+        def aplicar(pasta, conectar_):
+            if len(chamadas) < 2:
+                chamadas.append(1)
+                raise psycopg.OperationalError("connection refused")
+            return ["001_a.sql"]
+
+        from unittest import mock
+
+        with mock.patch("src.repository.migracoes.aplicar_pendentes", aplicar), self.assertLogs(
+            "src.repository.migracoes", level="WARNING"
+        ):
+            r = aplicar_com_retry(self.pasta, dormir=self.dormir, agora=self.relogio)
+        self.assertEqual(r, ["001_a.sql"])
+        self.assertEqual(self.pausas, [1.0, 2.0])  # backoff dobrando
+
+    def test_estoura_o_teto_e_levanta_sem_esperar_de_verdade(self):
+        from unittest import mock
+
+        def aplicar(pasta, conectar_):
+            raise psycopg.OperationalError("connection refused")
+
+        with mock.patch("src.repository.migracoes.aplicar_pendentes", aplicar), self.assertLogs(
+            "src.repository.migracoes", level="WARNING"
+        ):
+            with self.assertRaises(MigracaoFalhou) as ctx:
+                aplicar_com_retry(self.pasta, teto_s=60, dormir=self.dormir, agora=self.relogio)
+        self.assertIn("inacessível", str(ctx.exception))
+        self.assertAlmostEqual(sum(self.pausas), 60.0)
+        self.assertLessEqual(max(self.pausas), 8.0)
+
+    def test_erro_de_migration_nao_tem_retry(self):
+        from unittest import mock
+
+        chamadas = []
+
+        def aplicar(pasta, conectar_):
+            chamadas.append(1)
+            raise MigracaoFalhou("001_x.sql falhou")
+
+        with mock.patch("src.repository.migracoes.aplicar_pendentes", aplicar):
+            with self.assertRaises(MigracaoFalhou):
+                aplicar_com_retry(self.pasta, dormir=self.dormir, agora=self.relogio)
+        self.assertEqual((len(chamadas), self.pausas), (1, []))
+
+    def test_conectar_real_sem_banco_vira_operational_error(self):
+        # Garante que o erro de conexão do psycopg é mesmo o que o retry captura.
+        def conectar():
+            return psycopg.connect(host="127.0.0.1", port=1, connect_timeout=1)
+
+        with self.assertRaises(psycopg.OperationalError):
+            aplicar_pendentes(self.pasta, conectar)
+
+
+class LifespanTest(unittest.TestCase):
+    """Sem Postgres: o startup da app de produção chama as migrations (fake no lugar do banco)."""
+
+    def criar(self, ao_subir):
+        from src.controller.api import criar_app
+        from src.repository.base import CurriculoRepositoryMemoria, PerfilBuscaRepositoryMemoria
+        from src.service.busca_service import BuscaService
+
+        return criar_app(PerfilBuscaRepositoryMemoria(), CurriculoRepositoryMemoria(), BuscaService([]), ao_subir=ao_subir)
+
+    def test_startup_chama_ao_subir_uma_vez(self):
+        from fastapi.testclient import TestClient
+
+        chamadas = []
+        with TestClient(self.criar(lambda: chamadas.append(1))) as c:
+            self.assertEqual(c.get("/saude").status_code, 200)
+        self.assertEqual(chamadas, [1])
+
+    def test_ao_subir_que_falha_impede_a_app_de_subir(self):
+        from fastapi.testclient import TestClient
+
+        def falha():
+            raise MigracaoFalhou("002_x.sql falhou")
+
+        with self.assertRaises(MigracaoFalhou), TestClient(self.criar(falha)):
+            pass
+
+    def test_app_de_producao_liga_o_startup_em_aplicar_com_retry(self):
+        from unittest import mock
+
+        from fastapi.testclient import TestClient
+
+        from src.controller.api import criar_app_producao
+
+        with mock.patch("src.repository.migracoes.aplicar_com_retry", return_value=[]) as m:
+            with TestClient(criar_app_producao()):
+                pass
+        m.assert_called_once_with()

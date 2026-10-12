@@ -11,9 +11,16 @@ Regras:
 - Migration já aplicada nunca é reaplicada nem relida: não edite uma migration publicada, crie
   uma nova. As 001–003 foram aplicadas à mão antes desta regra; são idempotentes e rodam de novo
   no primeiro boot, passando a constar em `schema_migrations`.
+- O arquivo não pode ter `BEGIN`/`COMMIT`/`ROLLBACK` (quebraria a transação que o envolve) nem
+  `CREATE INDEX CONCURRENTLY` (não roda dentro de transação). Use `IF NOT EXISTS` para ser idempotente.
+- Sem `lock_timeout`/`statement_timeout`: quem sobe depois espera o lock até a outra réplica
+  terminar (uma migration lenta segura a subida das demais).
+- Banco fora do ar na subida: `aplicar_com_retry` tenta de novo com backoff até o teto e depois
+  falha. Erro de SQL numa migration não tem retry: falha na hora.
 """
 
 import logging
+import time
 from collections.abc import Callable
 from pathlib import Path
 
@@ -86,3 +93,34 @@ def _aplicar(conn: psycopg.Connection, arquivo: Path) -> None:
     except Exception as e:
         log.error("migration %s falhou e foi desfeita: %s", arquivo.name, e)
         raise MigracaoFalhou(f"migration {arquivo.name} falhou: {e}") from e
+
+
+TETO_RETRY_S = 60.0
+PAUSA_INICIAL_S = 1.0
+PAUSA_MAXIMA_S = 8.0
+
+
+def aplicar_com_retry(
+    pasta: Path = PASTA_MIGRATIONS,
+    conectar: Callable[[], psycopg.Connection] | None = None,
+    teto_s: float = TETO_RETRY_S,
+    dormir: Callable[[float], None] = time.sleep,
+    agora: Callable[[], float] = time.monotonic,
+) -> list[str]:
+    """`aplicar_pendentes` com retry e backoff só para banco inacessível (`psycopg.OperationalError`
+    ao conectar/travar); passado o teto, levanta `MigracaoFalhou`. `MigracaoFalhou` (erro de SQL,
+    pasta ausente) sobe na hora, sem retry. `dormir` e `agora` são injetáveis para os testes."""
+    limite = agora() + teto_s
+    pausa = PAUSA_INICIAL_S
+    while True:
+        try:
+            return aplicar_pendentes(pasta, conectar)
+        except psycopg.OperationalError as e:
+            restante = limite - agora()
+            if restante <= 0:
+                log.error("banco inacessível por %.0f s, migrations não aplicadas: %s", teto_s, e)
+                raise MigracaoFalhou(f"banco inacessível após {teto_s:.0f} s: {e}") from e
+            espera = min(pausa, restante)
+            log.warning("banco inacessível (%s); nova tentativa em %.1f s", e, espera)
+            dormir(espera)
+            pausa = min(pausa * 2, PAUSA_MAXIMA_S)
