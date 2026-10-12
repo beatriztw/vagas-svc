@@ -353,3 +353,42 @@ class PorChamadaTest(unittest.TestCase):
         self.assertEqual(entregues, [primeira, segunda])
         self.assertEqual(devolvidas, [primeira, segunda])
 
+
+class ProvidersPadraoTest(unittest.TestCase):
+    def test_linkedin_pelo_apify_so_com_token(self):
+        from unittest import mock
+
+        from src.client.apify_linkedin import ApifyLinkedInClient
+        from src.controller.api import providers_padrao
+
+        with mock.patch.dict(os.environ, {}, clear=True):
+            self.assertFalse(any(isinstance(p, ApifyLinkedInClient) for p in providers_padrao()))
+
+        env = {"APIFY_TOKEN": "tk", "APIFY_LOCAL": "Rio de Janeiro", "APIFY_LIMITE": "20"}
+        with mock.patch.dict(os.environ, env, clear=True):
+            apify = [p for p in providers_padrao() if isinstance(p, ApifyLinkedInClient)]
+        self.assertEqual(len(apify), 1)
+        self.assertEqual((apify[0].local, apify[0].limite), ("Rio de Janeiro", 20))
+
+    def test_apify_local_vazio_cai_no_padrao(self):
+        from unittest import mock
+
+        from src.client.apify_linkedin import ApifyLinkedInClient
+        from src.controller.api import providers_padrao
+
+        for valor in ("", "   "):
+            with mock.patch.dict(os.environ, {"APIFY_TOKEN": "tk", "APIFY_LOCAL": valor}, clear=True):
+                apify = [p for p in providers_padrao() if isinstance(p, ApifyLinkedInClient)]
+            self.assertEqual(apify[0].local, "Brasil", repr(valor))
+
+    def test_apify_limite_invalido_cai_no_padrao_sem_derrubar_a_app(self):
+        from unittest import mock
+
+        from src.client.apify_linkedin import ApifyLinkedInClient
+        from src.controller.api import providers_padrao
+
+        for valor in ("", "50.0", "cinquenta", "0", "-5"):
+            with mock.patch.dict(os.environ, {"APIFY_TOKEN": "tk", "APIFY_LIMITE": valor}, clear=True):
+                apify = [p for p in providers_padrao() if isinstance(p, ApifyLinkedInClient)]
+            self.assertEqual(apify[0].limite, 50, valor)
+

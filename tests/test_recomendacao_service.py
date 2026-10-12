@@ -2,10 +2,10 @@ import unittest
 from datetime import date
 
 from src.model.perfil import Perfil
-from src.model.vaga import Modalidade
+from src.model.vaga import Modalidade, Nivel
 from src.model.vaga_externa import VagaExterna
 from src.service.busca_service import BuscaService
-from src.service.recomendacao_service import RecomendacaoService, aplicar_perfil
+from src.service.recomendacao_service import RecomendacaoService, aplicar_perfil, nivel_do_titulo, pontuar
 from tests.test_busca_service import ClientFixo, ClientQuebrado
 
 HOJE = date(2026, 10, 11)
@@ -32,6 +32,7 @@ class AplicarPerfilTest(unittest.TestCase):
         filtradas = aplicar_perfil(vagas, Perfil(excluir=["", "  ", "—", "🚫"]), HOJE)
 
         self.assertEqual(filtradas, vagas)
+
     def test_so_remoto_mantem_remotas_e_as_sem_modalidade_com_local_remoto(self):
         vagas = [
             vaga("a", remoto=True),
@@ -86,3 +87,124 @@ class RecomendacaoServiceTest(unittest.TestCase):
         resultado = RecomendacaoService(busca).recomendar("dev", None, HOJE)
 
         self.assertEqual(len(resultado.vagas), 1)
+
+
+class RelevanciaNaRecomendacaoTest(unittest.TestCase):
+    def test_titulo_mais_parecido_primeiro_sem_cortar_ingles_de_outro_provider(self):
+        vagas = [vaga("Analista de QA", url="u1"), vaga("Data Analyst", url="u2"), vaga("Analista de Dados", url="u3")]
+        busca = BuscaService([ClientFixo("A", vagas)])
+
+        resultado = RecomendacaoService(busca).recomendar("analista de dados", Perfil(), HOJE)
+
+        self.assertEqual([v.titulo for v in resultado.vagas], ["Data Analyst", "Analista de Dados", "Analista de QA"])
+
+    def test_skills_desempatam_dentro_da_mesma_relevancia(self):
+        vagas = [vaga("Analista de Dados", url="u1"), vaga("Analista de Dados Power BI", url="u2"), vaga("Analista de QA", url="u3")]
+        busca = BuscaService([ClientFixo("A", vagas)])
+
+        resultado = RecomendacaoService(busca).recomendar("analista de dados", Perfil(skills=["Power BI"]), HOJE)
+
+        self.assertEqual(
+            [v.titulo for v in resultado.vagas], ["Analista de Dados Power BI", "Analista de Dados", "Analista de QA"]
+        )
+
+
+class NivelTest(unittest.TestCase):
+    def test_nivel_pelo_titulo(self):
+        self.assertEqual(nivel_do_titulo("Analista de Dados Jr"), Nivel.JUNIOR)
+        self.assertEqual(nivel_do_titulo("Analista de Custos Pl."), Nivel.PLENO)
+        self.assertEqual(nivel_do_titulo("Analista SÊNIOR"), Nivel.SENIOR)
+        self.assertIsNone(nivel_do_titulo("Analista de Dados"))
+        self.assertIsNone(nivel_do_titulo("Analista Pleno/Sênior"))
+        self.assertIsNone(nivel_do_titulo("Desenvolvedor PL/SQL"))
+        self.assertEqual(nivel_do_titulo("Analista PL/SQL Jr"), Nivel.JUNIOR)
+
+    def test_corta_nivel_fora_do_perfil_e_mantem_os_sem_nivel(self):
+        vagas = [vaga("Analista Júnior"), vaga("Analista Sênior"), vaga("Analista"), vaga("Analista Pleno/Sênior")]
+
+        filtradas = aplicar_perfil(vagas, Perfil(niveis=[Nivel.JUNIOR]), HOJE)
+
+        self.assertEqual([v.titulo for v in filtradas], ["Analista Júnior", "Analista", "Analista Pleno/Sênior"])
+
+
+class LocalidadeTest(unittest.TestCase):
+    def test_mantem_a_cidade_as_remotas_e_as_sem_local(self):
+        vagas = [
+            vaga("a", local="Rio de Janeiro, RJ", remoto=False),
+            vaga("b", local="Rio de Janeiro, Rio de Janeiro, Brasil"),
+            vaga("c", local="São Paulo, SP", remoto=True),
+            vaga("d", local="Remoto - Brasil"),
+            vaga("e"),
+            vaga("f", local="São Paulo, SP", remoto=False),
+            vaga("g", local="Barueri, SP"),
+        ]
+
+        filtradas = aplicar_perfil(vagas, Perfil(localidades=["Rio de Janeiro, RJ"]), HOJE)
+
+        self.assertEqual([v.titulo for v in filtradas], ["a", "b", "c", "d", "e"])
+
+    def test_cidade_por_igualdade_nao_por_pedaco_do_nome(self):
+        vagas = [
+            vaga("a", local="Vitória da Conquista, BA", remoto=False),
+            vaga("b", local="Vitória - ES", remoto=False),
+            vaga("b2", local="Vitória-ES", remoto=False),
+            vaga("b3", local="Embu-Guaçu, SP", remoto=False),
+            vaga("c", local="Serra Talhada, PE", remoto=False),
+        ]
+
+        filtradas = aplicar_perfil(vagas, Perfil(localidades=["Vitória, ES", "Serra, ES"]), HOJE)
+
+        self.assertEqual([v.titulo for v in filtradas], ["b", "b2"])
+
+    def test_regiao_metropolitana_e_so_o_pais(self):
+        vagas = [
+            vaga("a", local="Rio de Janeiro e Região", remoto=False),
+            vaga("b", local="Greater Rio de Janeiro Area", remoto=False),
+            vaga("c", local="Região Metropolitana do Rio de Janeiro", remoto=False),
+            vaga("d", local="Brasil"),
+            vaga("e", local="São Paulo e Região", remoto=False),
+        ]
+
+        filtradas = aplicar_perfil(vagas, Perfil(localidades=["Rio de Janeiro, RJ"]), HOJE)
+
+        self.assertEqual([v.titulo for v in filtradas], ["a", "b", "c", "d"])
+
+    def test_localidade_do_perfil_so_com_o_pais_nao_corta_cidade(self):
+        vagas = [vaga("a", local="São Paulo, SP", remoto=False), vaga("b", local="Rio de Janeiro, RJ", remoto=False)]
+
+        self.assertEqual(aplicar_perfil(vagas, Perfil(localidades=["Brasil"]), HOJE), vagas)
+        self.assertEqual(
+            [v.titulo for v in aplicar_perfil(vagas, Perfil(localidades=["Rio de Janeiro, RJ", "Brazil"]), HOJE)], ["b"]
+        )
+
+    def test_sem_localidade_no_perfil_nada_e_cortado(self):
+        vagas = [vaga("f", local="São Paulo, SP", remoto=False)]
+
+        self.assertEqual(aplicar_perfil(vagas, Perfil(), HOJE), vagas)
+
+
+class OrdenacaoPorSkillsTest(unittest.TestCase):
+    def test_mais_skills_no_titulo_primeiro_e_empate_mantem_a_ordem(self):
+        vagas = [vaga("Analista 1"), vaga("Analista Power BI"), vaga("Analista 2"), vaga("Analista SQL e Power BI")]
+
+        filtradas = aplicar_perfil(vagas, Perfil(skills=["SQL", "Power BI", ""]), HOJE)
+
+        self.assertEqual(
+            [v.titulo for v in filtradas], ["Analista SQL e Power BI", "Analista Power BI", "Analista 1", "Analista 2"]
+        )
+
+    def test_skill_com_composto_genero_idioma_e_simbolo(self):
+        vagas = [vaga("Dev C++"), vaga("Desenvolvedor Front End"), vaga("Data Analyst"), vaga("Dev C#")]
+
+        self.assertEqual(aplicar_perfil([vagas[1]], Perfil(skills=["front-end"]), HOJE), [vagas[1]])
+        pontos = {v.titulo: pontuar(v, ["front-end", "Dados", "C#"]) for v in vagas}
+        self.assertEqual(pontos, {"Dev C++": 0, "Desenvolvedor Front End": 1, "Data Analyst": 1, "Dev C#": 1})
+
+    def test_skill_compara_palavra_inteira(self):
+        vagas = [vaga("Dev JavaScript"), vaga("Analista NoSQL"), vaga("Coordenador Agro"), vaga("Dev Java")]
+
+        filtradas = aplicar_perfil(vagas, Perfil(skills=["Java", "SQL", "Go", "R"]), HOJE)
+
+        self.assertEqual(filtradas[0].titulo, "Dev Java")
+        self.assertEqual([v.titulo for v in filtradas[1:]], ["Dev JavaScript", "Analista NoSQL", "Coordenador Agro"])
+

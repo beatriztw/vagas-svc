@@ -1,4 +1,5 @@
 import json
+import re
 import unicodedata
 import urllib.parse
 import urllib.request
@@ -29,6 +30,81 @@ def montar_url(base: str, **params: Any) -> str:
 def normalizar(texto: str) -> str:
     sem_acento = unicodedata.normalize("NFKD", texto).encode("ascii", "ignore").decode()
     return sem_acento.casefold()
+
+
+def palavras(texto: str | None) -> list[str]:
+    """Palavras normalizadas, na ordem; hífen entre letras junta ("Back-end" vira "backend").
+
+    "++" e "#" ficam grudados na palavra: "C++", "C#" e "C" são linguagens diferentes.
+    """
+    sem_hifen = re.sub(r"(?<=[a-z0-9])[-‐‑](?=[a-z0-9])", "", normalizar(texto or ""))
+    return re.findall(r"[a-z0-9]+(?:\+\+|#)?", sem_hifen)
+
+
+# Palavras que não ajudam a dizer se o título é da vaga procurada ("analista DE dados").
+_LIGACAO = {"a", "o", "as", "os", "de", "da", "do", "das", "dos", "e", "em", "para", "com", "na", "no"}
+
+
+def radical(palavra: str) -> str:
+    """Tira plural e gênero do fim: "engenheira" e "engenheiros" viram "engenheir"."""
+    if palavra.endswith("oes"):
+        # "conciliações" → "conciliação": o plural em -ões não sai só tirando o fim.
+        palavra = palavra[:-3] + "ao"
+    for sufixo in ("as", "os", "es", "a", "o", "s"):
+        if palavra.endswith(sufixo) and len(palavra) - len(sufixo) >= 4:
+            return palavra[: -len(sufixo)]
+    return palavra
+
+
+# Cargos que aparecem nos dois idiomas nos títulos; cada grupo vale nos dois sentidos.
+_MESMO_CARGO = [
+    {"dado", "data"},
+    {"analist", "analyst"},
+    {"desenvolvedor", "developer"},
+    {"engenheir", "engineer"},
+    {"cientist", "scientist"},
+    {"cienci", "science"},
+]
+
+
+def _equivalentes(raiz: str) -> set[str]:
+    for grupo in _MESMO_CARGO:
+        if raiz in grupo:
+            return grupo
+    return {raiz}
+
+
+def _formas_do_titulo(titulo: str) -> list[str]:
+    # Radicais das palavras e de cada par vizinho junto: "Front End" também vira "frontend",
+    # para casar com "front-end"/"frontend" no termo.
+    raizes = [radical(p) for p in palavras(titulo)]
+    return raizes + [a + b for a, b in zip(raizes, raizes[1:])]
+
+
+def relevancia_termo(titulo: str, termo: str) -> float:
+    """Fração das palavras do termo (fora as de ligação) que aparecem no título, de 0 a 1.
+
+    Compara palavra inteira por radical (gênero e plural), nunca por começo: "java" não
+    casa com "JavaScript", nem "go" com "Governança". Ignora hífen, junta palavras
+    vizinhas ("front end" = "front-end" = "frontend") e aceita o cargo no outro idioma
+    (dados/data, engenheiro/engineer...). Termo sem palavra útil vale 1.
+    """
+    formas = _formas_do_titulo(titulo)
+    exigidas = [radical(p) for p in palavras(termo) if p not in _LIGACAO]
+    if not exigidas:
+        return 1.0
+    casadas = 0
+    i = 0
+    while i < len(exigidas):
+        # Par vizinho do termo junto ("front" + "end") conta pelas duas palavras.
+        if i + 1 < len(exigidas) and (exigidas[i] + exigidas[i + 1]) in formas:
+            casadas += 2
+            i += 2
+            continue
+        if _equivalentes(exigidas[i]) & set(formas):
+            casadas += 1
+        i += 1
+    return casadas / len(exigidas)
 
 
 def contem(texto: str | None, termo: str) -> bool:

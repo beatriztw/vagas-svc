@@ -1,4 +1,4 @@
-from src.client.base import HttpGet, ProviderClient, get_json, montar_url, parse_data
+from src.client.base import HttpGet, ProviderClient, get_json, relevancia_termo, montar_url, parse_data
 from src.model.vaga_externa import VagaExterna
 
 BASE_URL = "https://api.remotar.com.br/jobs"
@@ -6,7 +6,11 @@ VAGA_URL = "https://remotar.com.br/job/{id}"
 
 
 class RemotarClient(ProviderClient):
-    """Remotar: a busca por termo é feita pela própria API, paginada de 50 em 50."""
+    """Remotar: a busca por termo é feita pela própria API, paginada de 50 em 50.
+
+    A busca da API é frouxa e também olha a descrição: vaga cujo título não tem NENHUMA
+    palavra do termo sai aqui. O resto fica; a ordem por relevância é do RecomendacaoService.
+    """
 
     nome = "Remotar"
 
@@ -20,6 +24,8 @@ class RemotarClient(ProviderClient):
         while pagina <= self.max_paginas:
             dados = self._http(montar_url(BASE_URL, search=termo, page=pagina))
             for job in dados.get("data", []):
+                if relevancia_termo(job["title"], termo) == 0:
+                    continue
                 empresa = job.get("companyDisplayName") or (job.get("company") or {}).get("name") or ""
                 local = ", ".join(p for p in (job.get("city"), job.get("state")) if p) or None
                 vagas.append(

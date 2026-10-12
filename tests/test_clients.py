@@ -80,6 +80,54 @@ class RemotarClientTest(unittest.TestCase):
         self.assertIsNone(vagas[0].local)
 
 
+    def test_corta_so_titulo_sem_nenhuma_palavra_do_termo(self):
+        titulos = ["Analista de QA", "Analista de Dados Pleno", "Engenheira de Dados", "Data Engineer", "Gerente de Loja"]
+        dados = {"data": [{"id": i, "title": t} for i, t in enumerate(titulos)], "meta": {"last_page": 1}}
+
+        vagas = RemotarClient(http=lambda url: dados).buscar("engenheiro de dados")
+
+        self.assertEqual([v.titulo for v in vagas], ["Analista de Dados Pleno", "Engenheira de Dados", "Data Engineer"])
+
+
+class RelevanciaTermoTest(unittest.TestCase):
+    def test_genero_plural_hifen_e_idioma(self):
+        from src.client.base import relevancia_termo
+
+        self.assertEqual(relevancia_termo("Pessoa Desenvolvedora Back-end", "desenvolvedor backend"), 1)
+        self.assertEqual(relevancia_termo("Analistas de Dados", "analista de dados"), 1)
+        self.assertEqual(relevancia_termo("ANALISTA DE CONCILIAÇÃO", "analista de conciliacao"), 1)
+        self.assertEqual(relevancia_termo("Analista de QA", "analista de dados"), 0.5)
+        self.assertEqual(relevancia_termo("Gerente de Loja", "analista de dados"), 0)
+
+    def test_palavra_inteira_nao_comeco_de_palavra(self):
+        from src.client.base import relevancia_termo
+
+        self.assertEqual(relevancia_termo("Desenvolvedor JavaScript", "desenvolvedor java"), 0.5)
+        self.assertEqual(relevancia_termo("Analista de Governança", "go"), 0)
+        self.assertEqual(relevancia_termo("Database Administrator", "dados"), 0)
+        self.assertEqual(relevancia_termo("Analista de Conciliações", "analista de conciliação"), 1)
+
+    def test_linguagens_com_simbolo_sao_diferentes(self):
+        from src.client.base import relevancia_termo
+
+        self.assertEqual(relevancia_termo("Desenvolvedor C++", "c#"), 0)
+        self.assertEqual(relevancia_termo("Desenvolvedor C", "c++"), 0)
+        self.assertEqual(relevancia_termo("Dev C# Pleno", "c#"), 1)
+
+    def test_traducao_nos_dois_sentidos(self):
+        from src.client.base import relevancia_termo
+
+        self.assertEqual(relevancia_termo("Data Engineer", "engenheiro de dados"), 1)
+        self.assertEqual(relevancia_termo("Engenheiro de Dados", "data engineer"), 1)
+
+    def test_espaco_hifen_e_junto_sao_a_mesma_coisa(self):
+        from src.client.base import relevancia_termo
+
+        for titulo in ("Front End Developer", "Front-end Developer", "Frontend Developer"):
+            for termo in ("desenvolvedor front-end", "desenvolvedor front end", "desenvolvedor frontend"):
+                self.assertEqual(relevancia_termo(titulo, termo), 1, (titulo, termo))
+
+
 class TramposClientTest(unittest.TestCase):
     def test_filtra_localmente_por_titulo_ou_categoria(self):
         chamadas: list[str] = []
@@ -211,7 +259,7 @@ class ApifyLinkedInClientTest(unittest.TestCase):
         remotar = RemotarClient(http=fake_http("remotar.json"))
 
         with unittest.mock.patch.dict("os.environ", {}, clear=True):
-            resultado = BuscaService([sem_token, remotar]).buscar("dados python")
+            resultado = BuscaService([sem_token, remotar]).buscar("dados")
 
         self.assertIn("LinkedIn (Apify)", resultado.erros)
         self.assertIn("APIFY_TOKEN", resultado.erros["LinkedIn (Apify)"])
