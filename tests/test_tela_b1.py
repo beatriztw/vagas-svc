@@ -3,6 +3,9 @@
 As vagas daqui são escritas à mão (não são respostas gravadas de provider).
 """
 
+import json
+import shutil
+import subprocess
 import unittest
 from pathlib import Path
 from urllib.parse import parse_qs, quote, urlencode, urlsplit
@@ -147,14 +150,56 @@ class LocalVazioTest(unittest.TestCase):
         self.assertIn("Rio de Janeiro", chips)
 
 
-class AvisoEm422Test(unittest.TestCase):
-    def test_tela_js_so_esconde_o_aviso_com_status_abaixo_de_400(self):
-        # O 422 é "successful" para o htmx (base.html: error:false) e traz o aviso por HX-Retarget;
-        # esconder o aviso em todo `successful` apagava a mensagem de validação. O comportamento
-        # real foi conferido no navegador (não há runner de JS neste repo): aqui só a guarda no código.
-        js = (RAIZ / "src" / "static" / "tela.js").read_text()
+# Roda o tela.js de verdade no node com um DOM mínimo (escrito à mão): só o #aviso e o document.
+_RODAR_TELA_JS = r"""
+const fs = require("fs");
+const handlers = {};
+const aviso = { hidden: false, textContent: "Sem conexão com o servidor. Tente de novo." };
+global.document = {
+  getElementById: (id) => (id === "aviso" ? aviso : null),
+  querySelectorAll: () => [],
+  addEventListener: (nome, fn) => { (handlers[nome] = handlers[nome] || []).push(fn); },
+};
+eval(fs.readFileSync(process.argv[1], "utf8"));
+const [status, retarget] = JSON.parse(process.argv[2]);
+const xhr = { status, getResponseHeader: (nome) => (nome === "HX-Retarget" ? retarget : null) };
+const detail = { successful: true, xhr, elt: { getAttribute: () => null } };
+for (const fn of handlers["htmx:afterRequest"] || []) { fn({ detail }); }
+process.stdout.write(JSON.stringify(aviso.hidden));
+"""
 
-        self.assertRegex(js, r"successful\s*&&\s*xhr\s*&&\s*xhr\.status\s*<\s*400")
+
+@unittest.skipUnless(shutil.which("node"), "sem node para rodar o tela.js")
+class AvisoDepoisDeRespostaTest(unittest.TestCase):
+    """Um aviso antigo (erro de rede/5xx) está na tela e chega uma resposta `successful`."""
+
+    def aviso_fica_escondido(self, status: int, retarget: str | None) -> bool:
+        js = RAIZ / "src" / "static" / "tela.js"
+        saida = subprocess.run(
+            ["node", "-e", _RODAR_TELA_JS, str(js), json.dumps([status, retarget])],
+            capture_output=True, text=True, check=True, timeout=30,
+        )
+        return json.loads(saida.stdout)
+
+    def test_resposta_200_esconde_o_aviso_antigo(self):
+        self.assertTrue(self.aviso_fica_escondido(200, None))
+
+    def test_404_do_detalhe_sem_retarget_esconde_o_aviso_antigo(self):
+        # GET /tela/vagas/detalhe de vaga que sumiu: 404 trocado no #detalhe, não no #aviso.
+        self.assertTrue(self.aviso_fica_escondido(404, None))
+
+    def test_422_redirecionado_ao_aviso_nao_e_escondido(self):
+        # O 422 é "successful" (base.html: error:false) e o próprio aviso chega por HX-Retarget.
+        self.assertFalse(self.aviso_fica_escondido(422, "#aviso"))
+        self.assertFalse(self.aviso_fica_escondido(404, "#aviso"))
+        self.assertFalse(self.aviso_fica_escondido(409, "#aviso"))
+
+    def test_detalhe_404_de_verdade_nao_traz_retarget(self):
+        # A premissa do teste acima: o 404 do detalhe vem sem HX-Retarget.
+        cliente, _ = criar([vaga(1)])
+        resposta = cliente.get("/tela/vagas/detalhe", params={"url": "https://exemplo.test/sumiu"}, headers=HX)
+        self.assertEqual(resposta.status_code, 404)
+        self.assertNotIn("HX-Retarget", resposta.headers)
 
 
 if __name__ == "__main__":
