@@ -210,3 +210,6 @@ input[type="search"], input[type="text"], select {
 }
 .acoes { display: flex; flex-wrap: wrap; gap: 8px; }
 .botao-ai { background: var(--ai); border-color: var(--ai); color: #FFFFFF; }
+
+.busca { display: flex; flex-direction: column; gap: 8px; }
+.busca label { font-size: 13px; font-weight: 500; color: #34413F; }
