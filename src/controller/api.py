@@ -7,10 +7,13 @@ from datetime import date, datetime
 from typing import Any
 
 from fastapi import FastAPI, HTTPException, Query, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, RedirectResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field
 
 from src.client.armazenamento import Armazenamento
+from src.controller.tela import criar_router_tela
+from src.controller.tela_seguranca import DIRETORIO_STATIC, caminho_da_tela, templates
 from src.model.curriculo import Curriculo
 from src.model.erros import DadoInvalido
 from src.model.perfil import Perfil
@@ -147,6 +150,10 @@ class VistasJson(BaseModel):
     marcadas: int
 
 
+# Sem CSS nem JS inline: tudo vem de /static (o htmx roda com includeIndicatorStyles=false).
+CSP = "default-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'"
+
+
 def criar_app(
     perfis: PerfilBuscaRepository,
     curriculos: CurriculoRepository,
@@ -162,10 +169,32 @@ def criar_app(
     coleta = ColetaService(recomendacao, perfis, encontradas)
 
     @app.exception_handler(DadoInvalido)
-    def valor_invalido(_: Request, erro: DadoInvalido) -> JSONResponse:
+    def valor_invalido(request: Request, erro: DadoInvalido):
         # Só a validação do domínio vira 422; um ValueError qualquer (PGPORT inválido, dado
         # inesperado do banco) é falha do servidor e sai como 500.
+        if caminho_da_tela(request.url.path):
+            # A tela troca HTML: o erro volta como partial, não como JSON.
+            return templates.TemplateResponse(request, "tela/_erro.html", {"mensagem": str(erro)}, status_code=422)
         return JSONResponse(status_code=422, content={"detail": str(erro)})
+
+    @app.middleware("http")
+    async def cabecalhos_da_tela(request: Request, chamar):
+        resposta = await chamar(request)
+        caminho = request.url.path
+        if caminho_da_tela(caminho) or caminho == "/static" or caminho.startswith("/static/"):
+            resposta.headers["Content-Security-Policy"] = CSP
+            resposta.headers["X-Content-Type-Options"] = "nosniff"
+            resposta.headers["Referrer-Policy"] = "same-origin"
+        if caminho_da_tela(caminho):
+            resposta.headers["Cache-Control"] = "no-store"
+        return resposta
+
+    app.mount("/static", StaticFiles(directory=DIRETORIO_STATIC), name="static")
+    app.include_router(criar_router_tela(encontradas))
+
+    @app.get("/", include_in_schema=False)
+    def raiz() -> RedirectResponse:
+        return RedirectResponse("/tela", status_code=307)
 
     @app.get("/saude")
     def saude() -> dict[str, bool]:

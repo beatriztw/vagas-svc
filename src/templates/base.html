@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="htmx-config" content='{"includeIndicatorStyles":false}'>
+<title>{% block titulo %}vagas-svc{% endblock %}</title>
+<link rel="stylesheet" href="/static/tela.css">
+<script src="/static/htmx.min.js" defer></script>
+</head>
+<body>
+<header class="topo">
+  <div class="topo-conteudo">
+    <div class="marca">
+      <span class="logo" aria-hidden="true">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="7" width="18" height="13" rx="2"></rect><path d="M8 7V5a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+      </span>
+      <span class="marca-nome">vagas-svc</span>
+    </div>
+    <button type="button" class="botao" disabled title="em breve">Meu perfil</button>
+  </div>
+</header>
+<main class="pagina">
+{% block conteudo %}{% endblock %}
+</main>
+</body>
+</html>

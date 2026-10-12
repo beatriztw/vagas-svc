@@ -1,0 +1,12 @@
+<div class="painel-cabecalho">
+  <h2 id="t-vagas">Vagas</h2>
+  <span class="mono">{{ total if total is not none else "—" }} encontradas</span>
+</div>
+<ul id="lista-vagas" class="lista-vagas">
+  {% if not tem_vagas %}
+  <li class="vazio">
+    <p>Nenhuma vaga ainda; rode uma coleta.</p>
+    <button type="button" class="botao botao-primario" disabled title="em breve">Coletar agora</button>
+  </li>
+  {% endif %}
+</ul>
