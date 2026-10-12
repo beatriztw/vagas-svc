@@ -45,4 +45,8 @@
   .col-detalhe .detalhe:focus-visible { outline: 3px solid #0F5F58; outline-offset: -3px; }
   .col-detalhe .detalhe:focus { outline: none; }
   .col-detalhe .detalhe { padding-top: 16px; }
+
+  /* A tabela "Vagas aplicadas" já rola dentro de .tabela-rolavel, mas o texto "Ações" (.visualmente-oculto, position:absolute)
+     não tinha ancestral posicionado: escapava do overflow e alargava a página inteira (scroll horizontal). */
+  .tabela-rolavel { position: relative; }
 }

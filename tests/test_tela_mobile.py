@@ -49,6 +49,14 @@ class TelaMobileTest(unittest.TestCase):
         self.assertIn("@media (max-width: 640px)", css)
         self.assertEqual(css.count("@media"), 1)
 
+    def test_tabela_aplicadas_nao_alarga_a_pagina_no_celular(self):
+        # O "Ações" (.visualmente-oculto, absolute) da tabela escapava do overflow-x da .tabela-rolavel e dava
+        # scroll horizontal na página inteira (scrollWidth 527 > 390). Provado no navegador; aqui só a regra.
+        css = (STATIC / "tela-mobile.css").read_text()
+        dentro_da_media = css.split("@media", 1)[1]
+
+        self.assertRegex(dentro_da_media, r"\.tabela-rolavel\s*\{\s*position:\s*relative;\s*\}")
+
     def test_botao_voltar_tem_rotulo_acessivel_e_o_detalhe_recebe_foco(self):
         js = (STATIC / "tela-mobile.js").read_text()
 
