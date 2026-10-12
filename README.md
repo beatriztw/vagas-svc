@@ -136,7 +136,7 @@ O botão "Meu perfil" do header leva a `GET /tela/perfil` (página inteira; com 
 
 - Salvar é `PUT /tela/perfil` (HTMX, nunca GET), protegido pelo mesmo CSRF das outras mutações da tela. Usa o mesmo repositório e a mesma validação de `PUT /perfil` (`validar_perfil`): `DadoInvalido` vira o aviso 422 e não grava nada; repetidos saem na normalização.
 - Depois de salvar, o formulário é relido do repositório e mostra "Perfil salvo" com o link de volta para a lista, que já obedece ao perfil na leitura.
-- Cada lista aceita até 200 itens de até 200 caracteres.
+- Cada lista aceita até 200 itens de até 200 caracteres. O teto está em `validar_perfil`, então vale igual no `PUT /perfil` (JSON): o que uma rota grava a outra aceita de volta, e o 422 diz qual lista passou.
 
 ## Detalhe e expiração
 

@@ -268,6 +268,9 @@ class InvalidoTest(unittest.TestCase):
     def test_lista_gigante(self):
         self.assertInvalido(self.api, self.perfis, self.anterior, {**COMPLETO, "termos": "\n".join(["x"] * 201)}, "até 200 itens")
 
+    def test_lista_gigante_diz_qual_lista_passou(self):
+        self.assertInvalido(self.api, self.perfis, self.anterior, {**COMPLETO, "skills": "x\n" + "y" * 201}, "skills:")
+
     def test_o_valor_do_erro_volta_escapado(self):
         resposta = self.api.put("/tela/perfil", data={**COMPLETO, "modalidades": ["<script>x</script>"]}, headers=HX)
 
@@ -298,6 +301,45 @@ class CsrfTest(unittest.TestCase):
         self.assertEqual(api.get("/tela/perfil", params=COMPLETO, headers=HX).status_code, 200)
         self.assertEqual(api.post("/tela/perfil", data=COMPLETO, headers=HX).status_code, 405)
         self.assertEqual(perfis.obter().termos, ["a"])
+
+
+class TetoNasDuasRotasTest(unittest.TestCase):
+    """O teto de 200 itens / 200 caracteres está em `validar_perfil`: o `PUT /perfil` (JSON) recusa o mesmo que a tela,
+    e o que o JSON grava a tela salva de volta (antes o JSON gravava 250 skills e a tela não salvava mais nada)."""
+
+    def setUp(self):
+        self.api, self.perfis = cliente(Perfil(termos=["analista fiscal"]))
+        self.anterior = self.perfis.obter()
+
+    def put_json(self, corpo):
+        return self.api.put("/perfil", json=corpo)
+
+    def test_json_recusa_lista_com_mais_de_200_itens(self):
+        resposta = self.put_json({"skills": [f"skill {i}" for i in range(201)]})
+
+        self.assertEqual(resposta.status_code, 422)
+        self.assertIn("skills:", resposta.json()["detail"])
+        self.assertIn("até 200 itens", resposta.json()["detail"])
+        self.assertEqual(self.perfis.obter(), self.anterior)
+
+    def test_json_recusa_item_com_mais_de_200_caracteres(self):
+        resposta = self.put_json({"termos": ["analista", "x" * 201]})
+
+        self.assertEqual(resposta.status_code, 422)
+        self.assertIn("termos:", resposta.json()["detail"])
+        self.assertEqual(self.perfis.obter(), self.anterior)
+
+    def test_validar_perfil_e_a_fonte_unica(self):
+        from src.model.erros import DadoInvalido
+        from src.repository.base import MAX_ITENS_POR_LISTA, MAX_TAMANHO_ITEM, validar_perfil
+
+        for campo in ("termos", "excluir", "localidades", "plataformas", "skills"):
+            with self.subTest(campo=campo):
+                with self.assertRaisesRegex(DadoInvalido, f"^{campo}:"):
+                    validar_perfil(Perfil(**{campo: ["a"] * (MAX_ITENS_POR_LISTA + 1)}))
+                with self.assertRaisesRegex(DadoInvalido, f"^{campo}:"):
+                    validar_perfil(Perfil(**{campo: ["a" * (MAX_TAMANHO_ITEM + 1)]}))
+                self.assertEqual(len(getattr(validar_perfil(Perfil(**{campo: [f"a{i}" for i in range(200)]})), campo)), 200)
 
 
 if __name__ == "__main__":

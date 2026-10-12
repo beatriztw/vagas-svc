@@ -10,17 +10,9 @@ from src.model.perfil import Perfil
 from src.model.vaga import Modalidade, Nivel
 from src.repository.base import MAX_PUBLICADA_DESDE_DIAS, PerfilBuscaRepository, validar_perfil
 
-# Teto do tamanho de uma lista do formulário: um textarea colado sem querer não vira gravação gigante.
-MAX_ITENS_POR_LISTA = 200
-MAX_TAMANHO_ITEM = 200
-
-
 def _linhas(texto: str) -> list[str]:
-    """Uma entrada por linha; linha em branco é ignorada. Repetidos e normalização ficam com `validar_perfil`."""
-    itens = [linha.strip() for linha in texto.splitlines() if linha.strip()]
-    if len(itens) > MAX_ITENS_POR_LISTA or any(len(i) > MAX_TAMANHO_ITEM for i in itens):
-        raise DadoInvalido(f"Cada lista aceita até {MAX_ITENS_POR_LISTA} itens de até {MAX_TAMANHO_ITEM} caracteres")
-    return itens
+    """Uma entrada por linha; linha em branco é ignorada. Teto, repetidos e normalização ficam com `validar_perfil`."""
+    return [linha.strip() for linha in texto.splitlines() if linha.strip()]
 
 
 def _dias(texto: str) -> int | None:
