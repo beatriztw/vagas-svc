@@ -476,7 +476,7 @@ class ColetaPelaTelaTest(unittest.TestCase):
         provider = ProviderBloqueado()
         app, _ = app_de_coleta(provider)
         resposta = {}
-        primeira = threading.Thread(target=lambda: resposta.update(r=TestClient(app).post("/coletas")))
+        primeira = threading.Thread(target=lambda: resposta.update(r=TestClient(app).post("/coletas", json={})))
         primeira.start()
         self.addCleanup(primeira.join, ESPERA)
         self.addCleanup(provider.soltar.set)
@@ -492,14 +492,14 @@ class ColetaPelaTelaTest(unittest.TestCase):
     def test_409_sem_htmx_e_a_pagina_de_erro_e_na_api_continua_json(self):
         provider = ProviderBloqueado()
         app, _ = app_de_coleta(provider)
-        primeira = threading.Thread(target=lambda: TestClient(app).post("/coletas"))
+        primeira = threading.Thread(target=lambda: TestClient(app).post("/coletas", json={}))
         primeira.start()
         self.addCleanup(primeira.join, ESPERA)
         self.addCleanup(provider.soltar.set)
         self.assertTrue(provider.comecou.wait(ESPERA))
         cliente = TestClient(app, raise_server_exceptions=False)
 
-        api = cliente.post("/coletas")
+        api = cliente.post("/coletas", json={})
         self.assertEqual((api.status_code, api.json()), (409, {"detail": "coleta em andamento"}))
         sem_htmx = cliente.post("/tela/coletas", headers={"Origin": "http://testserver"})
         self.assertEqual(sem_htmx.status_code, 403)  # mutação sem HX-Request nem chega à coleta

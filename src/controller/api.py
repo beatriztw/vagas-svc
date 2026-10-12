@@ -6,13 +6,14 @@ from collections.abc import Callable
 from datetime import date, datetime
 from typing import Any
 
-from fastapi import FastAPI, HTTPException, Query, Request
+from fastapi import Depends, FastAPI, HTTPException, Query, Request
 from fastapi.responses import JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field
 
 from src.client.armazenamento import Armazenamento
 from src.controller.candidaturas import criar_router_candidaturas
+from src.controller.seguranca_json import exigir_json_mesma_origem
 from src.controller.tela import criar_router_tela
 from src.controller.tela_candidaturas import criar_router_tela_candidaturas
 from src.controller.tela_seguranca import DIRETORIO_STATIC, caminho_da_tela, eh_htmx, templates
@@ -173,7 +174,8 @@ def criar_app(
 ) -> FastAPI:
     """Sem `encontradas` e `candidaturas`, o histórico da coleta e as candidaturas ficam em memória (testes);
     a produção passa os do Postgres."""
-    app = FastAPI(title="vagas-svc")
+    # Dependência do app: rota mutável nova (JSON) já nasce protegida; /tela e /interno ficam de fora dentro dela.
+    app = FastAPI(title="vagas-svc", dependencies=[Depends(exigir_json_mesma_origem)])
     app.state.armazenamento = armazenamento
     recomendacao = RecomendacaoService(busca)
     encontradas = encontradas if encontradas is not None else VagaEncontradaRepositoryMemoria()

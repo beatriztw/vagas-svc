@@ -316,7 +316,7 @@ class ApiColetaTest(unittest.TestCase):
         self.api = TestClient(criar_app(self.perfis, CurriculoRepositoryMemoria(), busca))
 
     def test_coleta_sem_perfil_e_422(self):
-        resposta = self.api.post("/coletas")
+        resposta = self.api.post("/coletas", json={})
 
         self.assertEqual(resposta.status_code, 422)
         self.assertIn("Nenhum perfil salvo", resposta.json()["detail"])
@@ -324,12 +324,12 @@ class ApiColetaTest(unittest.TestCase):
     def test_coleta_com_perfil_sem_termos_e_422(self):
         self.api.put("/perfil", json={"termos": []})
 
-        self.assertEqual(self.api.post("/coletas").status_code, 422)
+        self.assertEqual(self.api.post("/coletas", json={}).status_code, 422)
 
     def test_coleta_lista_marca_vistas_e_coleta_de_novo(self):
         self.api.put("/perfil", json={"termos": ["python", "django"]})
 
-        coleta = self.api.post("/coletas")
+        coleta = self.api.post("/coletas", json={})
 
         self.assertEqual(coleta.status_code, 200)
         erro = {"Quebrado": "TimeoutError: sem resposta"}
@@ -352,7 +352,7 @@ class ApiColetaTest(unittest.TestCase):
         self.assertEqual([v["url"] for v in self.api.get("/vagas/encontradas?novas=true").json()], ["u2"])
         self.assertEqual(len(self.api.get("/vagas/encontradas?novas=false").json()), 2)
 
-        segunda = self.api.post("/coletas").json()
+        segunda = self.api.post("/coletas", json={}).json()
         self.assertEqual(segunda["novas"], 0)
         self.assertEqual([v["url"] for v in self.api.get("/vagas/encontradas").json()], ["u2"])
 
@@ -382,7 +382,7 @@ class ApiColetaErroDoServidorTest(unittest.TestCase):
             raise_server_exceptions=False,
         )
 
-        self.assertEqual(api.post("/coletas").status_code, 500)
+        self.assertEqual(api.post("/coletas", json={}).status_code, 500)
 
 
 @unittest.skipUnless(os.environ.get("PGHOST"), "PGHOST não definido: coleta com Postgres pulada")
@@ -418,11 +418,11 @@ class ApiColetaPostgresTest(unittest.TestCase):
             )
         )
 
-        self.assertEqual(api.post("/coletas").status_code, 422)
+        self.assertEqual(api.post("/coletas", json={}).status_code, 422)
         api.put("/perfil", json={"termos": ["python", "django"]})
-        self.assertEqual(api.post("/coletas").json()["novas"], 2)
+        self.assertEqual(api.post("/coletas", json={}).json()["novas"], 2)
         self.assertEqual(api.post("/vagas/vistas", json={"urls": ["u1", "u2"]}).json(), {"marcadas": 2})
-        self.assertEqual(api.post("/coletas").json()["novas"], 0)
+        self.assertEqual(api.post("/coletas", json={}).json()["novas"], 0)
         self.assertEqual(api.get("/vagas/encontradas").json(), [])
         todas = api.get("/vagas/encontradas?novas=false").json()
         self.assertEqual({v["url"]: v["termos"] for v in todas}, {"u1": ["python", "django"], "u2": ["python"]})
