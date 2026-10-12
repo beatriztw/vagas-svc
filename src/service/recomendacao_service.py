@@ -112,8 +112,12 @@ def relevancia_perfil(titulo: str, termos: list[str]) -> float:
     Termo sem palavra útil ("", "de", "—") vale 1 em `relevancia_termo` para qualquer
     título: aqui ele não diz nada sobre a vaga e é ignorado, senão todo título empataria em 1.
     """
-    uteis = [t for t in termos if any(p not in _LIGACAO for p in palavras(t))]
-    return max((relevancia_termo(titulo, t) for t in uteis), default=0.0)
+    return max((relevancia_termo(titulo, t) for t in termos_uteis(termos)), default=0.0)
+
+
+def termos_uteis(termos: list[str]) -> list[str]:
+    """Os termos com pelo menos uma palavra que não é de ligação: os únicos que `relevancia_perfil` usa."""
+    return [t for t in termos if any(p not in _LIGACAO for p in palavras(t))]
 
 
 class RecomendacaoService:

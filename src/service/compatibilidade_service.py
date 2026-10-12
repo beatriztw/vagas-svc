@@ -29,10 +29,10 @@ letras junta) e não casa com "SQL", como na busca do histórico.
 
 from dataclasses import dataclass, field
 
-from src.client.base import palavras, radical
+from src.client.base import _LIGACAO, palavras, radical
 from src.model.perfil import Perfil
 from src.model.vaga import Nivel
-from src.service.recomendacao_service import relevancia_perfil
+from src.service.recomendacao_service import relevancia_perfil, termos_uteis
 
 PESO_REQUISITOS = 50
 PESO_TITULO = 30
@@ -87,8 +87,11 @@ def _contem_skill(raizes: list[str], skill: tuple[tuple[str, ...], str]) -> bool
         return True
     if n > 1 and junta in raizes:
         return True
-    # "PowerBI" no perfil e "Power BI" na vaga: duas palavras coladas.
-    return n == 1 and any(a + b == junta for a, b in zip(raizes, raizes[1:]))
+    # "PowerBI" no perfil e "Power BI" na vaga: duas palavras coladas. Palavra de ligação não entra no
+    # par: "no SQL" ("Experiência no SQL Server") não é "NoSQL".
+    return n == 1 and any(
+        a + b == junta for a, b in zip(raizes, raizes[1:]) if a not in _LIGACAO and b not in _LIGACAO
+    )
 
 
 def _skills_do_perfil(perfil: Perfil) -> list[tuple[str, tuple[tuple[str, ...], str]]]:
@@ -178,8 +181,8 @@ def compatibilidade(
         lacunas.extend(t for _, t in sorted(descobertos, key=lambda d: not d[0]))
 
     # Título.
-    termos_uteis = bool(perfil.termos)
-    relevancia = relevancia_perfil(titulo or "", perfil.termos) if termos_uteis else None
+    # Mesmo filtro de `relevancia_perfil`: termo só com palavra de ligação ("de") ou vazio não conta.
+    relevancia = relevancia_perfil(titulo or "", perfil.termos) if termos_uteis(perfil.termos) else None
     if citadas_no_titulo:
         nota = 1.0 if relevancia is None else min(1.0, relevancia + BONUS_SKILL_NO_TITULO)
         componentes.append((PESO_TITULO, nota))

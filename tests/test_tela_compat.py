@@ -99,7 +99,11 @@ class AplicadasTest(unittest.TestCase):
         app.state.candidaturas.marcar_aplicada(URL)
         app.state.perfis.salvar(Perfil(termos=["motorista"], niveis=[Nivel.SENIOR]))
         html = api.get("/tela").text
-        self.assertIn("0%", html)
+        linha = html[html.index('<tr id="candidatura-') :]
+        linha = linha[: linha.index("</tr>")]
+        # "0%" é pedaço de "100%": a célula tem de ser exatamente 0% e o 100% do perfil antigo tem de sumir.
+        self.assertIn(">0%<", linha)
+        self.assertNotIn("100%", linha)
 
 
 class CssTest(unittest.TestCase):

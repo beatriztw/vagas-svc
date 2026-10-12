@@ -30,6 +30,13 @@ class SkillsPorPalavraTest(unittest.TestCase):
         self.assertEqual(self.fortes(["SQL"], "Bancos NoSQL"), [])
         self.assertEqual(self.fortes(["SQL"], "Consultas em SQL"), ["SQL"])
 
+    def test_nosql_nao_casa_com_no_sql_de_ligacao(self):
+        # Juntar o par vizinho ("Power BI" = "PowerBI") não vale com palavra de ligação: "no" + "sql".
+        self.assertEqual(self.fortes(["NoSQL"], "Experiência no SQL Server"), [])
+        self.assertEqual(self.fortes(["NoSQL"], "Bancos na SQL"), [])
+        self.assertEqual(self.fortes(["NoSQL"], "Bancos NoSQL"), ["NoSQL"])
+        self.assertEqual(self.fortes(["NoSQL"], "Bancos No-SQL"), ["NoSQL"])
+
     def test_c_nao_casa_com_cmais_nem_csharp(self):
         self.assertEqual(self.fortes(["C"], "C++ e C#"), [])
         self.assertEqual(self.fortes(["C++"], "C++ e C#"), ["C++"])
@@ -96,6 +103,14 @@ class PesosTest(unittest.TestCase):
 
 
 class NivelETituloTest(unittest.TestCase):
+    def test_termos_so_de_ligacao_ou_vazios_nao_contam_no_titulo(self):
+        # Mesmo filtro de `relevancia_perfil`: sem termo útil, o título sai da conta (como sem termos).
+        for termos in (["de"], ["—"], ["", "de", "na"]):
+            with self.subTest(termos=termos):
+                r = compatibilidade("Analista Pleno", None, perfil(skills=[], termos=termos, niveis=[Nivel.PLENO]))
+                self.assertEqual(r.percentual, 100)
+                self.assertNotIn("Título sem relação com os termos do perfil", r.lacunas)
+
     def test_nivel_do_titulo_nos_niveis_do_perfil(self):
         p = perfil(skills=[], termos=[], niveis=[Nivel.PLENO])
         for titulo in ("Analista Pleno", "Analista Pl", "Analista de dados (PLENA)"):
