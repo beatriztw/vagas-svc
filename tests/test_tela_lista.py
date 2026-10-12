@@ -179,7 +179,10 @@ class ListaTest(unittest.TestCase):
 
         self.assertNotIn("<html", parcial)
         self.assertIn("<html", inteira)
-        self.assertIn(parcial.strip(), inteira)
+        # A única diferença é o POST de vista, que só o detalhe pedido por clique (parcial) traz.
+        sem_vista = re.sub(r"\s*<form hidden hx-post=\"/tela/vagas/vista\".*?</form>", "", parcial, flags=re.S)
+        self.assertNotEqual(sem_vista, parcial)
+        self.assertIn(re.sub(r"\s+", " ", sem_vista.strip()), re.sub(r"\s+", " ", inteira))
 
     def test_restauro_de_historico_do_htmx_recebe_a_pagina_inteira(self):
         cliente, _ = criar([vaga(1)])
@@ -199,7 +202,7 @@ class ListaTest(unittest.TestCase):
 
         textos = {c.attrs["data-url"]: re.sub(r"\s+", " ", c.texto).strip() for c in Pagina(cliente.get("/tela").text).cards()}
 
-        self.assertEqual(textos["https://exemplo.test/vaga/1"], "Analista 1 nova Empresa Teste - — não informado")
+        self.assertEqual(textos["https://exemplo.test/vaga/1"], "Analista 1 nova Empresa Teste não informado")
         self.assertEqual(textos["https://exemplo.test/vaga/2"], "Analista 2 nova Empresa Teste - Rio de Janeiro remoto")
         self.assertEqual(textos["https://exemplo.test/vaga/3"], "Analista 3 nova Empresa Teste - Rio de Janeiro presencial")
 

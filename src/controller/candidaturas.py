@@ -1,10 +1,13 @@
-"""Rotas JSON das candidaturas (POST/GET /candidaturas, PATCH/DELETE /candidaturas/{id})."""
+"""Rotas JSON das candidaturas (POST/GET /candidaturas, PATCH/DELETE /candidaturas/{id}).
+
+O CSRF das rotas que mudam estado vem da dependência do app (`seguranca_json.py`)."""
 
 from datetime import datetime
 
-from fastapi import APIRouter, Depends, HTTPException, Request, Response
+from fastapi import APIRouter, HTTPException, Response
 from pydantic import BaseModel, ConfigDict, Field
 
+from src.controller.seguranca_json import exigir_json  # noqa: F401  (reexportado: outros módulos importam daqui)
 from src.model.candidatura import CandidaturaComVaga, StatusCandidatura
 from src.service.candidatura_service import CandidaturaService
 
@@ -37,18 +40,10 @@ class CandidaturaJson(BaseModel):
         return cls(**{**vars(c), "status_rotulo": c.status.rotulo})
 
 
-def exigir_json(request: Request) -> None:
-    """CSRF: um POST de outro site (fetch no-cors com Blob sem tipo, form text/plain) não manda
-    `application/json` sem preflight. Sem esse tipo, 415 e nada é lido nem gravado."""
-    tipo = request.headers.get("content-type", "").split(";")[0].strip().lower()
-    if tipo != "application/json" and not (tipo.startswith("application/") and tipo.endswith("+json")):
-        raise HTTPException(415, "Content-Type tem que ser application/json")
-
-
 def criar_router_candidaturas(servico: CandidaturaService) -> APIRouter:
     router = APIRouter()
 
-    @router.post("/candidaturas", status_code=201, dependencies=[Depends(exigir_json)])
+    @router.post("/candidaturas", status_code=201)
     def marcar_aplicada(corpo: NovaCandidatura, resposta: Response) -> CandidaturaJson:
         # Vaga fora do histórico: DadoInvalido do repositório, 422.
         candidatura, criada = servico.marcar_aplicada(corpo.vaga_url)

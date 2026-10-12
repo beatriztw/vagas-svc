@@ -136,12 +136,15 @@ def criar_router_tela(
         return templates.TemplateResponse(
             request,
             "tela/_detalhe.html",
+            # Só o detalhe pedido por clique (este partial) traz o POST de vista; a página inteira
+            # (abrir, F5, deep link, 1ª vaga automática) não marca nada.
             {
                 "selecionada": vaga,
                 "aberta": aberta,
                 "nao_encontrada": aberta is None,
                 "candidatura": candidatura_da(vaga),
                 "outros": outros_da(vaga),
+                "marcar_vista": True,
             },
             status_code=404 if aberta is None else 200,
         )
@@ -158,6 +161,7 @@ def criar_router_tela(
         novas: str | None = None,
         deslocamento: str = "0",
         ate: str | None = None,
+        detalhe_url: str | None = None,
     ):
         q = _busca(q)
         somente_novas = _novas(novas)
@@ -169,7 +173,13 @@ def criar_router_tela(
         contexto = contexto_lista(q, somente_novas, inicio, instante)
         # Do 2º bloco em diante só entram os cards e o novo sentinela (substitui o anterior).
         partial = "tela/_cards.html" if inicio > 0 else "tela/_lista.html"
-        return templates.TemplateResponse(request, partial, contexto)
+        resposta = templates.TemplateResponse(request, partial, contexto)
+        if inicio == 0:
+            # A barra mostra a PÁGINA (`/tela?...`), não o partial, e mantém a vaga aberta (`url`):
+            # F5 e link copiado reabrem a mesma tela. `detalhe_url` vem do #detalhe-url, se houver detalhe.
+            aberta = detalhe_url if detalhe_url and len(detalhe_url) <= MAX_TAMANHO_URL else None
+            resposta.headers["HX-Push-Url"] = f"{PREFIXO_TELA}?{_query(q=q, novas=somente_novas, url=aberta)}".rstrip("?")
+        return resposta
 
     @router.get("/vagas/detalhe")
     def detalhe(request: Request, url: str | None = None, q: str | None = None, novas: str | None = None):

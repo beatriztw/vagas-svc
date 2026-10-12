@@ -39,7 +39,9 @@ class CampoDeBuscaTest(unittest.TestCase):
         self.assertEqual(self.campo.attrs["hx-trigger"], "input changed delay:300ms, search")
         self.assertEqual(self.campo.attrs["hx-target"], "#vagas")
         self.assertEqual(self.campo.attrs["hx-swap"], "outerHTML")
-        self.assertEqual(self.campo.attrs["hx-push-url"], "true")
+        # A url da barra vem do cabeçalho HX-Push-Url do servidor (a página, não o partial).
+        self.assertNotIn("hx-push-url", self.campo.attrs)
+        self.assertEqual(self.campo.attrs["hx-include"], "#estado-lista, #detalhe-url")
 
     def test_campo_fica_fora_do_bloco_trocado_e_o_detalhe_tambem(self):
         cliente, _ = criar([vaga(1), vaga(2)])
