@@ -1,0 +1,22 @@
+/* Painel de IA do detalhe da vaga. Sem nada inline: a CSP é `default-src 'self'`. */
+.ia { flex-basis: 100%; display: flex; flex-direction: column; gap: 12px; margin-top: 12px; }
+.ia-botoes { display: flex; flex-wrap: wrap; gap: 8px; }
+.ia-slot:empty { display: none; }
+.ia-pedido { border: 1px solid var(--borda); border-radius: var(--raio-md); background: #FFFFFF; padding: 12px 14px; font-size: 14px; }
+.ia-ativo { color: var(--sec); }
+.ia-erro { color: #8A1F1F; background: #FDF2F2; border-color: #F0C9C9; }
+.ia-nota { display: flex; align-items: baseline; gap: 10px; margin: 0 0 8px; }
+.ia-nota-valor { font-size: 28px; font-weight: 700; letter-spacing: -0.02em; }
+.ia-faixa { font-size: 13px; font-weight: 600; text-transform: uppercase; padding: 2px 10px; border-radius: 999px; background: #EEF1F0; }
+.ia-faixa-alta .ia-nota-valor { color: #0F766E; }
+.ia-faixa-media .ia-nota-valor { color: #9A6700; }
+.ia-faixa-baixa .ia-nota-valor { color: #9B2C2C; }
+.ia-resumo { margin: 0 0 8px; white-space: pre-line; overflow-wrap: anywhere; }
+.ia-pedido h4 { margin: 12px 0 4px; font-size: 13px; color: var(--sec); }
+.ia-lista { margin: 0; padding-left: 18px; overflow-wrap: anywhere; }
+.ia-evidencia { color: var(--sec); font-style: italic; }
+.ia-etiqueta { font-size: 12px; padding: 1px 8px; border-radius: 999px; background: #EEF1F0; }
+.ia-curriculo-titulo { margin: 0 0 4px; font-weight: 600; overflow-wrap: anywhere; }
+.ia-versao { margin: 10px 0 0; font-size: 11px; color: var(--sec); }
+.ia-rotulo { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.ia-rotulo-titulo { font-size: 13px; color: var(--sec); }

@@ -1,0 +1,10 @@
+{# Rótulo da pessoa para a vaga (base da métrica de acurácia). `rotulo` é a faixa gravada ou nada. #}
+{% set atual = rotulo.value if rotulo else "" %}
+<form id="ia-rotulo" class="ia-rotulo" hx-post="/tela/vagas/ia/rotulo" hx-target="#ia-rotulo" hx-swap="outerHTML">
+  <input type="hidden" name="vaga_url" value="{{ vaga_url }}">
+  <span class="ia-rotulo-titulo">Sua avaliação</span>
+  {% for valor, nome in (("alta", "Alta"), ("média", "Média"), ("baixa", "Baixa")) %}
+  <button type="submit" name="faixa" value="{{ valor }}" class="botao{% if atual == valor %} botao-ativo{% endif %}"{% if atual == valor %} aria-pressed="true"{% endif %}>{{ nome }}</button>
+  {% endfor %}
+  {% if atual %}<button type="submit" name="faixa" value="" class="botao">limpar</button>{% endif %}
+</form>
