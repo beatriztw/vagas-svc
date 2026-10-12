@@ -249,6 +249,18 @@ class InvalidoTest(unittest.TestCase):
         for dias in ("0", "3651"):
             self.assertInvalido(self.api, self.perfis, self.anterior, {**COMPLETO, "publicada_desde_dias": dias}, "entre 1 e 3650")
 
+    def test_dias_com_muitos_digitos_e_422_e_nao_500(self):
+        # `int()` levanta ValueError acima de 4300 dígitos; aqui tem de ser o aviso de intervalo.
+        for dias in ("9" * 5000, "1" + "0" * 4400, "99999"):
+            with self.subTest(digitos=len(dias)):
+                self.assertInvalido(self.api, self.perfis, self.anterior, {**COMPLETO, "publicada_desde_dias": dias}, "entre 1 e 3650")
+
+    def test_dias_com_zeros_a_esquerda_vale_o_numero(self):
+        resposta = self.api.put("/tela/perfil", data={**COMPLETO, "publicada_desde_dias": "0014"}, headers=HX)
+
+        self.assertEqual(resposta.status_code, 200)
+        self.assertEqual(self.perfis.obter().publicada_desde_dias, 14)
+
     def test_dias_que_nao_e_numero(self):
         for dias in ("abc", "-3", "1.5", "１２"):
             self.assertInvalido(self.api, self.perfis, self.anterior, {**COMPLETO, "publicada_desde_dias": dias}, "número inteiro")

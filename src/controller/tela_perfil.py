@@ -29,6 +29,10 @@ def _dias(texto: str) -> int | None:
         return None
     if not (texto.isascii() and texto.isdigit()):
         raise DadoInvalido(f"publicada_desde_dias tem que ser um número inteiro entre 1 e {MAX_PUBLICADA_DESDE_DIAS}")
+    # `int()` recusa texto com mais de 4300 dígitos com ValueError (500): com mais dígitos que o teto,
+    # já está fora do intervalo. Zeros à esquerda não contam ("0014" é 14).
+    if len(texto.lstrip("0")) > len(str(MAX_PUBLICADA_DESDE_DIAS)):
+        raise DadoInvalido(f"publicada_desde_dias tem que estar entre 1 e {MAX_PUBLICADA_DESDE_DIAS}")
     return int(texto)
 
 
