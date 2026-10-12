@@ -226,3 +226,5 @@ input[type="search"], input[type="text"], select {
 .resumo { margin: 0 0 12px; padding: 10px 12px; border: 1px solid var(--borda); border-radius: var(--raio-sm); background: #EAF4F2; }
 .resumo p { margin: 0; }
 .botao.htmx-request { opacity: 0.6; cursor: progress; }
+.busca { display: flex; flex-direction: column; gap: 8px; }
+.busca label { font-size: 13px; font-weight: 500; color: #34413F; }

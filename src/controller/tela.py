@@ -77,6 +77,7 @@ def criar_router_tela(encontradas: VagaEncontradaRepository, coleta: ColetaServi
             "filtro": _query(q=q, novas=novas),
             "query_todas": _query(q=q),
             "query_novas": _query(q=q, novas=True),
+            "max_busca": MAX_TAMANHO_BUSCA,
         }
 
     def pagina(request: Request, q: str | None, novas: bool, vaga, pedida: bool):
