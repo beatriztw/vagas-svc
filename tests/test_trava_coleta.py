@@ -137,13 +137,13 @@ class ApiTravaTest(unittest.TestCase):
         perfis = perfis_com("python")
         api = criar_app(perfis, CurriculoRepositoryMemoria(), BuscaService([provider]))
         resposta = {}
-        primeira = threading.Thread(target=lambda: resposta.update(r=TestClient(api).post("/coletas")))
+        primeira = threading.Thread(target=lambda: resposta.update(r=TestClient(api).post("/coletas", json={})))
         primeira.start()
         self.addCleanup(primeira.join, ESPERA)
         self.addCleanup(provider.soltar.set)
         self.assertTrue(provider.comecou.wait(ESPERA))
 
-        segunda = TestClient(api).post("/coletas")
+        segunda = TestClient(api).post("/coletas", json={})
 
         self.assertEqual(segunda.status_code, 409)
         self.assertEqual(segunda.json(), {"detail": "coleta em andamento"})
@@ -152,7 +152,7 @@ class ApiTravaTest(unittest.TestCase):
         self.assertEqual(resposta["r"].status_code, 200)
         self.assertEqual(resposta["r"].json()["novas"], 1)
         self.assertEqual(provider.chamadas, 1, "só a primeira coleta chamou o provider")
-        self.assertEqual(TestClient(api).post("/coletas").status_code, 200)  # liberou
+        self.assertEqual(TestClient(api).post("/coletas", json={}).status_code, 200)  # liberou
 
     def test_trava_compartilhada_entre_dois_apps(self):
         # Como a API e a tela/cron: a trava injetada vale para todos que a recebem.
@@ -163,9 +163,9 @@ class ApiTravaTest(unittest.TestCase):
         api = TestClient(criar_app(perfis, CurriculoRepositoryMemoria(), BuscaService([provider]), trava=trava))
 
         with trava.segurar():
-            self.assertEqual(api.post("/coletas").status_code, 409)
+            self.assertEqual(api.post("/coletas", json={}).status_code, 409)
         self.assertEqual(provider.chamadas, 0)
-        self.assertEqual(api.post("/coletas").status_code, 200)
+        self.assertEqual(api.post("/coletas", json={}).status_code, 200)
 
     def test_erro_do_servidor_continua_500_e_libera_a_trava(self):
         class FalhaDoBanco(VagaEncontradaRepositoryMemoria):
@@ -179,8 +179,8 @@ class ApiTravaTest(unittest.TestCase):
             raise_server_exceptions=False,
         )
 
-        self.assertEqual(api.post("/coletas").status_code, 500)
-        self.assertEqual(api.post("/coletas").status_code, 500)  # 500 de novo, nunca 409
+        self.assertEqual(api.post("/coletas", json={}).status_code, 500)
+        self.assertEqual(api.post("/coletas", json={}).status_code, 500)  # 500 de novo, nunca 409
 
 
 class CliTravaTest(unittest.TestCase):
@@ -309,7 +309,7 @@ class TravaPostgresTest(unittest.TestCase):
         )
         api.put("/perfil", json={"termos": ["python"]})
 
-        resposta = api.post("/coletas")
+        resposta = api.post("/coletas", json={})
 
         self.assertEqual(resposta.status_code, 200, resposta.text)
         self.assertEqual(resposta.json()["novas"], 1)

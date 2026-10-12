@@ -48,7 +48,13 @@
   document.addEventListener("htmx:afterSettle", marcarSelecionado);
   document.addEventListener("htmx:afterRequest", tirarSelo);
   document.addEventListener("htmx:afterRequest", function (evento) {
-    if (evento.detail && evento.detail.successful) { esconderAviso(); }
+    // O 422/404/409 contam como `successful` no htmx (responseHandling com error:false). Quando a
+    // resposta é o próprio aviso (HX-Retarget "#aviso", de `resposta_de_erro`), escondê-lo apagaria a
+    // mensagem; o 404 do detalhe (vaga que sumiu) troca só o #detalhe e limpa o aviso anterior.
+    var xhr = evento.detail && evento.detail.xhr;
+    if (evento.detail && evento.detail.successful && xhr && xhr.getResponseHeader("HX-Retarget") !== "#aviso") {
+      esconderAviso();
+    }
   });
   // 5xx e erro de rede não trocam nada (responseHandling): avisa em vez de falhar calado.
   document.addEventListener("htmx:responseError", function () {
