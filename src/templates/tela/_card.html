@@ -1,5 +1,5 @@
 {# Card de vaga. O `href` é o mesmo da navegação do HTMX: sem JS o link recarrega a página na vaga. #}
-{% macro card(vaga, selecionada, filtro="") -%}
+{% macro card(vaga, selecionada, filtro="", nota=none, na_fila=false) -%}
 {%- set destino = vaga.url | urlencode -%}
 {%- set extra = "&" ~ filtro if filtro else "" -%}
 <li>
@@ -11,6 +11,12 @@
     <span class="card-titulo">{{ vaga.titulo }}{% if vaga.vista_em is none %} <span class="selo-nova">nova</span>{% endif %}</span>
     <span class="card-sec">{{ vaga.empresa }}{% if (vaga.local or "").strip() %} - {{ vaga.local }}{% endif %}</span>
     <span class="mono">{{ "remoto" if vaga.remoto is true else "presencial" if vaga.remoto is false else "não informado" }}</span>
+    {%- if nota %}
+    {%- set classe = "alta" if nota.faixa.value == "alta" else "media" if nota.faixa.value == "média" else "baixa" %}
+    <span class="chip-ia chip-ia-{{ classe }}" title="Compatibilidade pela IA">{{ nota.nota }} · {{ nota.faixa.value }}</span>
+    {%- elif na_fila %}
+    <span class="chip-ia chip-ia-fila">IA na fila</span>
+    {%- endif %}
   </a>
 </li>
 {%- endmacro %}

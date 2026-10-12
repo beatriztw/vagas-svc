@@ -177,10 +177,11 @@ class PedidoIAService:
         log.info("pedido_ia lote criados=%s", criados)
         return criados
 
-    def progresso_lote(self, candidatas: Iterable) -> tuple[int, int]:
-        """(avaliadas, na_fila) entre as `candidatas`: com nota válida e com compatibilidade ativa."""
+    def progresso_lote(self, candidatas: Iterable, notas: Mapping[str, NotaIA] | None = None) -> tuple[int, int]:
+        """(avaliadas, na_fila) entre as `candidatas`: com nota válida e com compatibilidade ativa.
+        `notas` já lidas (as de `notas_validas`) evitam ler de novo."""
         urls = {v.url for v in candidatas}
-        avaliadas = len(urls & set(self.notas_validas()))
+        avaliadas = len(urls & set(self.notas_validas() if notas is None else notas))
         na_fila = len(urls & self.pedidos.urls_ativas(TipoPedidoIA.COMPATIBILIDADE))
         return avaliadas, na_fila
 
