@@ -15,6 +15,7 @@ from src.client.armazenamento import Armazenamento
 from src.controller.candidaturas import criar_router_candidaturas
 from src.controller.tela import criar_router_tela
 from src.controller.tela_candidaturas import criar_router_tela_candidaturas
+from src.controller.tela_curriculos import criar_router_tela_curriculos
 from src.controller.tela_seguranca import DIRETORIO_STATIC, caminho_da_tela, eh_htmx, templates
 from src.model.curriculo import Curriculo
 from src.model.erros import DadoInvalido
@@ -226,6 +227,7 @@ def criar_app(
     app.mount("/static", StaticFiles(directory=DIRETORIO_STATIC), name="static")
     app.include_router(criar_router_tela(encontradas, historico, coleta, servico_candidaturas))
     app.include_router(criar_router_tela_candidaturas(servico_candidaturas))
+    app.include_router(criar_router_tela_curriculos(curriculos))
 
     @app.get("/", include_in_schema=False)
     def raiz() -> RedirectResponse:

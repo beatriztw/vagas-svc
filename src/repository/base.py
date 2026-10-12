@@ -35,8 +35,8 @@ class CurriculoRepository(ABC):
     def obter(self, id: int) -> Curriculo | None: ...
 
     @abstractmethod
-    def listar_adaptados(self) -> list[Curriculo]:
-        """Adaptados do mais recente para o mais antigo."""
+    def listar_adaptados(self, vaga_url: str | None = None) -> list[Curriculo]:
+        """Adaptados do mais recente para o mais antigo; com `vaga_url`, só os dessa vaga (url igual)."""
 
 
 # Teto de GET /vagas/encontradas: a lista inteira de uma vez não serve para ler.
@@ -271,8 +271,10 @@ class CurriculoRepositoryMemoria(CurriculoRepository):
         curriculo = self._linhas.get(id)
         return replace(curriculo) if curriculo else None
 
-    def listar_adaptados(self) -> list[Curriculo]:
-        adaptados = [c for c in self._linhas.values() if c.tipo == "adaptado"]
+    def listar_adaptados(self, vaga_url: str | None = None) -> list[Curriculo]:
+        adaptados = [
+            c for c in self._linhas.values() if c.tipo == "adaptado" and (vaga_url is None or c.vaga_url == vaga_url)
+        ]
         return [replace(c) for c in sorted(adaptados, key=lambda c: (c.criado_em, c.id), reverse=True)]
 
 
