@@ -4,7 +4,7 @@ import os
 import unittest
 
 from tests.test_coleta import _schema_descartavel
-from tests.test_historico_b2 import ContratoAgrupamento, ContratoFoto
+from tests.test_historico_b2 import ContratoAgrupamento, ContratoCandidatadas, ContratoFoto
 
 
 @unittest.skipUnless(os.environ.get("PGHOST"), "PGHOST não definido: integração com Postgres pulada")
@@ -29,6 +29,16 @@ class FotoPostgresTest(ContratoFoto, unittest.TestCase):
     def agora(self):
         # O relógio do banco: é ele que grava primeira_vez_em e vista_em.
         return self.conn.execute("SELECT clock_timestamp()").fetchone()[0]
+
+
+@unittest.skipUnless(os.environ.get("PGHOST"), "PGHOST não definido: integração com Postgres pulada")
+class CandidatadasPostgresTest(ContratoCandidatadas, unittest.TestCase):
+    def criar(self):
+        from src.repository.postgres import PerfilBuscaRepositoryPostgres, VagaEncontradaRepositoryPostgres
+
+        self.conn, _ = _schema_descartavel(self, "teste_b2_cand")
+        self.repo = VagaEncontradaRepositoryPostgres(self.conn)
+        self.perfis = PerfilBuscaRepositoryPostgres(self.conn)
 
 
 if __name__ == "__main__":

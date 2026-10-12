@@ -178,12 +178,13 @@ def criar_app(
     recomendacao = RecomendacaoService(busca)
     encontradas = encontradas if encontradas is not None else VagaEncontradaRepositoryMemoria()
     coleta = ColetaService(recomendacao, perfis, encontradas, trava)
-    # Lista do histórico (JSON e tela) com o perfil salvo aplicado na leitura.
-    historico = HistoricoService(encontradas, perfis)
     if candidaturas is None:
         candidaturas = CandidaturaRepositoryMemoria(vaga_por_url_em(encontradas))
     # Um serviço só, para as rotas JSON e as da tela (na produção, o repositório é o _PorChamada).
     servico_candidaturas = CandidaturaService(candidaturas)
+    # Lista do histórico (JSON e tela) com o perfil salvo aplicado na leitura; as candidaturas
+    # alimentam o `ocultar_candidatadas`.
+    historico = HistoricoService(encontradas, perfis, candidatadas=servico_candidaturas.listar)
     # Só para os testes alcançarem o serviço; as rotas recebem o serviço explicitamente.
     app.state.candidaturas = servico_candidaturas
     app.include_router(criar_router_candidaturas(servico_candidaturas))

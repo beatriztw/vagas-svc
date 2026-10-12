@@ -78,12 +78,17 @@ def filtrar_pelo_perfil(vagas: list[V], perfil: Perfil, hoje: date) -> list[V]:
 
     É a regra única dos filtros do perfil: a busca ao vivo (`aplicar_perfil`) e o histórico
     da coleta (`HistoricoService`) passam por aqui. Serve para `VagaExterna` e `VagaEncontrada`
-    (usa só `titulo`, `local`, `remoto` e `publicada_em`).
+    (usa só `titulo`, `local`, `remoto`, `plataforma` e `publicada_em`).
     """
     # Termo que fica vazio depois de normalizado ("", "—", emoji) casaria com todo título
     # (`"" in titulo`) e a busca voltaria sempre vazia: é ignorado.
     excluir = [termo for termo in perfil.excluir if normalizar(termo).strip()]
     filtradas = [v for v in vagas if not any(contem(v.titulo, termo) for termo in excluir)]
+    # Plataforma por palavra, sem acento nem caixa: "linkedin" casa com "LinkedIn (Apify)"; "Remotar" não
+    # casa com "Remotar2". Entrada sem palavra ("", "—") é ignorada; sem nenhuma, não filtra.
+    plataformas = [p for p in (palavras(p) for p in perfil.plataformas) if p]
+    if plataformas:
+        filtradas = [v for v in filtradas if any(set(p) <= set(palavras(v.plataforma)) for p in plataformas)]
     # Conjunto: perfil vindo de fora sem normalizar pode repetir a modalidade.
     if set(perfil.modalidades) == {Modalidade.REMOTO}:
         filtradas = [v for v in filtradas if _remota(v)]

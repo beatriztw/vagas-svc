@@ -20,7 +20,7 @@ PERFIL = {
     "excluir": ["senior"],
     "modalidades": ["Remoto"],
     "localidades": ["Brasil"],
-    "plataformas": ["Greenhouse"],
+    "plataformas": ["A"],
     "niveis": ["Júnior", "Pleno"],
     "skills": ["django"],
     "publicada_desde_dias": 30,

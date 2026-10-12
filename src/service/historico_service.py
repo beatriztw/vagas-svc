@@ -1,5 +1,6 @@
 """Leitura do histórico da coleta com o perfil salvo aplicado na hora da leitura."""
 
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from datetime import date, datetime, timezone
 
@@ -118,9 +119,27 @@ class HistoricoService:
     `outros_anuncios` da vaga.
     """
 
-    def __init__(self, vagas: VagaEncontradaRepository, perfis: PerfilBuscaRepository):
+    def __init__(
+        self,
+        vagas: VagaEncontradaRepository,
+        perfis: PerfilBuscaRepository,
+        candidatadas: Callable[[], Iterable] | None = None,
+    ):
+        # `candidatadas` devolve as candidaturas (com `vaga_url`, `titulo` e `empresa`), lidas a cada
+        # leitura; sem ele, `ocultar_candidatadas` não tem o que esconder.
         self.vagas = vagas
         self.perfis = perfis
+        self.candidatadas = candidatadas
+
+    def _sem_candidatadas(self, vagas: list[VagaEncontrada], perfil: Perfil) -> list[VagaEncontrada]:
+        """Com `ocultar_candidatadas`, tira as vagas em que a pessoa aplicou E os outros anúncios do mesmo
+        grupo (mesmo título e empresa): senão a duplicata da vaga aplicada voltaria como nova."""
+        if not perfil.ocultar_candidatadas or self.candidatadas is None:
+            return vagas
+        candidaturas = list(self.candidatadas())
+        urls = {c.vaga_url for c in candidaturas}
+        chaves = {k for c in candidaturas if (k := chave_do_grupo(c)) is not None}
+        return [v for v in vagas if v.url not in urls and chave_do_grupo(v) not in chaves]
 
     def pagina(
         self,
@@ -141,7 +160,8 @@ class HistoricoService:
             somente_novas=somente_novas, teto=TETO_VARREDURA_HISTORICO, q=q, ate=ate
         )
         if perfil is not None:
-            janela = ordenar_por_match(filtrar_pelo_perfil(janela, perfil, hoje or date.today()), perfil)
+            janela = filtrar_pelo_perfil(janela, perfil, hoje or date.today())
+            janela = ordenar_por_match(self._sem_candidatadas(janela, perfil), perfil)
         visiveis = agrupar(janela)
         return PaginaHistorico(vagas=visiveis[deslocamento : deslocamento + limite], total=len(visiveis), ate=ate)
 

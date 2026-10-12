@@ -15,6 +15,7 @@ from src.model.vaga_externa import VagaExterna
 from src.repository.base import CurriculoRepositoryMemoria, PerfilBuscaRepositoryMemoria, VagaEncontradaRepositoryMemoria
 from src.service.busca_service import BuscaService
 from src.model.erros import DadoInvalido
+from src.service.recomendacao_service import aplicar_perfil, filtrar_pelo_perfil
 from src.service.historico_service import HistoricoService, chave_do_grupo, ler_ate
 from tests.test_tela_lista import HX, Pagina
 
@@ -519,6 +520,119 @@ class JsonFotoTest(unittest.TestCase):
                 resposta = cliente.get("/vagas/encontradas", params={"ate": ate})
                 self.assertEqual(resposta.status_code, 422)
                 self.assertIn("detail", resposta.json())
+
+
+class PlataformasTest(unittest.TestCase):
+    VAGAS = [
+        v("r", "Analista A", "E1", plataforma="Remotar"),
+        v("l", "Analista B", "E2", plataforma="LinkedIn (Apify)"),
+        v("t", "Analista C", "E3", plataforma="Trampos"),
+        v("r2", "Analista D", "E4", plataforma="Remotar2"),
+    ]
+
+    def filtrar(self, plataformas):
+        return urls(filtrar_pelo_perfil(self.VAGAS, Perfil(plataformas=plataformas), HOJE))
+
+    def test_sem_plataformas_nao_filtra(self):
+        self.assertEqual(self.filtrar([]), ["r", "l", "t", "r2"])
+
+    def test_so_as_plataformas_do_perfil_por_palavra_sem_acento_nem_caixa(self):
+        self.assertEqual(self.filtrar(["remotar"]), ["r"])
+        self.assertEqual(self.filtrar(["LINKEDIN"]), ["l"])
+        self.assertEqual(self.filtrar(["Trâmpos", "REMOTAR"]), ["r", "t"])
+        self.assertEqual(self.filtrar(["Remota"]), [], "palavra inteira: Remota não casa com Remotar")
+        self.assertEqual(self.filtrar(["Trampos", "Remotar"]), ["r", "t"])
+
+    def test_entrada_sem_palavra_e_ignorada(self):
+        self.assertEqual(self.filtrar(["", "—"]), ["r", "l", "t", "r2"])
+        self.assertEqual(self.filtrar(["", "Trampos"]), ["t"])
+
+    def test_vale_na_busca_ao_vivo_tambem(self):
+        self.assertEqual(urls(aplicar_perfil(self.VAGAS, Perfil(plataformas=["Trampos"]), HOJE)), ["t"])
+
+
+class ContratoCandidatadas:
+    """`ocultar_candidatadas` no serviço, com a lista de candidaturas injetada (memória e Postgres)."""
+
+    def setUp(self):
+        self.criar()
+        self.candidaturas = []
+        self.servico = HistoricoService(self.repo, self.perfis, candidatadas=lambda: self.candidaturas)
+        registrar_um_a_um(
+            self.repo,
+            [v("a1"), v("a2"), v("b", "Analista de BI", "Zeta"), v("c", "Analista de Dados", "Zeta")],
+        )
+
+    def aplicar(self, url):
+        vaga = self.repo.obter(url)
+        self.candidaturas.append(_candidatura(url, vaga.titulo, vaga.empresa))
+
+    def lista(self):
+        return sorted(urls(self.servico.pagina(False, 50, hoje=HOJE).vagas))
+
+    def test_perfil_com_ocultar_esconde_a_vaga_aplicada(self):
+        self.perfis.salvar(Perfil(termos=["analista"], ocultar_candidatadas=True))
+        self.aplicar("b")
+
+        self.assertEqual(self.lista(), ["a2", "c"])
+        self.assertEqual(self.servico.pagina(False, 50, hoje=HOJE).total, 2)
+
+    def test_esconde_tambem_o_outro_anuncio_do_mesmo_grupo(self):
+        self.perfis.salvar(Perfil(termos=["analista"], ocultar_candidatadas=True))
+        self.aplicar("a1")  # a2 é o mesmo anúncio com outra URL
+
+        self.assertEqual(self.lista(), ["b", "c"])
+
+    def test_sem_ocultar_ou_sem_perfil_a_vaga_aplicada_continua(self):
+        self.aplicar("b")
+        self.assertEqual(self.lista(), ["a2", "b", "c"], "sem perfil salvo não há flag")
+        self.perfis.salvar(Perfil(termos=["analista"], ocultar_candidatadas=False))
+        self.assertEqual(self.lista(), ["a2", "b", "c"])
+
+    def test_desfazer_a_candidatura_traz_a_vaga_de_volta(self):
+        self.perfis.salvar(Perfil(termos=["analista"], ocultar_candidatadas=True))
+        self.aplicar("b")
+        self.assertNotIn("b", self.lista())
+
+        self.candidaturas.clear()
+
+        self.assertIn("b", self.lista())
+
+    def test_sem_a_injecao_nao_esconde_nada(self):
+        self.perfis.salvar(Perfil(termos=["analista"], ocultar_candidatadas=True))
+        self.aplicar("b")
+
+        self.assertEqual(sorted(urls(HistoricoService(self.repo, self.perfis).pagina(False, 50, hoje=HOJE).vagas)), ["a2", "b", "c"])
+
+
+def _candidatura(url, titulo, empresa):
+    from types import SimpleNamespace
+
+    return SimpleNamespace(vaga_url=url, titulo=titulo, empresa=empresa)
+
+
+class CandidatadasMemoriaTest(ContratoCandidatadas, unittest.TestCase):
+    def criar(self):
+        self.repo = VagaEncontradaRepositoryMemoria()
+        self.perfis = PerfilBuscaRepositoryMemoria()
+
+
+class ApiOcultarCandidatadasTest(unittest.TestCase):
+    def test_aplicar_pela_api_some_da_lista_json_e_da_tela_mas_o_link_direto_abre(self):
+        cliente, repo = criar_tela([v("https://exemplo.test/1"), v("https://exemplo.test/2", "Outro Cargo", "Zeta")], perfil=Perfil(termos=["analista", "outro"]))
+        self.assertEqual(cliente.post("/candidaturas", json={"vaga_url": "https://exemplo.test/1"}).status_code, 201)
+
+        self.assertEqual([x["url"] for x in cliente.get("/vagas/encontradas?novas=false").json()], ["https://exemplo.test/2"])
+        pagina = Pagina(cliente.get("/tela").text)
+        self.assertEqual([c.attrs["data-url"] for c in pagina.cards()], ["https://exemplo.test/2"])
+        direto = cliente.get("/tela/vagas/detalhe?url=https://exemplo.test/1", headers=HX)
+        self.assertEqual(direto.status_code, 200)
+
+    def test_perfil_com_ocultar_false_mantem_a_aplicada(self):
+        cliente, _ = criar_tela([v("https://exemplo.test/1")], perfil=Perfil(termos=["analista"], ocultar_candidatadas=False))
+        cliente.post("/candidaturas", json={"vaga_url": "https://exemplo.test/1"})
+
+        self.assertEqual(len(cliente.get("/vagas/encontradas?novas=false").json()), 1)
 
 
 if __name__ == "__main__":
