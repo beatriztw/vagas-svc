@@ -149,6 +149,60 @@ O botão "Meu perfil" do header leva a `GET /tela/perfil` (página inteira; com 
 - **Salário** em centavos (confirmado em 2026-10-12 na página pública da vaga 164153: 900000 a 1300000 aparece como "R$ 9,000.00 a R$ 13,000.00"). `from`/`to` nulo ou 0 e `type: "uninformed"` = não informado; só um lado positivo vira "a partir de" ou "até".
 - **Expiração (só Remotar)**: `expirada_em` = `expiresAt` (mesmo futuro) ou, com `expired: true`, agora. A vaga some de `listar`, `contar` e `listar_recentes` quando `expirada_em <= now()` (`expirada_em IS NULL OR expirada_em > now()`), sem nova coleta. `obter(url)` ainda a acha e o link direto mostra "Vaga expirada" (só quando já venceu); candidaturas continuam visíveis. Quem já expirou não ressuscita com um prazo novo nem com "sem prazo"; o prazo futuro pode mudar ou ser removido na coleta seguinte: com `expires: false` (e sem `expiresAt` nem `expired: true`) o prazo futuro gravado antes é apagado e a vaga segue no ar. Campo ausente ou torto mantém a data que estava.
 
+## IA (compatibilidade e currículo)
+
+A tela pede dois tipos de trabalho à IA para uma vaga: `compatibilidade` (nota, faixa e o que atende ou falta) e `curriculo` (currículo adaptado a partir da base). O vagas-svc não roda IA: guarda uma fila (`pedido_ia`, `migrations/006_pedido_ia.sql`, idempotente, aplicada sozinha na subida como as outras; o buraco no 005 é proposital) e um worker do stack `claude-pi` consome por polling. A tela só enfileira.
+
+Fluxo: `pendente` → (`POST /pedidos-ia/proximo`) → `rodando` → (`PUT /pedidos-ia/{id}`) → `pronto` ou `erro` (os dois são finais). Só há UM pedido ativo por `(vaga_url, tipo)`: pedir de novo devolve o ativo. Depois que ele termina, pedir cria um pedido novo (reexecução); os antigos ficam, e servem de base para a métrica de estabilidade.
+
+| Método e caminho | Quem usa | O que faz |
+|---|---|---|
+| `POST /pedidos-ia/proximo` | worker (Bearer) | corpo `{}`; reivindica um pedido: `200` com o pedido, `204` com a fila vazia |
+| `PUT /pedidos-ia/{id}` | worker (Bearer) | devolve o resultado ou o erro: `200 {id, estado}`, `404`, `409` (não está rodando ou a tentativa não é a atual), `422` (nada muda) |
+| `PUT /vagas/rotulo-ia` | JSON aberto | `{"vaga_url", "faixa": "alta"\|"média"\|"baixa"\|null}`: grava o rótulo da pessoa (`null` apaga); `422` com `media` sem acento ou vaga fora do histórico |
+| `GET /ia/metricas?prompt_versao=` | JSON aberto | concordância de faixa, correlação de ordem e estabilidade de reexecução (chega com o PR das métricas) |
+| `GET/POST /tela/vagas/ia`, `GET /tela/vagas/ia/{id}`, `GET /tela/vagas/ia/{id}/curriculo.md`, `POST /tela/vagas/ia/rotulo` | tela (HTMX, CSRF) | botões Compatibilidade e Gerar currículo, polling de 3 s, resultado e rótulo (chegam com o PR da tela) |
+
+As rotas `/pedidos-ia/*` não aparecem no `/docs`. Respondem com `Cache-Control: no-store`, e o servidor nunca loga `resultado`, `erro`, currículo nem descrição: só id, tipo, estado e tentativa. Toda escrita da API usa `Content-Type: application/json` (`415` sem ele).
+
+### Pedido que o worker recebe
+
+```json
+{
+  "id": 12, "tipo": "compatibilidade", "tentativa": 1,
+  "vaga": {"url": "...", "titulo": "...", "empresa": "...", "plataforma": "Remotar", "local": "...", "remoto": true,
+           "publicada_em": "2026-10-01", "descricao": "texto puro ou null",
+           "requisitos": [{"texto": "SQL avançado", "obrigatorio": true}], "subtitulo": null},
+  "curriculo_base": {"id": 3, "titulo": "...", "conteudo_md": "..."},
+  "perfil": {"termos": [], "excluir": [], "modalidades": [], "localidades": [], "plataformas": [], "niveis": [],
+             "skills": [], "publicada_desde_dias": null, "ocultar_candidatadas": true}
+}
+```
+
+`descricao`, `requisitos` e `subtitulo` vêm do detalhe da vaga, buscado quando a pessoa abre a vaga na tela; sem ele saem `null`, `[]` e `null`. O `proximo` não busca nada no provider. `perfil` é `null` sem perfil salvo. `curriculo_base` é a base vigente: sem base, o pedido vira `erro` ("Não há currículo base") e o `proximo` passa ao seguinte.
+
+### Resultado (`PUT /pedidos-ia/{id}`)
+
+```json
+{"tentativa": 1, "estado": "pronto", "prompt_versao": "compatibilidade-v1", "modelo": "claude-sonnet-5-5", "resultado": {}}
+{"tentativa": 1, "estado": "erro",   "prompt_versao": "compatibilidade-v1", "modelo": "claude-sonnet-5-5", "erro": "texto curto"}
+```
+
+- O corpo recusa chaves extras. `pronto` exige `resultado` e proíbe `erro`; `erro` exige o texto e proíbe `resultado`. O servidor corta `erro` em 500 caracteres (não recusa). `prompt_versao` casa `^[a-z]+-v[0-9]{1,6}$` e começa com o tipo do pedido; `modelo` tem de 1 a 100 caracteres, sem caractere de controle (NUL viraria 500 no Postgres). `resultado` com mais de 64 KB é `422`.
+- O `PUT` só vale com o pedido `rodando` e `tentativa` igual à atual; senão `409`.
+- `compatibilidade-v1`: `{nota 0-100 (inteiro; bool não vale), faixa, atende[{requisito, evidencia_no_curriculo}], falta[{requisito, obrigatorio}], eliminatorios[], resumo}`, sem chaves extras, com até 30 `atende`, 30 `falta` e 20 `eliminatorios`, textos sem espaço nas pontas e não vazios. A faixa tem que bater com a nota: `alta` 70-100, `média` 40-69, `baixa` 0-39 (cortes provisórios, a calibrar pelas métricas; mudá-los exige um prompt `-v2`). A grafia é sempre `média`; só o worker normaliza `media`. O servidor grava `nota` e `faixa` nas colunas. Que cada `evidencia_no_curriculo` seja um trecho literal do currículo é regra só do worker: o servidor não tem o currículo da época.
+- `curriculo-v1`: o worker grava o adaptado em `POST /curriculos/adaptados` e manda `resultado = {curriculo_id, titulo, o_que_mudou, lacunas}` (sem o `conteudo_md`). O servidor confere que `curriculo_id` existe, é `adaptado` e tem a mesma `vaga_url` do pedido (senão `422`) e grava `curriculo_id`. Se o worker morrer entre o `POST` e o `PUT`, a reentrega cria um segundo adaptado (duplicata aceita no v1).
+
+### Pedido preso
+
+Rodando há mais de 15 minutos (`reivindicado_em`) é pedido preso: o worker morreu. O `proximo`, numa transação, (1) marca como `erro` ("O worker não terminou depois de 3 tentativas") o preso que já gastou 3 tentativas, (2) escolhe um pendente ou preso (pendente primeiro, depois o mais antigo; `FOR UPDATE SKIP LOCKED`, então dois workers nunca pegam o mesmo) e (3) marca `rodando`, soma 1 em `tentativas` e grava `reivindicado_em`. A tentativa antiga que chegar depois no `PUT` recebe `409`.
+
+### Token do worker (Bearer)
+
+`/pedidos-ia/*` exige `Authorization: Bearer <token>`. O token vem do arquivo em `VAGAS_IA_TOKEN_FILE` (no Swarm, `/run/secrets/vagas_ia_token`) ou, na falta dele, de `VAGAS_IA_TOKEN`; a comparação usa `hmac.compare_digest`. Sem token configurado (ausente, ilegível ou vazio) as rotas respondem `503` e a app continua de pé; token ausente ou errado é `401` com `WWW-Authenticate: Bearer`.
+
+Por que Bearer, se o resto da API é aberto: no compose do claude-pi o `vagas` está em mais de uma rede e a tela é publicada na LAN, e estas rotas entregam o currículo e o perfil e aceitam escrita. Abertas, qualquer um na rede poderia reivindicar pedidos ou gravar resultados e envenenar as métricas. O `GET /curriculos/base` aberto é uma dívida que já existe, não um padrão a copiar. O worker lê o mesmo secret; o service `claude` (sandbox) não o recebe.
+
 ## Testes
 
 ```bash

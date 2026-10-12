@@ -15,6 +15,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from src.client.armazenamento import Armazenamento
 from src.controller.candidaturas import criar_router_candidaturas
+from src.controller.pedidos_ia import criar_router_pedidos_ia
 from src.controller.seguranca_json import exigir_json_mesma_origem
 from src.controller.tela import criar_router_tela
 from src.controller.tela_candidaturas import criar_router_tela_candidaturas
@@ -39,12 +40,14 @@ from src.repository.base import (
     validar_perfil,
 )
 from src.repository.candidatura import CandidaturaRepository, CandidaturaRepositoryMemoria, vaga_por_url_em
+from src.repository.pedido_ia import PedidoIARepository, PedidoIARepositoryMemoria
 from src.repository.trava import ColetaEmAndamento, TravaColeta, TravaColetaPostgres
 from src.service.busca_service import BuscaService
 from src.service.candidatura_service import CandidaturaService
 from src.service.coleta_service import ColetaService
 from src.service.detalhe_service import DetalheService
 from src.service.historico_service import HistoricoService
+from src.service.pedido_ia_service import PedidoIAService
 from src.service.recomendacao_service import RecomendacaoService
 
 
@@ -176,6 +179,7 @@ def criar_app(
     encontradas: VagaEncontradaRepository | None = None,
     candidaturas: CandidaturaRepository | None = None,
     trava: TravaColeta | None = None,
+    pedidos_ia: PedidoIARepository | None = None,
     detalhe: DetalheService | None = None,
     ao_subir: Callable[[], object] | None = None,
 ) -> FastAPI:
@@ -204,6 +208,11 @@ def criar_app(
     # Só para os testes alcançarem o serviço; as rotas recebem o serviço explicitamente.
     app.state.candidaturas = servico_candidaturas
     app.include_router(criar_router_candidaturas(servico_candidaturas))
+    if pedidos_ia is None:
+        pedidos_ia = PedidoIARepositoryMemoria(vaga_por_url_em(encontradas))
+    # Um serviço só para as rotas do worker e, depois, as da tela e as métricas.
+    app.state.pedido_ia_service = PedidoIAService(pedidos_ia, encontradas, perfis, curriculos)
+    app.include_router(criar_router_pedidos_ia(app.state.pedido_ia_service))
 
     def erro_da_tela(request: Request, mensagem: str, status: int):
         """A tela troca HTML: o erro volta como HTML, não como JSON."""
@@ -468,6 +477,12 @@ def _candidaturas_postgres() -> type:
     return CandidaturaRepositoryPostgres
 
 
+def _pedidos_ia_postgres() -> type:
+    from src.repository.pedido_ia_postgres import PedidoIARepositoryPostgres
+
+    return PedidoIARepositoryPostgres
+
+
 def _migrar() -> list[str]:
     from src.repository.migracoes import aplicar_com_retry
 
@@ -487,6 +502,7 @@ def criar_app_producao() -> FastAPI:
         encontradas=encontradas,
         candidaturas=_PorChamada(pool, _candidaturas_postgres),
         trava=TravaColetaPostgres(),
+        pedidos_ia=_PorChamada(pool, _pedidos_ia_postgres),
         detalhe=DetalheService(encontradas, RemotarClient()),
         # Aplica migrations/*.sql pendentes antes de atender; banco fora além do teto ou migration com erro = não sobe.
         ao_subir=_migrar,
