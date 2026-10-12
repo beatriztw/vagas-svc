@@ -110,8 +110,8 @@ class HistoricoService:
     Sem perfil salvo: a mesma janela, na ordem do repositório (mais recentes primeiro).
 
     A janela é uma foto do instante (`ate`): a primeira página a tira, o "carregar mais" a repete.
-    Vaga coletada depois dela não entra, e vaga vista depois dela continua na janela de Novas, então
-    as páginas não repetem nem pulam item.
+    Vaga coletada depois dela não entra, vaga vista depois dela continua na janela de Novas e
+    candidatura feita depois dela não esconde a vaga, então as páginas não repetem nem pulam item.
 
     Anúncios repetidos (mesmo título e empresa, URLs diferentes) viram UMA vaga na lista e no
     contador: o agrupamento vem depois de filtrar e ordenar e antes de paginar e contar. O grupo
@@ -134,12 +134,16 @@ class HistoricoService:
         # Relógio da foto do instante (quando `ate` não vem): injetável para teste com relógio fixo.
         self.agora = agora
 
-    def _sem_candidatadas(self, vagas: list[VagaEncontrada], perfil: Perfil) -> list[VagaEncontrada]:
+    def _sem_candidatadas(self, vagas: list[VagaEncontrada], perfil: Perfil, ate: datetime) -> list[VagaEncontrada]:
         """Com `ocultar_candidatadas`, tira as vagas em que a pessoa aplicou E os outros anúncios do mesmo
-        grupo (mesmo título e empresa): senão a duplicata da vaga aplicada voltaria como nova."""
+        grupo (mesmo título e empresa): senão a duplicata da vaga aplicada voltaria como nova.
+
+        Só as candidaturas que já existiam na foto (`aplicada_em <= ate`): aplicar numa vaga da 1ª página
+        e depois "carregar mais" não tira item de cima e não faz a lista subir (e pular uma vaga).
+        """
         if not perfil.ocultar_candidatadas or self.candidatadas is None:
             return vagas
-        candidaturas = list(self.candidatadas())
+        candidaturas = [c for c in self.candidatadas() if c.aplicada_em <= ate]
         urls = {c.vaga_url for c in candidaturas}
         chaves = {k for c in candidaturas if (k := chave_do_grupo(c)) is not None}
         return [v for v in vagas if v.url not in urls and chave_do_grupo(v) not in chaves]
@@ -164,7 +168,7 @@ class HistoricoService:
         )
         if perfil is not None:
             janela = filtrar_pelo_perfil(janela, perfil, hoje or date.today())
-            janela = ordenar_por_match(self._sem_candidatadas(janela, perfil), perfil)
+            janela = ordenar_por_match(self._sem_candidatadas(janela, perfil, ate), perfil)
         visiveis = agrupar(janela)
         return PaginaHistorico(vagas=visiveis[deslocamento : deslocamento + limite], total=len(visiveis), ate=ate)
 

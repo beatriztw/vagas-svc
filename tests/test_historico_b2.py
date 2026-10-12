@@ -651,7 +651,7 @@ class ContratoCandidatadas:
 
     def aplicar(self, url):
         vaga = self.repo.obter(url)
-        self.candidaturas.append(_candidatura(url, vaga.titulo, vaga.empresa))
+        self.candidaturas.append(_candidatura(url, vaga.titulo, vaga.empresa, datetime.now(timezone.utc)))
 
     def lista(self):
         return sorted(urls(self.servico.pagina(False, 50, hoje=HOJE).vagas))
@@ -684,6 +684,35 @@ class ContratoCandidatadas:
 
         self.assertIn("b", self.lista())
 
+    def test_candidatura_feita_entre_as_paginas_nao_faz_pular_vaga(self):
+        self.perfis.salvar(Perfil(termos=["analista"], ocultar_candidatadas=True))
+        registrar_um_a_um(self.repo, [v(f"d{i:02}", f"Analista d{i:02}", f"Empresa d{i:02}") for i in range(8)])
+        primeira = self.servico.pagina(False, 3, hoje=HOJE)
+        esperado = urls(self.servico.pagina(False, 50, hoje=HOJE, ate=primeira.ate).vagas)
+        self.assertEqual(len(esperado), 11)
+
+        self.aplicar(primeira.vagas[0].url)  # aplicou num card da 1ª página e rolou até o fim
+        lidas, totais = urls(primeira.vagas), []
+        for deslocamento in (3, 6, 9):
+            pagina = self.servico.pagina(False, 3, deslocamento=deslocamento, hoje=HOJE, ate=primeira.ate)
+            totais.append(pagina.total)
+            lidas += urls(pagina.vagas)
+
+        self.assertEqual(lidas, esperado, "nenhuma vaga pulada nem repetida")
+        self.assertEqual(totais, [11, 11, 11], "o contador é o da foto")
+        # Uma foto nova já esconde a aplicada.
+        self.assertNotIn(primeira.vagas[0].url, urls(self.servico.pagina(False, 50, hoje=HOJE).vagas))
+
+    def test_candidatura_de_antes_da_foto_continua_escondida_nas_paginas_seguintes(self):
+        self.perfis.salvar(Perfil(termos=["analista"], ocultar_candidatadas=True))
+        self.aplicar("b")
+        primeira = self.servico.pagina(False, 1, hoje=HOJE)
+
+        seguintes = self.servico.pagina(False, 50, deslocamento=1, hoje=HOJE, ate=primeira.ate)
+
+        self.assertEqual(primeira.total, 2)
+        self.assertNotIn("b", urls(primeira.vagas) + urls(seguintes.vagas))
+
     def test_sem_a_injecao_nao_esconde_nada(self):
         self.perfis.salvar(Perfil(termos=["analista"], ocultar_candidatadas=True))
         self.aplicar("b")
@@ -691,10 +720,10 @@ class ContratoCandidatadas:
         self.assertEqual(sorted(urls(HistoricoService(self.repo, self.perfis).pagina(False, 50, hoje=HOJE).vagas)), ["a2", "b", "c"])
 
 
-def _candidatura(url, titulo, empresa):
+def _candidatura(url, titulo, empresa, aplicada_em):
     from types import SimpleNamespace
 
-    return SimpleNamespace(vaga_url=url, titulo=titulo, empresa=empresa)
+    return SimpleNamespace(vaga_url=url, titulo=titulo, empresa=empresa, aplicada_em=aplicada_em)
 
 
 class CandidatadasMemoriaTest(ContratoCandidatadas, unittest.TestCase):
