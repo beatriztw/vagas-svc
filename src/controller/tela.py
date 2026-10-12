@@ -4,6 +4,7 @@ from urllib.parse import quote, urlencode
 
 from fastapi import APIRouter, Request
 
+from src.controller.tela_candidaturas import contexto_aplicadas
 from src.controller.tela_seguranca import PREFIXO_TELA, eh_htmx, templates
 from src.model.erros import DadoInvalido
 from src.repository.base import MAX_DESLOCAMENTO_VAGAS, MAX_TAMANHO_BUSCA, VagaEncontradaRepository, validar_deslocamento
@@ -57,6 +58,8 @@ def criar_router_tela(encontradas: VagaEncontradaRepository) -> APIRouter:
         if not pedida and contexto["vagas"]:
             vaga = contexto["vagas"][0]
         contexto.update(selecionada=vaga, nao_encontrada=nao_encontrada)
+        # "Vagas aplicadas" entra na página inteira com o mesmo contexto das rotas de /tela/candidaturas.
+        contexto.update(contexto_aplicadas(request.app.state.candidaturas))
         # 404 também na página inteira: o recurso pedido não existe, e o aviso aparece no detalhe
         # junto com a lista (o link de um favorito antigo continua útil).
         return templates.TemplateResponse(

@@ -14,6 +14,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from src.client.armazenamento import Armazenamento
 from src.controller.candidaturas import criar_router_candidaturas
 from src.controller.tela import criar_router_tela
+from src.controller.tela_candidaturas import criar_router_tela_candidaturas
 from src.controller.tela_seguranca import DIRETORIO_STATIC, caminho_da_tela, eh_htmx, templates
 from src.model.curriculo import Curriculo
 from src.model.erros import DadoInvalido
@@ -178,7 +179,10 @@ def criar_app(
     coleta = ColetaService(recomendacao, perfis, encontradas, trava)
     if candidaturas is None:
         candidaturas = CandidaturaRepositoryMemoria(vaga_por_url_em(encontradas))
-    app.include_router(criar_router_candidaturas(CandidaturaService(candidaturas)))
+    # Um serviço só, para as rotas JSON e as da tela (na produção, o repositório é o _PorChamada).
+    servico_candidaturas = CandidaturaService(candidaturas)
+    app.state.candidaturas = servico_candidaturas
+    app.include_router(criar_router_candidaturas(servico_candidaturas))
 
     @app.exception_handler(DadoInvalido)
     def valor_invalido(request: Request, erro: DadoInvalido):
@@ -214,6 +218,7 @@ def criar_app(
 
     app.mount("/static", StaticFiles(directory=DIRETORIO_STATIC), name="static")
     app.include_router(criar_router_tela(encontradas))
+    app.include_router(criar_router_tela_candidaturas(servico_candidaturas))
 
     @app.get("/", include_in_schema=False)
     def raiz() -> RedirectResponse:
