@@ -80,8 +80,41 @@ class TelaMobileTest(unittest.TestCase):
 
         self.assertIn('"aria-label", "Voltar para a lista de vagas"', js)
         self.assertIn('"tabindex", "-1"', js)
-        self.assertIn("history.back()", js)
+        self.assertIn("history.go(-passos)", js)
         self.assertIn("htmx:historyRestore", js)
+
+    def test_voltar_so_volta_no_historico_pelas_entradas_que_um_card_abriu(self):
+        # Era um contador global de `htmx:pushedIntoHistory`: contava o push da busca e de Todas/Novas e não via o
+        # voltar/avançar do navegador, então o "Voltar" saía do site ou deixava duas /tela seguidas. Agora a entrada
+        # aberta por card é marcada pela chave da Navigation API (o htmx reescreve o history.state ao sair e voltar).
+        # Os três cenários do review foram conferidos no navegador (Playwright 900x500 -> 390x844); aqui só a regra.
+        js = (STATIC / "tela-mobile.js").read_text()
+        sem_comentario = re.sub(r"//[^\n]*", "", js)
+
+        self.assertNotRegex(sem_comentario, r"\w+\s*\+=\s*1;\s*\}\s*\)", "nada de contador por push")
+        self.assertNotIn("history.back()", sem_comentario)
+        # Quem fez o request é o requestConfig.elt (o detail.elt do evento é o body) e só card marca a entrada.
+        self.assertRegex(sem_comentario, r"htmx:beforeHistoryUpdate[\s\S]*requestConfig\.elt[\s\S]*contains\(\"card\"\)")
+        self.assertRegex(sem_comentario, r"htmx:pushedIntoHistory[\s\S]*currentEntry\.key\]\s*=\s*true")
+        # Sem Navigation API não volta no histórico: fecha no lugar (não sai do site).
+        self.assertRegex(sem_comentario, r"if \(!n\) \{ return 0; \}")
+
+    def test_aviso_visivel_nao_cobre_o_rodape_do_detalhe(self):
+        # O #aviso fixo embaixo (até 40vh) cobria "Marcar como aplicada" no fim do detalhe e não dava para tentar de
+        # novo. Com o aviso visível, a camada reserva embaixo pelo menos a altura máxima dele. Provado no navegador
+        # (390x844, rodapé no fim: botão em 474 px, aviso a partir de 734 px; sem a regra, o aviso ficava por cima).
+        dentro_da_media = re.sub(r"/\*.*?\*/", "", (STATIC / "tela-mobile.css").read_text().split("@media", 1)[1], flags=re.S)
+        regras = dict((s.strip(), c) for s, c in re.findall(r"([^{}]+)\{([^{}]*)\}", dentro_da_media))
+        aberto = "#detalhe[data-aberto]:not([data-fechado])"
+        [aviso] = [c for s, c in regras.items() if s.endswith("#aviso") and aberto in s]
+        [reserva] = [c for s, c in regras.items() if s.startswith("body:has(#aviso:not([hidden]))") and aberto in s]
+
+        altura_maxima = re.search(r"max-height:\s*(\d+)vh", aviso).group(1)
+        fundo = re.search(r"bottom:\s*(\d+)px", aviso).group(1)
+        m = re.search(r"padding-bottom:\s*calc\((\d+)vh \+ (\d+)px\)", reserva)
+        self.assertIsNotNone(m)
+        self.assertGreaterEqual(int(m.group(1)), int(altura_maxima))
+        self.assertGreater(int(m.group(2)), int(fundo))
 
 
 if __name__ == "__main__":

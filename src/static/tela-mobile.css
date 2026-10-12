@@ -35,6 +35,12 @@
     box-shadow: 0 4px 16px rgba(22, 32, 31, 0.25);
   }
 
+  /* Com o aviso visível, a camada reserva embaixo a altura máxima dele (max-height 40vh + bottom 16px + folga):
+     rolando até o fim, o rodapé do detalhe ("Marcar como aplicada") fica acima do aviso e dá para tentar de novo. */
+  body:has(#aviso:not([hidden])) .col-detalhe:has(#detalhe[data-aberto]:not([data-fechado])) {
+    padding-bottom: calc(40vh + 32px);
+  }
+
   .col-detalhe .voltar {
     display: inline-flex;
     align-items: center;
