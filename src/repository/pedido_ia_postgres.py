@@ -192,6 +192,18 @@ class PedidoIARepositoryPostgres(PedidoIARepository):
             linha = cur.fetchone()
         return _pedido(linha) if linha else None
 
+    def marcar_base(self, id: int, tentativa: int, curriculo_base_id: int) -> PedidoIA | None:
+        if not id_possivel(id):
+            return None
+        with self._conn.transaction(), self._conn.cursor(row_factory=dict_row) as cur:
+            cur.execute(
+                f"UPDATE pedido_ia SET curriculo_base_id = %s WHERE id = %s AND estado = 'rodando' AND tentativas = %s "
+                f"RETURNING {_COLUNAS}",
+                (curriculo_base_id, id, tentativa),
+            )
+            linha = cur.fetchone()
+        return _pedido(linha) if linha else None
+
     def listar_prontos_compatibilidade(self, prompt_versao: str | None = None) -> list[PedidoIA]:
         with self._conn.cursor(row_factory=dict_row) as cur:
             cur.execute(
@@ -220,6 +232,15 @@ class PedidoIARepositoryPostgres(PedidoIARepository):
                 {"base": curriculo_base_id, "versao": prompt_versao},
             )
             return {url: NotaIA(nota, Faixa(faixa)) for url, nota, faixa in cur.fetchall()}
+
+    def urls_com_erro_desde(self, curriculo_base_id: int, desde: datetime) -> set[str]:
+        with self._conn.cursor() as cur:
+            cur.execute(
+                "SELECT vaga_url FROM pedido_ia WHERE tipo = 'compatibilidade' AND estado = 'erro' "
+                "AND curriculo_base_id = %s AND terminado_em >= %s",
+                (curriculo_base_id, desde),
+            )
+            return {url for (url,) in cur.fetchall()}
 
     def urls_ativas(self, tipo: TipoPedidoIA | str) -> set[str]:
         tipo = validar_tipo(tipo)

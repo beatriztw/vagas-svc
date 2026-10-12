@@ -203,6 +203,46 @@ class LoteTest(unittest.TestCase):
         pedido, _ = m.servico.pedir(URLS[0], "compatibilidade")
         self.assertEqual((pedido.curriculo_base_id, pedido.prioridade), (m.base.id, 0))
 
+    def test_base_trocada_antes_do_worker_pegar_fica_gravada_a_que_ele_recebeu(self):
+        m = Montagem()
+        m.servico.pedir(URLS[0], "compatibilidade")
+        nova = m.curriculos.salvar(Curriculo(tipo="base", titulo="Base 2", conteudo_md="# Base 2"))
+
+        entregue = m.servico.proximo()
+
+        self.assertEqual(entregue["curriculo_base"]["id"], nova.id)
+        self.assertEqual(m.pedidos.obter(entregue["id"]).curriculo_base_id, nova.id)
+
+    def test_marcar_base_so_vale_para_o_rodando_da_tentativa_atual(self):
+        m = Montagem()
+        pedido, _ = m.servico.pedir(URLS[0], "compatibilidade")
+        self.assertIsNone(m.pedidos.marcar_base(pedido.id, 1, m.base.id))  # ainda pendente
+        rodando = m.pedidos.proximo()
+        self.assertIsNone(m.pedidos.marcar_base(rodando.id, rodando.tentativas + 1, m.base.id))
+        self.assertEqual(m.pedidos.marcar_base(rodando.id, rodando.tentativas, m.base.id).curriculo_base_id, m.base.id)
+
+    def test_vaga_que_deu_erro_fica_fora_do_lote_por_7_dias(self):
+        m = Montagem()
+        m.servico.enfileirar_lote(m.vagas(0))
+        p = m.pedidos.proximo()
+        m.pedidos.falhar(p.id, p.tentativas, "tempo esgotado (420 s)")
+
+        m.relogio.agora += timedelta(days=1)  # coleta do dia seguinte
+        self.assertEqual(m.servico.enfileirar_lote(m.vagas(0, 1)), 1)
+        self.assertEqual(m.pedidos.urls_ativas("compatibilidade"), {URLS[1]})
+
+        m.relogio.agora += timedelta(days=7)  # passou a espera: volta
+        self.assertEqual(m.servico.enfileirar_lote(m.vagas(0)), 1)
+
+    def test_erro_com_outra_base_nao_segura_a_vaga(self):
+        m = Montagem()
+        m.servico.enfileirar_lote(m.vagas(0))
+        p = m.pedidos.proximo()
+        m.pedidos.falhar(p.id, p.tentativas, "x")
+        m.curriculos.salvar(Curriculo(tipo="base", titulo="Base 2", conteudo_md="# Base 2"))
+        m.relogio.agora += timedelta(days=1)
+        self.assertEqual(m.servico.enfileirar_lote(m.vagas(0)), 1)
+
     def test_candidatas_do_historico_seguem_o_perfil(self):
         m = Montagem()
         m.encontradas.registrar(

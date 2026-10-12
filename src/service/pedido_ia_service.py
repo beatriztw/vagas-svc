@@ -42,6 +42,9 @@ _MAX_DESCARTES = 100
 # Lote: no máximo tantos pedidos de prioridade 1 criados em 24 h (a cota da assinatura do worker é curta).
 LOTE_MAX_POR_DIA_PADRAO = 40
 _JANELA_LOTE = timedelta(hours=24)
+# Vaga cuja avaliação deu erro com a base atual fica fora do lote por este tempo: sem isso ela voltaria
+# em toda coleta e gastaria o teto diário (e a cota) com o mesmo erro. O clique da pessoa ainda pede.
+_ESPERA_ERRO_LOTE = timedelta(days=7)
 
 
 def lote_max_por_dia(env: Mapping[str, str] | None = None) -> int:
@@ -131,6 +134,7 @@ class PedidoIAService:
             return 0
         pular = self.pedidos.urls_ativas(TipoPedidoIA.COMPATIBILIDADE)
         pular |= set(self.pedidos.notas_compatibilidade(base.id, self.versao_compatibilidade()))
+        pular |= self.pedidos.urls_com_erro_desde(base.id, self._relogio() - _ESPERA_ERRO_LOTE)
         criados = 0
         for vaga in candidatas:
             if criados >= restante:
@@ -182,6 +186,9 @@ class PedidoIAService:
                 if falho is not None:
                     _log(falho)
                 continue
+            if pedido.curriculo_base_id != base.id:
+                # A nota vale para a base que o worker recebe agora, não a da criação do pedido.
+                pedido = self.pedidos.marcar_base(pedido.id, pedido.tentativas, base.id) or pedido
             return self._montar(pedido, vaga, base)
         return None
 
