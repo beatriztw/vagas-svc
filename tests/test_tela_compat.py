@@ -7,6 +7,7 @@ from datetime import date
 from fastapi.testclient import TestClient
 
 from src.controller.api import criar_app
+from src.model.detalhe_vaga import DetalheVaga, Requisito
 from src.model.perfil import Perfil
 from src.model.vaga import Nivel
 from src.model.vaga_externa import VagaExterna
@@ -59,16 +60,23 @@ class DetalheTest(unittest.TestCase):
         self.assertIn("fora do perfil (Sênior)", html)
 
 
-    def test_texto_do_requisito_e_escapado(self):
-        from src.controller import tela_compat
-        from src.service.compatibilidade_service import compatibilidade
+    def test_texto_do_requisito_e_escapado_no_template_de_verdade(self):
+        # Pela rota do detalhe, que inclui `tela/_compatibilidade.html`: um `|safe` no template quebra este teste.
+        encontradas = VagaEncontradaRepositoryMemoria()
+        maligno = '<script>alert(1)</script> & "x"'
+        detalhe = DetalheVaga(requisitos=[Requisito(maligno, True)])
+        encontradas.registrar([VagaExterna("Analista de Dados", "Empresa", "Remotar", URL, detalhe=detalhe)], "dados")
+        perfis = PerfilBuscaRepositoryMemoria()
+        perfis.salvar(PERFIL)
+        api = TestClient(criar_app(perfis, CurriculoRepositoryMemoria(), BuscaService([]), encontradas=encontradas))
 
-        r = compatibilidade("x", [("<script>alert(1)</script>", True)], PERFIL)
-        self.assertIn("<script>", r.lacunas[0])  # o service não escapa; o template sim
-        api, _ = cliente(PERFIL)
-        env = tela_compat.templates.env
-        saida = env.from_string("{% for i in l %}<li>{{ i }}</li>{% endfor %}").render(l=r.lacunas)
-        self.assertNotIn("<script>", saida)
+        html = api.get("/tela/vagas/detalhe", params={"url": URL}, headers=HX).text
+        inicio = html.index('<section class="compat"')
+        secao = html[inicio : html.index("</section>", inicio)]
+
+        self.assertIn('class="compat-lista compat-lacunas"', secao)
+        self.assertIn("&lt;script&gt;alert(1)&lt;/script&gt; &amp; &#34;x&#34; (obrigatório)", secao)
+        self.assertNotIn("<script>", secao)
 
 
 class AplicadasTest(unittest.TestCase):

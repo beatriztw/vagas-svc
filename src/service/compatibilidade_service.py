@@ -95,16 +95,21 @@ def _contem_skill(raizes: list[str], skill: tuple[tuple[str, ...], str]) -> bool
 
 
 def _skills_do_perfil(perfil: Perfil) -> list[tuple[str, tuple[tuple[str, ...], str]]]:
-    """(nome como o perfil escreveu, formas) sem repetidos (por palavras) e sem skill vazia."""
-    vistas: set[tuple[str, ...]] = set()
+    """(nome como o perfil escreveu, formas) sem repetidos e sem skill vazia.
+
+    Repetida é a que `_contem_skill` considera a mesma: mesma forma junta ("Power BI" = "PowerBI",
+    "Front End" = "Front-end" = "frontend"). A sequência de palavras sozinha deixava passar esses pares,
+    e a skill aparecia duas vezes em "Pontos fortes".
+    """
+    vistas: set[str] = set()
     skills = []
     for nome in perfil.skills:
         if not isinstance(nome, str):
             continue
         formas = _formas_da_skill(nome)
-        if formas is None or formas[0] in vistas:
+        if formas is None or formas[1] in vistas:
             continue
-        vistas.add(formas[0])
+        vistas.add(formas[1])
         skills.append((nome.strip(), formas))
     return skills
 
@@ -190,7 +195,8 @@ def compatibilidade(
         componentes.append((PESO_TITULO, relevancia))
     if relevancia == 1.0:
         fortes.append("Título casa com os termos do perfil")
-    elif relevancia == 0.0:
+    elif relevancia == 0.0 and not citadas_no_titulo:
+        # Com skill do perfil no título, o título tem relação (ela está em "Pontos fortes" e soma à nota).
         lacunas.append("Título sem relação com os termos do perfil")
 
     # Nível.

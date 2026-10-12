@@ -64,6 +64,18 @@ class SkillsPorPalavraTest(unittest.TestCase):
         self.assertEqual(r.pontos_fortes.count("SQL"), 1)
         self.assertNotIn("sql", r.pontos_fortes)
 
+    def test_skill_repetida_com_formas_diferentes_aparece_uma_vez(self):
+        # `_contem_skill` considera iguais "Power BI" e "PowerBI" (e "Front End" e "Front-end"): uma vez só.
+        casos = [
+            (["Power BI", "PowerBI"], "Dashboards em Power BI", ["Power BI"]),
+            (["PowerBI", "Power-BI", "power bi"], "Dashboards em PowerBI", ["PowerBI"]),
+            (["Front End", "Front-end", "frontend"], "Experiência com front-end", ["Front End"]),
+        ]
+        for skills, requisito, esperado in casos:
+            with self.subTest(skills=skills):
+                r = compatibilidade("Vaga", [(requisito, True)], perfil(skills=skills, termos=[], niveis=[]))
+                self.assertEqual(r.pontos_fortes, esperado)
+
 
 class PesosTest(unittest.TestCase):
     P = perfil(termos=[], niveis=[], skills=["SQL", "DAX"])
@@ -110,6 +122,15 @@ class NivelETituloTest(unittest.TestCase):
                 r = compatibilidade("Analista Pleno", None, perfil(skills=[], termos=termos, niveis=[Nivel.PLENO]))
                 self.assertEqual(r.percentual, 100)
                 self.assertNotIn("Título sem relação com os termos do perfil", r.lacunas)
+
+    def test_skill_do_perfil_no_titulo_nao_da_lacuna_de_titulo_sem_relacao(self):
+        r = compatibilidade("Desenvolvedor SQL", None, perfil(skills=["SQL"], termos=["analista de dados"], niveis=[]))
+
+        self.assertIn("SQL", r.pontos_fortes)
+        self.assertNotIn("Título sem relação com os termos do perfil", r.lacunas)
+        # Sem skill do perfil no título, a lacuna continua.
+        r = compatibilidade("Desenvolvedor Java", None, perfil(skills=["SQL"], termos=["analista de dados"], niveis=[]))
+        self.assertIn("Título sem relação com os termos do perfil", r.lacunas)
 
     def test_nivel_do_titulo_nos_niveis_do_perfil(self):
         p = perfil(skills=[], termos=[], niveis=[Nivel.PLENO])
