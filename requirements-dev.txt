@@ -1,0 +1,2 @@
+# Só para os testes (o CI instala; a imagem não).
+pypdf>=5.1.0

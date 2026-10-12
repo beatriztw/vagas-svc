@@ -220,11 +220,11 @@ class AcompanharTest(unittest.TestCase):
 
 
 class CurriculoTest(unittest.TestCase):
-    def pronto(self, api, servico, curriculos, base):
+    def pronto(self, api, servico, curriculos, base, titulo="Analista - Empresa Teste"):
         id = id_do(pedir(api, "curriculo"))
         pedido = servico.proximo()
         adaptado = curriculos.salvar(
-            Curriculo(tipo="adaptado", titulo="Analista - Empresa Teste", conteudo_md="# Adaptado\nTexto", base_id=base.id, vaga_url=URL)
+            Curriculo(tipo="adaptado", titulo=titulo, conteudo_md="# Adaptado\nTexto", base_id=base.id, vaga_url=URL)
         )
         resultado = {"curriculo_id": adaptado.id, "titulo": adaptado.titulo, "o_que_mudou": ["Reordenei <i>SQL</i>"], "lacunas": ["Airflow"]}
         servico.concluir(pedido["id"], pedido["tentativa"], resultado, "curriculo-v1", "m")
@@ -238,8 +238,10 @@ class CurriculoTest(unittest.TestCase):
 
         self.assertEqual(resposta.status_code, 286)
         pagina = Pagina(resposta.text)
-        link = next(a for a in pagina.tags("a") if a.texto.strip() == "Baixar currículo (.md)")
-        self.assertEqual(link.attrs["href"], f"/tela/vagas/ia/{id}/curriculo.md")
+        pdf = next(a for a in pagina.tags("a") if a.texto.strip() == "Baixar currículo (PDF)")
+        self.assertEqual(pdf.attrs["href"], f"/tela/vagas/ia/{id}/curriculo.pdf")
+        md = next(a for a in pagina.tags("a") if a.texto.strip() == ".md")
+        self.assertEqual(md.attrs["href"], f"/tela/vagas/ia/{id}/curriculo.md")
         self.assertIn("Analista - Empresa Teste", resposta.text)
         self.assertIn("Reordenei &lt;i&gt;SQL&lt;/i&gt;", resposta.text)
         self.assertIn("Airflow", resposta.text)
@@ -256,15 +258,51 @@ class CurriculoTest(unittest.TestCase):
         self.assertEqual(resposta.headers["content-disposition"], f'attachment; filename="curriculo-{id}.md"')
         self.assertEqual(resposta.headers["cache-control"], "no-store")
 
+    def test_download_do_pdf(self):
+        import io
+
+        from pypdf import PdfReader
+
+        api, servico, curriculos, base = montar()
+        id = self.pronto(api, servico, curriculos, base)
+
+        resposta = api.get(f"/tela/vagas/ia/{id}/curriculo.pdf")
+
+        self.assertEqual(resposta.status_code, 200)
+        self.assertEqual(resposta.headers["content-type"], "application/pdf")
+        self.assertEqual(
+            resposta.headers["content-disposition"],
+            'attachment; filename="Curriculo - Analista - Empresa Teste.pdf"; '
+            "filename*=UTF-8''Curriculo%20-%20Analista%20-%20Empresa%20Teste.pdf",
+        )
+        self.assertEqual(resposta.headers["cache-control"], "no-store")
+        texto = PdfReader(io.BytesIO(resposta.content)).pages[0].extract_text()
+        self.assertIn("Adaptado", texto)
+        self.assertIn("Texto", texto)
+
+    def test_pdf_com_titulo_acentuado_leva_o_acento_no_filename_estrela(self):
+        from urllib.parse import unquote
+
+        api, servico, curriculos, base = montar()
+        id = self.pronto(api, servico, curriculos, base, titulo="Analista Fiscal Pl - Albiéri & Associados")
+
+        cabecalho = api.get(f"/tela/vagas/ia/{id}/curriculo.pdf").headers["content-disposition"]
+
+        ascii_, utf8 = cabecalho.split("; filename*=UTF-8''")
+        self.assertEqual(ascii_, 'attachment; filename="Curriculo - Analista Fiscal Pl - Albieri Associados.pdf"')
+        self.assertEqual(unquote(utf8), "Curriculo - Analista Fiscal Pl - Albiéri & Associados.pdf")
+        self.assertNotIn("&", utf8)  # tudo fora do conjunto seguro vai codificado
+
     def test_download_e_404_para_compatibilidade_pendente_e_inexistente(self):
         api, servico, *_ = montar()
         compat = id_do(pedir(api))
         curriculo_pendente = id_do(pedir(api, "curriculo"))
         terminar_compat(servico)
 
-        for caminho in (compat, curriculo_pendente, 999):
-            self.assertEqual(api.get(f"/tela/vagas/ia/{caminho}/curriculo.md").status_code, 404, caminho)
-        self.assertEqual(api.get("/tela/vagas/ia/abc/curriculo.md").status_code, 422)
+        for formato in ("md", "pdf"):
+            for caminho in (compat, curriculo_pendente, 999):
+                self.assertEqual(api.get(f"/tela/vagas/ia/{caminho}/curriculo.{formato}").status_code, 404, (formato, caminho))
+            self.assertEqual(api.get(f"/tela/vagas/ia/abc/curriculo.{formato}").status_code, 422, formato)
 
 
 class RotuloTest(unittest.TestCase):
