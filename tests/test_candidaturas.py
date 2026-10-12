@@ -29,6 +29,7 @@ from src.service.busca_service import BuscaService
 from src.service.candidatura_service import CandidaturaService
 
 MIGRATIONS = Path(__file__).resolve().parent.parent / "migrations"
+JSON = {"Content-Type": "application/json"}
 URL_A = "https://exemplo.com/vaga-a"
 URL_B = "https://exemplo.com/vaga-b?a=1&b=2#c=d"
 
@@ -366,17 +367,17 @@ class ApiCandidaturaTest(unittest.TestCase):
 
     def test_patch_e_delete_de_inexistente_sao_404(self):
         self.assertEqual(self.api.patch("/candidaturas/99", json={"status": "oferta"}).status_code, 404)
-        self.assertEqual(self.api.delete("/candidaturas/99").status_code, 404)
+        self.assertEqual(self.api.delete("/candidaturas/99", headers=JSON).status_code, 404)
         self.assertEqual(self.api.patch("/candidaturas/abc", json={"status": "oferta"}).status_code, 422)
 
     def test_delete_desfaz_com_204(self):
         id = self.api.post("/candidaturas", json={"vaga_url": URL_A}).json()["id"]
 
-        resposta = self.api.delete(f"/candidaturas/{id}")
+        resposta = self.api.delete(f"/candidaturas/{id}", headers=JSON)
 
         self.assertEqual((resposta.status_code, resposta.content), (204, b""))
         self.assertEqual(self.api.get("/candidaturas").json(), [])
-        self.assertEqual(self.api.delete(f"/candidaturas/{id}").status_code, 404)
+        self.assertEqual(self.api.delete(f"/candidaturas/{id}", headers=JSON).status_code, 404)
 
 
 class RepoComFalha(CandidaturaRepository):
@@ -395,7 +396,7 @@ class ApiCandidaturaErroDoServidorTest(unittest.TestCase):
         self.assertEqual(api.post("/candidaturas", json={"vaga_url": URL_A}).status_code, 500)
         self.assertEqual(api.get("/candidaturas").status_code, 500)
         self.assertEqual(api.patch("/candidaturas/1", json={"status": "oferta"}).status_code, 500)
-        self.assertEqual(api.delete("/candidaturas/1").status_code, 500)
+        self.assertEqual(api.delete("/candidaturas/1", headers=JSON).status_code, 500)
 
     def test_dado_invalido_do_repositorio_e_422(self):
         class Recusa(RepoComFalha):
@@ -481,8 +482,8 @@ class ApiCandidaturaPostgresTest(unittest.TestCase):
         self.assertEqual(api.patch(f"/candidaturas/{id}", json={"status": "aprovada"}).status_code, 422)
         self.assertEqual(api.patch("/candidaturas/99999", json={"status": "oferta"}).status_code, 404)
         self.assertEqual([c["status"] for c in api.get("/candidaturas").json()], ["entrevista"])
-        self.assertEqual(api.delete(f"/candidaturas/{id}").status_code, 204)
-        self.assertEqual(api.delete(f"/candidaturas/{id}").status_code, 404)
+        self.assertEqual(api.delete(f"/candidaturas/{id}", headers=JSON).status_code, 204)
+        self.assertEqual(api.delete(f"/candidaturas/{id}", headers=JSON).status_code, 404)
 
 
 class ProducaoCandidaturaTest(unittest.TestCase):

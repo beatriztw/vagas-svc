@@ -3,10 +3,12 @@
 import os
 import threading
 from collections.abc import Callable
+from contextlib import asynccontextmanager
 from datetime import date, datetime
+from pathlib import Path
 from typing import Any
 
-from fastapi import FastAPI, HTTPException, Query, Request
+from fastapi import Depends, FastAPI, HTTPException, Query, Request
 from fastapi.responses import JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field
@@ -14,9 +16,12 @@ from pydantic import BaseModel, ConfigDict, Field
 from src.client.armazenamento import Armazenamento
 from src.controller.candidaturas import criar_router_candidaturas
 from src.controller.pedidos_ia import criar_router_pedidos_ia
+from src.controller.seguranca_json import exigir_json_mesma_origem
 from src.controller.tela import criar_router_tela
 from src.controller.tela_candidaturas import criar_router_tela_candidaturas
 from src.controller.tela_ia import criar_router_tela_ia
+from src.controller.tela_curriculos import criar_router_tela_curriculos
+from src.controller.tela_perfil import criar_router_tela_perfil
 from src.controller.tela_seguranca import DIRETORIO_STATIC, caminho_da_tela, eh_htmx, templates
 from src.model.curriculo import Curriculo
 from src.model.erros import DadoInvalido
@@ -41,6 +46,7 @@ from src.repository.trava import ColetaEmAndamento, TravaColeta, TravaColetaPost
 from src.service.busca_service import BuscaService
 from src.service.candidatura_service import CandidaturaService
 from src.service.coleta_service import ColetaService
+from src.service.detalhe_service import DetalheService
 from src.service.historico_service import HistoricoService
 from src.service.pedido_ia_service import PedidoIAService
 from src.service.recomendacao_service import RecomendacaoService
@@ -175,10 +181,21 @@ def criar_app(
     candidaturas: CandidaturaRepository | None = None,
     trava: TravaColeta | None = None,
     pedidos_ia: PedidoIARepository | None = None,
+    detalhe: DetalheService | None = None,
+    ao_subir: Callable[[], object] | None = None,
 ) -> FastAPI:
     """Sem `encontradas` e `candidaturas`, o histórico da coleta e as candidaturas ficam em memória (testes);
-    a produção passa os do Postgres."""
-    app = FastAPI(title="vagas-svc")
+    a produção passa os do Postgres. Sem `detalhe`, a tela não busca o detalhe no provider (testes).
+    `ao_subir` roda no startup (lifespan); se levantar, a app não sobe."""
+
+    @asynccontextmanager
+    async def ciclo_de_vida(_: FastAPI):
+        if ao_subir is not None:
+            ao_subir()
+        yield
+
+    # Dependência do app: rota mutável nova (JSON) já nasce protegida; /tela e /interno ficam de fora dentro dela.
+    app = FastAPI(title="vagas-svc", lifespan=ciclo_de_vida, dependencies=[Depends(exigir_json_mesma_origem)])
     app.state.armazenamento = armazenamento
     recomendacao = RecomendacaoService(busca)
     encontradas = encontradas if encontradas is not None else VagaEncontradaRepositoryMemoria()
@@ -234,9 +251,11 @@ def criar_app(
         return resposta
 
     app.mount("/static", StaticFiles(directory=DIRETORIO_STATIC), name="static")
-    app.include_router(criar_router_tela(encontradas, historico, coleta, servico_candidaturas))
+    app.include_router(criar_router_tela(encontradas, historico, coleta, servico_candidaturas, detalhe))
     app.include_router(criar_router_tela_candidaturas(servico_candidaturas))
     app.include_router(criar_router_tela_ia(app.state.pedido_ia_service))
+    app.include_router(criar_router_tela_perfil(perfis))
+    app.include_router(criar_router_tela_curriculos(curriculos))
 
     @app.get("/", include_in_schema=False)
     def raiz() -> RedirectResponse:
@@ -395,9 +414,23 @@ def _limite_apify() -> int:
     return limite if limite > 0 else APIFY_LIMITE_PADRAO
 
 
+def _token_apify() -> str | None:
+    """APIFY_TOKEN ou o conteúdo do arquivo em APIFY_TOKEN_FILE (secret do Swarm). Arquivo ausente,
+    ilegível ou vazio = sem token: o LinkedIn fica desligado e a app sobe igual."""
+    if token := os.environ.get("APIFY_TOKEN", "").strip():
+        return token
+    arquivo = os.environ.get("APIFY_TOKEN_FILE", "").strip()
+    if not arquivo:
+        return None
+    try:
+        return Path(arquivo).read_text(encoding="utf-8").strip() or None
+    except (OSError, UnicodeDecodeError):
+        return None
+
+
 def providers_padrao() -> list:
     """Remotar e Trampos sempre; Greenhouse, Lever e Ashby só com empresas em GREENHOUSE_EMPRESAS etc.;
-    o LinkedIn pelo Apify só com APIFY_TOKEN."""
+    o LinkedIn pelo Apify só com APIFY_TOKEN ou APIFY_TOKEN_FILE."""
     from src.client.ashby import AshbyClient
     from src.client.greenhouse import GreenhouseClient
     from src.client.lever import LeverClient
@@ -408,14 +441,16 @@ def providers_padrao() -> list:
     for classe, env in ((GreenhouseClient, "GREENHOUSE_EMPRESAS"), (LeverClient, "LEVER_EMPRESAS"), (AshbyClient, "ASHBY_EMPRESAS")):
         if empresas := _lista_env(env):
             providers.append(classe(empresas))
-    if os.environ.get("APIFY_TOKEN"):
+    if token := _token_apify():
         from src.client.apify_linkedin import ApifyLinkedInClient
 
         # Cada busca custa até APIFY_LIMITE vagas no Apify (US$ 0,001–0,002 cada em out/2026).
         providers.append(
             # Vazio (APIFY_LOCAL=${APIFY_LOCAL} sem valor no compose) cai no padrão: sem país, a
             # busca paga traria vagas do mundo todo.
-            ApifyLinkedInClient(local=os.environ.get("APIFY_LOCAL", "").strip() or "Brasil", limite=_limite_apify())
+            ApifyLinkedInClient(
+                local=os.environ.get("APIFY_LOCAL", "").strip() or "Brasil", limite=_limite_apify(), token=token
+            )
         )
     return providers
 
@@ -450,17 +485,29 @@ def _pedidos_ia_postgres() -> type:
     return PedidoIARepositoryPostgres
 
 
+def _migrar() -> list[str]:
+    from src.repository.migracoes import aplicar_com_retry
+
+    return aplicar_com_retry()
+
+
 def criar_app_producao() -> FastAPI:
+    from src.client.remotar import RemotarClient
+
     pool = _PoolPreguicoso()
+    encontradas = _PorChamada(pool, _encontradas_postgres)
     return criar_app(
         perfis=_PorChamada(pool, _perfis_postgres),
         curriculos=_PorChamada(pool, _curriculos_postgres),
         busca=BuscaService(providers_padrao()),
         armazenamento=Armazenamento(),
-        encontradas=_PorChamada(pool, _encontradas_postgres),
+        encontradas=encontradas,
         candidaturas=_PorChamada(pool, _candidaturas_postgres),
         trava=TravaColetaPostgres(),
         pedidos_ia=_PorChamada(pool, _pedidos_ia_postgres),
+        detalhe=DetalheService(encontradas, RemotarClient()),
+        # Aplica migrations/*.sql pendentes antes de atender; banco fora além do teto ou migration com erro = não sobe.
+        ao_subir=_migrar,
     )
 
 

@@ -209,6 +209,9 @@ class AcompanharTest(unittest.TestCase):
 
         self.assertEqual(api.get("/tela/vagas/ia/abc", headers=HX).status_code, 422)
         self.assertEqual(api.get("/tela/vagas/ia/١٢", headers=HX).status_code, 422)
+        # Milhares de dígitos: int() levantaria ValueError e a rota daria 500. É só um pedido que não existe.
+        self.assertEqual(api.get("/tela/vagas/ia/" + "9" * 5000, headers=HX).status_code, 404)
+        self.assertEqual(api.get("/tela/vagas/ia/" + "9" * 5000 + "/curriculo.md").status_code, 404)
         desconhecido = api.get("/tela/vagas/ia/999", headers=HX)
         enorme = api.get(f"/tela/vagas/ia/{10**30}", headers=HX)
         self.assertEqual((desconhecido.status_code, enorme.status_code), (404, 404))

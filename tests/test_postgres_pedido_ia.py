@@ -1,6 +1,6 @@
 """Fila de pedidos de IA contra um Postgres de verdade. Só roda com PGHOST definido (o CI sobe um postgres:16-alpine).
 
-Cada teste cria um schema descartável, aplica as migrations 001, 002 e 006 DUAS vezes (idempotência) e o apaga
+Cada teste cria um schema descartável, aplica todas as migrations, em ordem, DUAS vezes (idempotência) e o apaga
 no fim. Vagas e resultados são inventados e escritos à mão.
 """
 
@@ -13,7 +13,8 @@ from pathlib import Path
 from unittest import mock
 
 MIGRATIONS = Path(__file__).resolve().parent.parent / "migrations"
-APLICAR = ("001_curriculo_perfil.sql", "002_vaga_encontrada.sql", "006_pedido_ia.sql")
+# Todas, como a subida da app: o repositório lê colunas de outras (a 004 traz `expirada_em`).
+APLICAR = tuple(sorted(p.name for p in MIGRATIONS.glob("*.sql")))
 URL_A = "https://exemplo.com/vaga-a"
 URL_B = "https://exemplo.com/vaga-b"
 RESULTADO = {

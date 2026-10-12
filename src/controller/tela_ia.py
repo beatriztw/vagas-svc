@@ -18,6 +18,10 @@ def id_da_rota(valor: str) -> int:
     """O id vem como texto para o erro sair como aviso HTML (DadoInvalido), não como 422 JSON do FastAPI."""
     if not (valor.isascii() and valor.isdigit()):
         raise DadoInvalido("Identificador de pedido inválido")
+    # Mais de 19 dígitos passa do BIGSERIAL (2**63-1): é pedido que não existe (404, que encerra o
+    # polling). Sem o corte, int() de milhares de dígitos levanta ValueError e a rota dá 500.
+    if len(valor.lstrip("0")) > 19:
+        return 0
     return int(valor)
 
 

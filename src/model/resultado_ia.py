@@ -9,7 +9,7 @@ import re
 from src.model.erros import DadoInvalido
 from src.model.pedido_ia import Faixa, TipoPedidoIA
 
-_VERSAO = re.compile(r"^[a-z]+-v[0-9]+$")
+_VERSAO = re.compile(r"^[a-z]+-v[0-9]{1,6}$")
 _FAIXAS = {f.value for f in Faixa}
 # Cortes provisórios, a calibrar pelas métricas (mudar exige um prompt -v2).
 _CORTES = ((70, Faixa.ALTA.value), (40, Faixa.MEDIA.value), (0, Faixa.BAIXA.value))
