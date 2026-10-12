@@ -1,0 +1,5 @@
+{# Chip de status da candidatura; as cores estão em static/tela.css (.st-*). #}
+{% macro status_chip(status) %}
+{%- set classes = {"enviada": "st-enviada", "em_analise": "st-analise", "entrevista": "st-entrevista", "recusada": "st-recusada", "oferta": "st-oferta"} -%}
+<span class="chip {{ classes[status.value] }}">{{ status.rotulo }}</span>
+{%- endmacro %}

@@ -12,7 +12,9 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field
 
 from src.client.armazenamento import Armazenamento
+from src.controller.candidaturas import criar_router_candidaturas
 from src.controller.tela import criar_router_tela
+from src.controller.tela_candidaturas import criar_router_tela_candidaturas
 from src.controller.tela_seguranca import DIRETORIO_STATIC, caminho_da_tela, eh_htmx, templates
 from src.model.curriculo import Curriculo
 from src.model.erros import DadoInvalido
@@ -31,8 +33,10 @@ from src.repository.base import (
     VagaEncontradaRepositoryMemoria,
     validar_perfil,
 )
+from src.repository.candidatura import CandidaturaRepository, CandidaturaRepositoryMemoria, vaga_por_url_em
 from src.repository.trava import ColetaEmAndamento, TravaColeta, TravaColetaPostgres
 from src.service.busca_service import BuscaService
+from src.service.candidatura_service import CandidaturaService
 from src.service.coleta_service import ColetaService
 from src.service.recomendacao_service import RecomendacaoService
 
@@ -163,14 +167,22 @@ def criar_app(
     busca: BuscaService,
     armazenamento: Armazenamento | None = None,
     encontradas: VagaEncontradaRepository | None = None,
+    candidaturas: CandidaturaRepository | None = None,
     trava: TravaColeta | None = None,
 ) -> FastAPI:
-    """Sem `encontradas`, o histórico da coleta fica em memória (testes); a produção passa o do Postgres."""
+    """Sem `encontradas` e `candidaturas`, o histórico da coleta e as candidaturas ficam em memória (testes);
+    a produção passa os do Postgres."""
     app = FastAPI(title="vagas-svc")
     app.state.armazenamento = armazenamento
     recomendacao = RecomendacaoService(busca)
     encontradas = encontradas if encontradas is not None else VagaEncontradaRepositoryMemoria()
     coleta = ColetaService(recomendacao, perfis, encontradas, trava)
+    if candidaturas is None:
+        candidaturas = CandidaturaRepositoryMemoria(vaga_por_url_em(encontradas))
+    # Um serviço só, para as rotas JSON e as da tela (na produção, o repositório é o _PorChamada).
+    servico_candidaturas = CandidaturaService(candidaturas)
+    app.state.candidaturas = servico_candidaturas
+    app.include_router(criar_router_candidaturas(servico_candidaturas))
 
     def erro_da_tela(request: Request, mensagem: str, status: int):
         """A tela troca HTML: o erro volta como HTML, não como JSON."""
@@ -209,6 +221,7 @@ def criar_app(
 
     app.mount("/static", StaticFiles(directory=DIRETORIO_STATIC), name="static")
     app.include_router(criar_router_tela(encontradas, coleta))
+    app.include_router(criar_router_tela_candidaturas(servico_candidaturas))
 
     @app.get("/", include_in_schema=False)
     def raiz() -> RedirectResponse:
@@ -410,6 +423,12 @@ def _encontradas_postgres() -> type:
     return VagaEncontradaRepositoryPostgres
 
 
+def _candidaturas_postgres() -> type:
+    from src.repository.candidatura_postgres import CandidaturaRepositoryPostgres
+
+    return CandidaturaRepositoryPostgres
+
+
 def criar_app_producao() -> FastAPI:
     pool = _PoolPreguicoso()
     return criar_app(
@@ -418,6 +437,7 @@ def criar_app_producao() -> FastAPI:
         busca=BuscaService(providers_padrao()),
         armazenamento=Armazenamento(),
         encontradas=_PorChamada(pool, _encontradas_postgres),
+        candidaturas=_PorChamada(pool, _candidaturas_postgres),
         trava=TravaColetaPostgres(),
     )
 

@@ -1,7 +1,22 @@
-<div class="painel-cabecalho">
-  <h2 id="t-aplicadas">Vagas aplicadas</h2>
-  <span class="mono">0 candidaturas</span>
-</div>
 <div id="aplicadas">
+  <div class="painel-cabecalho">
+    <h2 id="t-aplicadas">Vagas aplicadas</h2>
+    <span class="mono">{{ total_candidaturas|default(0) }} candidaturas</span>
+  </div>
+  {% if candidaturas %}
+  <div class="tabela-rolavel">
+    <table class="tabela">
+      <thead>
+        <tr><th>Vaga</th><th>Empresa</th><th>Aplicada em</th><th>Compat.</th><th>Status</th><th><span class="visualmente-oculto">Ações</span></th></tr>
+      </thead>
+      <tbody>
+        {% for c in candidaturas %}
+        {% include "tela/_linha_candidatura.html" %}
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
   <p class="vazio">Nenhuma candidatura ainda</p>
+  {% endif %}
 </div>

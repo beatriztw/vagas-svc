@@ -166,6 +166,13 @@ input[type="search"], input[type="text"], select {
 .st-recusada { background: #FBEAEA; color: #7A1F1F; }
 .st-oferta { background: #E1F3E8; color: #1B5E3A; }
 
+/* Tabela "Vagas aplicadas". */
+.tabela-rolavel { overflow-x: auto; }
+.tabela { width: 100%; border-collapse: collapse; }
+.tabela th, .tabela td { text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--borda); vertical-align: middle; }
+.tabela th { font-size: 13px; font-weight: 600; color: var(--sec); }
+.tabela td select { margin-left: 8px; }
+
 /* Indicador de carregamento do htmx (includeIndicatorStyles=false no meta htmx-config). */
 .htmx-request { opacity: 0.6; cursor: progress; }
 
