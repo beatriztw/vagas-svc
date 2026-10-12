@@ -98,7 +98,9 @@ class BuscaTest(unittest.TestCase):
         texto = cliente.get("/tela/vagas", params={"q": "cobol"}, headers=HX).text
 
         self.assertIn("Nenhuma vaga encontrada para a busca", texto)
-        self.assertNotIn("Coletar agora", texto)
+        # Sem o botão no estado vazio (só o da barra da lista, do PR4): a busca sem resultado não pede coleta.
+        self.assertEqual(texto.count("Coletar agora"), 1)
+        self.assertNotIn("rode uma coleta", texto)
         self.assertIn("0 encontradas", texto)
 
     def test_partial_da_busca_e_pedaco_da_pagina_inteira_com_o_mesmo_q(self):

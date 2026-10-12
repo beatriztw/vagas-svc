@@ -147,6 +147,72 @@ class SeloENovasTest(unittest.TestCase):
         self.assertNotIn("Nenhuma vaga ainda", texto)
 
 
+class BuscaComNovasTest(unittest.TestCase):
+    """O campo de busca (fora de #vagas) tem que levar o filtro "Novas" e não duplicar o q."""
+
+    Q = "conciliação & contas #1"
+
+    def montar(self):
+        vagas = [VagaExterna(f"Analista de conciliação & contas #1 n{i}", "Empresa", "Remotar", f"https://exemplo.test/c/{i}") for i in range(60)]
+        vagas.append(VagaExterna("Analista de conciliação & contas #1 vista", "Empresa", "Remotar", "https://exemplo.test/c/vista"))
+        cliente, repo = criar(vagas)
+        repo.marcar_vistas(["https://exemplo.test/c/vista"])
+        return cliente
+
+    def requisicao_do_campo(self, texto: str, q: str) -> str:
+        """Simula o htmx: o GET do campo (hx-get + hx-include) com o valor digitado e os inputs incluídos."""
+        pagina = Pagina(texto)
+        campo = pagina.por_id("busca")
+        self.assertEqual(campo.attrs["hx-include"], "#estado-lista")
+        estado = [i for i in pagina.tags("input") if i.attrs.get("type") == "hidden" and i.attrs.get("name") in ("q", "novas")]
+        nomes = [i.attrs["name"] for i in estado]
+        self.assertEqual(nomes.count("q"), 0, "o q é só o do campo de busca")
+        from urllib.parse import urlencode
+
+        params = [("q", q)] + [(i.attrs["name"], i.attrs["value"]) for i in estado if i.attrs["name"] != "q"]
+        return campo.attrs["hx-get"] + "?" + urlencode(params, quote_via=quote)
+
+    def test_buscar_com_novas_ligado_mantem_novas_ida_e_volta(self):
+        cliente = self.montar()
+        pagina_novas = cliente.get("/tela", params={"novas": "1"}).text
+
+        pedido = self.requisicao_do_campo(pagina_novas, self.Q)
+
+        self.assertEqual(parse_qs(urlsplit(pedido).query), {"q": [self.Q], "novas": ["1"]})
+        resposta = cliente.get(pedido, headers=HX)
+        pagina = Pagina(resposta.text)
+        self.assertIn("60 novas", pagina.por_id("vagas").texto)  # a vista não entra
+        self.assertNotIn("https://exemplo.test/c/vista", [c.attrs["data-url"] for c in pagina.cards()])
+        # O novo bloco continua em Novas e o sentinela leva os dois.
+        sentinela = next(e for e in pagina.tags("li") if "mais" in (e.attrs.get("class") or ""))
+        self.assertEqual(
+            parse_qs(urlsplit(sentinela.attrs["hx-get"]).query),
+            {"deslocamento": ["50"], "q": [self.Q], "novas": ["1"]},
+        )
+        # O hx-push-url="true" empurra a própria url do pedido: abri-la (F5) mostra a mesma lista.
+        inteira = Pagina(cliente.get(pedido).text)
+        self.assertIn("60 novas", inteira.por_id("vagas").texto)
+        self.assertEqual(inteira.por_id("busca").attrs["value"], self.Q)
+        self.assertEqual([c.attrs["data-url"] for c in inteira.cards()], [c.attrs["data-url"] for c in pagina.cards()])
+        # O estado do novo bloco ainda tem novas, para a próxima digitação.
+        self.assertEqual(self.requisicao_do_campo(inteira and cliente.get(pedido).text, "outra"), "/tela/vagas?q=outra&novas=1")
+
+    def test_buscar_com_todas_nao_manda_novas_vazio(self):
+        cliente = self.montar()
+
+        pedido = self.requisicao_do_campo(cliente.get("/tela").text, self.Q)
+
+        self.assertEqual(parse_qs(urlsplit(pedido).query), {"q": [self.Q]})
+        self.assertNotIn("novas", pedido)
+        self.assertIn("61 encontradas", Pagina(cliente.get(pedido, headers=HX).text).por_id("vagas").texto)
+
+    def test_coleta_leva_o_q_do_campo_e_o_novas(self):
+        cliente = self.montar()
+        botao = next(b for b in Pagina(cliente.get("/tela", params={"novas": "1"}).text).tags("button") if "Coletar" in b.texto)
+
+        self.assertEqual(botao.attrs["hx-include"], "#busca, #estado-lista")
+
+
 class VistaTest(unittest.TestCase):
     URL = "https://exemplo.test/vaga/1"
 
@@ -298,7 +364,7 @@ class ColetaPelaTelaTest(unittest.TestCase):
             self.assertEqual(botao.attrs["hx-post"], "/tela/coletas")
             self.assertEqual(botao.attrs["hx-disabled-elt"], "this")
             self.assertEqual(botao.attrs["hx-target"], "#vagas")
-            self.assertEqual(botao.attrs["hx-include"], "#estado-lista")
+            self.assertEqual(botao.attrs["hx-include"], "#busca, #estado-lista")
 
     def test_sucesso_devolve_a_lista_atualizada_com_o_resumo(self):
         provider = ProviderBloqueado()

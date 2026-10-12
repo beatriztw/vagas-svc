@@ -1,10 +1,7 @@
 {# Partial = alvo do swap (outerHTML): resumo, contador, alternância e lista trocam juntos; a página inteira inclui este mesmo arquivo. #}
 <div id="vagas">
-  {# O filtro atual, para o POST da coleta devolver a lista no mesmo estado (hx-include). #}
-  <div id="estado-lista" hidden>
-    <input type="hidden" name="q" value="{{ q or '' }}">
-    <input type="hidden" name="novas" value="{{ '1' if novas else '' }}">
-  </div>
+  {# O filtro "Novas" atual: o campo de busca (fora deste bloco) e a coleta levam isto com `hx-include`. O `q` é o do próprio campo. #}
+  <div id="estado-lista" hidden>{% if novas %}<input type="hidden" name="novas" value="1">{% endif %}</div>
   {% if resumo is defined %}
   <div class="resumo" role="status">
     {% if resumo.falhou %}
@@ -27,7 +24,7 @@
          hx-get="/tela/vagas?{{ query_novas }}" hx-target="#vagas" hx-swap="outerHTML"
          hx-push-url="/tela?{{ query_novas }}">Novas</a>
     </nav>
-    <button type="button" class="botao botao-primario" hx-post="/tela/coletas" hx-include="#estado-lista"
+    <button type="button" class="botao botao-primario" hx-post="/tela/coletas" hx-include="#busca, #estado-lista"
             hx-target="#vagas" hx-swap="outerHTML" hx-disabled-elt="this">Coletar agora</button>
   </div>
   <ul id="lista-vagas" class="lista-vagas">
@@ -39,7 +36,7 @@
       <p>Nenhuma vaga nova.</p>
       {% else %}
       <p>Nenhuma vaga ainda; rode uma coleta.</p>
-      <button type="button" class="botao botao-primario" hx-post="/tela/coletas" hx-include="#estado-lista"
+      <button type="button" class="botao botao-primario" hx-post="/tela/coletas" hx-include="#busca, #estado-lista"
               hx-target="#vagas" hx-swap="outerHTML" hx-disabled-elt="this">Coletar agora</button>
       {% endif %}
     </li>
