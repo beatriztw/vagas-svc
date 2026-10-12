@@ -1,0 +1,11 @@
+{% extends "base.html" %}
+{% block titulo %}Meu perfil - vagas-svc{% endblock %}
+{% block conteudo %}
+<section class="painel painel-perfil" aria-labelledby="t-perfil">
+  <div class="painel-cabecalho">
+    <h2 id="t-perfil">Meu perfil</h2>
+    <a href="/tela">Voltar para a lista</a>
+  </div>
+  {% include "tela/_perfil_form.html" %}
+</section>
+{% endblock %}
