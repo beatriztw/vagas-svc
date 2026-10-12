@@ -197,9 +197,9 @@ class ListaTest(unittest.TestCase):
 
         textos = {c.attrs["data-url"]: re.sub(r"\s+", " ", c.texto).strip() for c in Pagina(cliente.get("/tela").text).cards()}
 
-        self.assertEqual(textos["https://exemplo.test/vaga/1"], "Analista 1 Empresa Teste - — não informado")
-        self.assertEqual(textos["https://exemplo.test/vaga/2"], "Analista 2 Empresa Teste - Rio de Janeiro remoto")
-        self.assertEqual(textos["https://exemplo.test/vaga/3"], "Analista 3 Empresa Teste - Rio de Janeiro presencial")
+        self.assertEqual(textos["https://exemplo.test/vaga/1"], "Analista 1 nova Empresa Teste - — não informado")
+        self.assertEqual(textos["https://exemplo.test/vaga/2"], "Analista 2 nova Empresa Teste - Rio de Janeiro remoto")
+        self.assertEqual(textos["https://exemplo.test/vaga/3"], "Analista 3 nova Empresa Teste - Rio de Janeiro presencial")
 
     def test_deslocamento_invalido_e_422_html(self):
         cliente, _ = criar([vaga(1)])

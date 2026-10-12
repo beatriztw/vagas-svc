@@ -68,7 +68,7 @@ class DetalheComBotaoTest(unittest.TestCase):
             pagina = Pagina(resposta.text)
             detalhe = pagina.por_id("detalhe")
             self.assertIn("Aplicada em 11/10", " ".join(detalhe.texto.split()))
-            self.assertEqual([f for f in pagina.tags("form") if f.attrs.get("hx-post")], [])
+            self.assertEqual([f for f in pagina.tags("form") if f.attrs.get("hx-post") == "/tela/candidaturas"], [])
             self.assertNotIn("Marcar como aplicada", detalhe.texto)
 
 
@@ -159,7 +159,7 @@ class PostTest(unittest.TestCase):
         pagina = Pagina(api.get("/tela", params={"url": URL}).text)
 
         self.assertIn("Aplicada em", pagina.por_id("acao-aplicar").texto)
-        self.assertEqual([f for f in pagina.tags("form") if f.attrs.get("hx-post")], [])
+        self.assertEqual([f for f in pagina.tags("form") if f.attrs.get("hx-post") == "/tela/candidaturas"], [])
 
 
 class DesfazerTest(unittest.TestCase):

@@ -30,7 +30,23 @@
     }
   }
 
+  // Depois do POST de vista (204) o card dessa vaga perde o selo "nova".
+  function tirarSelo(evento) {
+    var form = evento.detail && evento.detail.elt;
+    if (!form || form.getAttribute("hx-post") !== "/tela/vagas/vista" || !evento.detail.successful) { return; }
+    var campo = form.querySelector("input[name=url]");
+    if (!campo) { return; }
+    var cards = document.querySelectorAll("#lista-vagas .card");
+    for (var i = 0; i < cards.length; i++) {
+      if (cards[i].getAttribute("data-url") === campo.value) {
+        var selo = cards[i].querySelector(".selo-nova");
+        if (selo) { selo.remove(); }
+      }
+    }
+  }
+
   document.addEventListener("htmx:afterSettle", marcarSelecionado);
+  document.addEventListener("htmx:afterRequest", tirarSelo);
   document.addEventListener("htmx:afterRequest", function (evento) {
     if (evento.detail && evento.detail.successful) { esconderAviso(); }
   });

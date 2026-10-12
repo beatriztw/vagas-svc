@@ -6,6 +6,10 @@
   {# Url do detalhe aberto: o "Desfazer" da tabela a inclui (hx-include) para o servidor devolver o botão. #}
   <input type="hidden" id="detalhe-url" name="detalhe_url" value="{{ vaga.url }}">
   <h2 id="t-detalhe" class="detalhe-titulo">{{ vaga.titulo }}</h2>
+  {# D8: abrir o detalhe (GET) não marca vista; este POST de carga marca, e o tela.js tira o selo do card. #}
+  <form hidden hx-post="/tela/vagas/vista" hx-trigger="load" hx-swap="none">
+    <input type="hidden" name="url" value="{{ vaga.url }}">
+  </form>
   <div class="chips">
     <span class="chip-info">{{ vaga.empresa }}</span>
     <span class="chip-info">{{ vaga.local or "—" }}</span>
