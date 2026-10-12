@@ -1,0 +1,7 @@
+{# Resposta de POST/DELETE: o bloco #aplicadas (alvo) + a área do botão do detalhe por OOB. #}
+{% include "tela/_aplicadas.html" %}
+{% if oob_vaga_url is defined and oob_vaga_url is not none %}
+{% set vaga_url = oob_vaga_url %}
+{% set oob = true %}
+{% include "tela/_acao_aplicar.html" %}
+{% endif %}

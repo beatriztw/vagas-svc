@@ -3,6 +3,8 @@
 {% set vaga = selecionada %}
 {% set link = vaga.url | url_segura %}
 <section id="detalhe" class="detalhe" data-url="{{ vaga.url }}" aria-labelledby="t-detalhe">
+  {# Url do detalhe aberto: o "Desfazer" da tabela a inclui (hx-include) para o servidor devolver o botão. #}
+  <input type="hidden" id="detalhe-url" name="detalhe_url" value="{{ vaga.url }}">
   <h2 id="t-detalhe" class="detalhe-titulo">{{ vaga.titulo }}</h2>
   {# D8: abrir o detalhe (GET) não marca vista; este POST de carga marca, e o tela.js tira o selo do card. #}
   <form hidden hx-post="/tela/vagas/vista" hx-trigger="load" hx-swap="none">
@@ -20,7 +22,8 @@
     <span class="mono" title="a vaga não tem um link http(s) válido">Ver vaga original (sem link)</span>
     {% endif %}
     <div class="acoes">
-      <button type="button" class="botao" disabled title="em breve">Marcar como aplicada</button>
+      {% set vaga_url = vaga.url %}
+      {% include "tela/_acao_aplicar.html" %}
       <button type="button" class="botao botao-ai" disabled title="em breve">Gerar</button>
     </div>
   </div>

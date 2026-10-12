@@ -89,3 +89,18 @@ def exigir_mutacao_da_tela(request: Request) -> None:
         return
     if request.headers.get("Sec-Fetch-Site", "").lower() != "same-origin":
         raise HTTPException(403, "Origem não permitida")
+
+
+def resposta_de_erro(request: Request, mensagem: str, status_code: int):
+    """Erro de /tela como HTML. Com HTMX, o aviso da página é o alvo da troca (HX-Retarget), não o
+    elemento de quem chamou: uma linha de tabela ou um bloco não pode ser trocado por ele."""
+    contexto = {"mensagem": mensagem}
+    if eh_htmx(request):
+        return templates.TemplateResponse(
+            request,
+            "tela/_erro.html",
+            contexto,
+            status_code=status_code,
+            headers={"HX-Retarget": "#aviso", "HX-Reswap": "outerHTML"},
+        )
+    return templates.TemplateResponse(request, "tela/erro.html", contexto, status_code=status_code)

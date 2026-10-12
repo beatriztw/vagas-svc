@@ -8,6 +8,7 @@ from src.controller.tela_candidaturas import contexto_aplicadas
 from src.controller.tela_seguranca import PREFIXO_TELA, eh_htmx, exigir_mutacao_da_tela, templates
 from src.model.erros import DadoInvalido
 from src.repository.base import MAX_DESLOCAMENTO_VAGAS, MAX_TAMANHO_BUSCA, VagaEncontradaRepository, validar_deslocamento
+from src.service.candidatura_service import CandidaturaService
 from src.service.coleta_service import ColetaService
 
 # D11: 50 por vez; o resto vem pelo "carregar mais".
@@ -49,15 +50,21 @@ def _query(**parametros) -> str:
     return urlencode(limpos, quote_via=quote)
 
 
-def criar_router_tela(encontradas: VagaEncontradaRepository, coleta: ColetaService) -> APIRouter:
-    """Recebe o que `criar_app` já tem: os repositories (na produção, os `_PorChamada`) e o MESMO
-    `ColetaService`, com a mesma trava de uma coleta por vez da API e do cron."""
+def criar_router_tela(
+    encontradas: VagaEncontradaRepository, coleta: ColetaService, candidaturas: CandidaturaService
+) -> APIRouter:
+    """Recebe o que `criar_app` já tem: os repositories (na produção, os `_PorChamada`), o MESMO
+    `ColetaService` (com a mesma trava de uma coleta por vez da API e do cron) e o serviço de candidaturas."""
     router = APIRouter(prefix=PREFIXO_TELA, include_in_schema=False)
 
     def obter(url: str | None):
         if not url or len(url) > MAX_TAMANHO_URL:
             return None
         return encontradas.obter(url)
+
+    def candidatura_da(vaga):
+        """A candidatura da vaga aberta, para o detalhe mostrar "Aplicada em dd/mm" em vez do botão."""
+        return candidaturas.obter_por_url(vaga.url) if vaga is not None else None
 
     def contexto_lista(q: str | None, novas: bool, deslocamento: int) -> dict:
         """O que `_lista.html` e `_cards.html` precisam; a contagem vem de `contar`, nunca do tamanho da página."""
@@ -87,9 +94,9 @@ def criar_router_tela(encontradas: VagaEncontradaRepository, coleta: ColetaServi
         nao_encontrada = pedida and vaga is None
         if not pedida and contexto["vagas"]:
             vaga = contexto["vagas"][0]
-        contexto.update(selecionada=vaga, nao_encontrada=nao_encontrada)
+        contexto.update(selecionada=vaga, nao_encontrada=nao_encontrada, candidatura=candidatura_da(vaga))
         # "Vagas aplicadas" entra na página inteira com o mesmo contexto das rotas de /tela/candidaturas.
-        contexto.update(contexto_aplicadas(request.app.state.candidaturas))
+        contexto.update(contexto_aplicadas(candidaturas))
         # 404 também na página inteira: o recurso pedido não existe, e o aviso aparece no detalhe
         # junto com a lista (o link de um favorito antigo continua útil).
         return templates.TemplateResponse(
@@ -100,7 +107,7 @@ def criar_router_tela(encontradas: VagaEncontradaRepository, coleta: ColetaServi
         return templates.TemplateResponse(
             request,
             "tela/_detalhe.html",
-            {"selecionada": vaga, "nao_encontrada": nao_encontrada},
+            {"selecionada": vaga, "nao_encontrada": nao_encontrada, "candidatura": candidatura_da(vaga)},
             status_code=404 if nao_encontrada else 200,
         )
 

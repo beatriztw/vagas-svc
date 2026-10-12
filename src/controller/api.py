@@ -181,6 +181,7 @@ def criar_app(
         candidaturas = CandidaturaRepositoryMemoria(vaga_por_url_em(encontradas))
     # Um serviço só, para as rotas JSON e as da tela (na produção, o repositório é o _PorChamada).
     servico_candidaturas = CandidaturaService(candidaturas)
+    # Só para os testes alcançarem o serviço; as rotas recebem o serviço explicitamente.
     app.state.candidaturas = servico_candidaturas
     app.include_router(criar_router_candidaturas(servico_candidaturas))
 
@@ -220,7 +221,7 @@ def criar_app(
         return resposta
 
     app.mount("/static", StaticFiles(directory=DIRETORIO_STATIC), name="static")
-    app.include_router(criar_router_tela(encontradas, coleta))
+    app.include_router(criar_router_tela(encontradas, coleta, servico_candidaturas))
     app.include_router(criar_router_tela_candidaturas(servico_candidaturas))
 
     @app.get("/", include_in_schema=False)
