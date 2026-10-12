@@ -182,6 +182,9 @@ class PedidoIAService:
                 if falho is not None:
                     _log(falho)
                 continue
+            if pedido.curriculo_base_id != base.id:
+                # A nota vale para a base que o worker recebe agora, não a da criação do pedido.
+                pedido = self.pedidos.marcar_base(pedido.id, pedido.tentativas, base.id) or pedido
             return self._montar(pedido, vaga, base)
         return None
 

@@ -80,6 +80,11 @@ class PedidoIARepository(ABC):
         """rodando -> erro (o texto é cortado em MAX_ERRO). None nas mesmas condições de `concluir`."""
 
     @abstractmethod
+    def marcar_base(self, id: int, tentativa: int, curriculo_base_id: int) -> PedidoIA | None:
+        """Grava a base que vai para o worker nesta tentativa (a da criação pode ter mudado até ele pegar).
+        None nas mesmas condições de `concluir`."""
+
+    @abstractmethod
     def listar_prontos_compatibilidade(self, prompt_versao: str | None = None) -> list[PedidoIA]:
         """Pedidos de compatibilidade `pronto` (da versão, se informada), do mais antigo ao mais novo (id)."""
 
@@ -235,6 +240,14 @@ class PedidoIARepositoryMemoria(PedidoIARepository):
         if linha is None or linha.estado != EstadoPedidoIA.RODANDO or linha.tentativas != tentativa:
             return None
         return linha
+
+    def marcar_base(self, id: int, tentativa: int, curriculo_base_id: int) -> PedidoIA | None:
+        with self._lock:
+            linha = self._rodando(id, tentativa)
+            if linha is None:
+                return None
+            linha.curriculo_base_id = curriculo_base_id
+            return replace(linha)
 
     def concluir(
         self,

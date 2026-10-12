@@ -303,6 +303,15 @@ class PedidoIAPostgresTest(unittest.TestCase):
         self.assertEqual(self.repo.notas_compatibilidade(b1, None)[URL_A], NotaIA(60, Faixa.MEDIA))
         self.assertEqual(self.repo.versoes_compatibilidade(), {"compatibilidade-v1", "compatibilidade-v2"})
 
+    def test_marcar_base_so_no_rodando_da_tentativa_atual(self):
+        b1, b2 = self.base("B1").id, self.base("B2").id
+        pedido, _ = self.repo.criar(URL_A, "compatibilidade", curriculo_base_id=b1)
+        self.assertIsNone(self.repo.marcar_base(pedido.id, 1, b2))  # ainda pendente
+        rodando = self.repo.proximo()
+        self.assertIsNone(self.repo.marcar_base(rodando.id, rodando.tentativas + 1, b2))
+        self.assertEqual(self.repo.marcar_base(rodando.id, rodando.tentativas, b2).curriculo_base_id, b2)
+        self.assertEqual(self.repo.obter(rodando.id).curriculo_base_id, b2)
+
     def test_contar_lote_desde_e_urls_ativas(self):
         self.repo.criar(URL_A, "compatibilidade", prioridade=1)
         self.repo.criar(URL_B, "compatibilidade", prioridade=1)

@@ -203,6 +203,24 @@ class LoteTest(unittest.TestCase):
         pedido, _ = m.servico.pedir(URLS[0], "compatibilidade")
         self.assertEqual((pedido.curriculo_base_id, pedido.prioridade), (m.base.id, 0))
 
+    def test_base_trocada_antes_do_worker_pegar_fica_gravada_a_que_ele_recebeu(self):
+        m = Montagem()
+        m.servico.pedir(URLS[0], "compatibilidade")
+        nova = m.curriculos.salvar(Curriculo(tipo="base", titulo="Base 2", conteudo_md="# Base 2"))
+
+        entregue = m.servico.proximo()
+
+        self.assertEqual(entregue["curriculo_base"]["id"], nova.id)
+        self.assertEqual(m.pedidos.obter(entregue["id"]).curriculo_base_id, nova.id)
+
+    def test_marcar_base_so_vale_para_o_rodando_da_tentativa_atual(self):
+        m = Montagem()
+        pedido, _ = m.servico.pedir(URLS[0], "compatibilidade")
+        self.assertIsNone(m.pedidos.marcar_base(pedido.id, 1, m.base.id))  # ainda pendente
+        rodando = m.pedidos.proximo()
+        self.assertIsNone(m.pedidos.marcar_base(rodando.id, rodando.tentativas + 1, m.base.id))
+        self.assertEqual(m.pedidos.marcar_base(rodando.id, rodando.tentativas, m.base.id).curriculo_base_id, m.base.id)
+
     def test_candidatas_do_historico_seguem_o_perfil(self):
         m = Montagem()
         m.encontradas.registrar(
