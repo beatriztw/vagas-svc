@@ -12,6 +12,10 @@ MAX_ERRO = 500
 MAX_RESULTADO_BYTES = 64 * 1024
 
 ERRO_SEM_BASE = "Não há currículo base"
+
+# Prioridade na fila: o clique da pessoa passa na frente do lote.
+PRIORIDADE_PESSOA = 0
+PRIORIDADE_LOTE = 1
 ERRO_PRESO = "O worker não terminou depois de 3 tentativas"
 
 
@@ -51,6 +55,9 @@ class PedidoIA:
     nota: int | None = None
     faixa: Faixa | None = None
     curriculo_id: int | None = None
+    prioridade: int = 0
+    # Currículo base vigente quando o pedido foi criado: a nota só vale para essa base.
+    curriculo_base_id: int | None = None
     criado_em: datetime | None = None
     reivindicado_em: datetime | None = None
     terminado_em: datetime | None = None
@@ -59,6 +66,14 @@ class PedidoIA:
     def ativo(self) -> bool:
         """Pendente ou rodando: ainda não terminou."""
         return self.estado in (EstadoPedidoIA.PENDENTE, EstadoPedidoIA.RODANDO)
+
+
+@dataclass(frozen=True)
+class NotaIA:
+    """Nota e faixa do pronto de compatibilidade mais recente de uma vaga."""
+
+    nota: int
+    faixa: Faixa
 
 
 class PedidoInexistente(LookupError):
