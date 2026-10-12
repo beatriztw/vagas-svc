@@ -38,6 +38,7 @@ from src.repository.trava import ColetaEmAndamento, TravaColeta, TravaColetaPost
 from src.service.busca_service import BuscaService
 from src.service.candidatura_service import CandidaturaService
 from src.service.coleta_service import ColetaService
+from src.service.detalhe_service import DetalheService
 from src.service.historico_service import HistoricoService
 from src.service.recomendacao_service import RecomendacaoService
 
@@ -170,9 +171,10 @@ def criar_app(
     encontradas: VagaEncontradaRepository | None = None,
     candidaturas: CandidaturaRepository | None = None,
     trava: TravaColeta | None = None,
+    detalhe: DetalheService | None = None,
 ) -> FastAPI:
     """Sem `encontradas` e `candidaturas`, o histórico da coleta e as candidaturas ficam em memória (testes);
-    a produção passa os do Postgres."""
+    a produção passa os do Postgres. Sem `detalhe`, a tela não busca o detalhe no provider (testes)."""
     app = FastAPI(title="vagas-svc")
     app.state.armazenamento = armazenamento
     recomendacao = RecomendacaoService(busca)
@@ -224,7 +226,7 @@ def criar_app(
         return resposta
 
     app.mount("/static", StaticFiles(directory=DIRETORIO_STATIC), name="static")
-    app.include_router(criar_router_tela(encontradas, historico, coleta, servico_candidaturas))
+    app.include_router(criar_router_tela(encontradas, historico, coleta, servico_candidaturas, detalhe))
     app.include_router(criar_router_tela_candidaturas(servico_candidaturas))
 
     @app.get("/", include_in_schema=False)
@@ -434,15 +436,19 @@ def _candidaturas_postgres() -> type:
 
 
 def criar_app_producao() -> FastAPI:
+    from src.client.remotar import RemotarClient
+
     pool = _PoolPreguicoso()
+    encontradas = _PorChamada(pool, _encontradas_postgres)
     return criar_app(
         perfis=_PorChamada(pool, _perfis_postgres),
         curriculos=_PorChamada(pool, _curriculos_postgres),
         busca=BuscaService(providers_padrao()),
         armazenamento=Armazenamento(),
-        encontradas=_PorChamada(pool, _encontradas_postgres),
+        encontradas=encontradas,
         candidaturas=_PorChamada(pool, _candidaturas_postgres),
         trava=TravaColetaPostgres(),
+        detalhe=DetalheService(encontradas, RemotarClient()),
     )
 
 
