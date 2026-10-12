@@ -161,7 +161,7 @@ Fluxo: `pendente` → (`POST /pedidos-ia/proximo`) → `rodando` → (`PUT /pedi
 | `PUT /pedidos-ia/{id}` | worker (Bearer) | devolve o resultado ou o erro: `200 {id, estado}`, `404`, `409` (não está rodando ou a tentativa não é a atual), `422` (nada muda) |
 | `PUT /vagas/rotulo-ia` | JSON aberto | `{"vaga_url", "faixa": "alta"\|"média"\|"baixa"\|null}`: grava o rótulo da pessoa (`null` apaga); `422` com `media` sem acento ou vaga fora do histórico |
 | `GET /ia/metricas?prompt_versao=` | JSON aberto | concordância de faixa, correlação de ordem e estabilidade de reexecução (chega com o PR das métricas) |
-| `GET/POST /tela/vagas/ia`, `GET /tela/vagas/ia/{id}`, `GET /tela/vagas/ia/{id}/curriculo.md`, `POST /tela/vagas/ia/rotulo` | tela (HTMX, CSRF) | botões Compatibilidade e Gerar currículo, polling de 3 s, resultado e rótulo (chegam com o PR da tela) |
+| `GET/POST /tela/vagas/ia`, `GET /tela/vagas/ia/{id}`, `GET /tela/vagas/ia/{id}/curriculo.pdf`, `GET /tela/vagas/ia/{id}/curriculo.md`, `POST /tela/vagas/ia/rotulo` | tela (HTMX, CSRF) | botões Compatibilidade e Gerar currículo, polling de 3 s, resultado, download do currículo (PDF para ATS ou .md) e rótulo |
 
 As rotas `/pedidos-ia/*` não aparecem no `/docs`. Respondem com `Cache-Control: no-store`, e o servidor nunca loga `resultado`, `erro`, currículo nem descrição: só id, tipo, estado e tentativa. Toda escrita da API usa `Content-Type: application/json` (`415` sem ele).
 
@@ -192,6 +192,10 @@ As rotas `/pedidos-ia/*` não aparecem no `/docs`. Respondem com `Cache-Control:
 - O `PUT` só vale com o pedido `rodando` e `tentativa` igual à atual; senão `409`.
 - `compatibilidade-v1`: `{nota 0-100 (inteiro; bool não vale), faixa, atende[{requisito, evidencia_no_curriculo}], falta[{requisito, obrigatorio}], eliminatorios[], resumo}`, sem chaves extras, com até 30 `atende`, 30 `falta` e 20 `eliminatorios`, textos sem espaço nas pontas e não vazios. A faixa tem que bater com a nota: `alta` 70-100, `média` 40-69, `baixa` 0-39 (cortes provisórios, a calibrar pelas métricas; mudá-los exige um prompt `-v2`). A grafia é sempre `média`; só o worker normaliza `media`. O servidor grava `nota` e `faixa` nas colunas. Que cada `evidencia_no_curriculo` seja um trecho literal do currículo é regra só do worker: o servidor não tem o currículo da época.
 - `curriculo-v1`: o worker grava o adaptado em `POST /curriculos/adaptados` e manda `resultado = {curriculo_id, titulo, o_que_mudou, lacunas}` (sem o `conteudo_md`). O servidor confere que `curriculo_id` existe, é `adaptado` e tem a mesma `vaga_url` do pedido (senão `422`) e grava `curriculo_id`. Se o worker morrer entre o `POST` e o `PUT`, a reentrega cria um segundo adaptado (duplicata aceita no v1).
+
+### Currículo em PDF (ATS)
+
+`GET /tela/vagas/ia/{id}/curriculo.pdf` gera o PDF do currículo adaptado na hora, a partir do `conteudo_md` (`src/service/curriculo_pdf.py`, `fpdf2`). O layout é o que os ATS leem sem errar: A4, uma coluna, Helvetica, texto selecionável (nada de imagem), nome no topo, contato na linha de baixo, seções em maiúsculas com uma linha fina, cargo em negrito e tópicos com hífen; sem tabela, cabeçalho, rodapé, ícone nem cor. Ênfase e links do markdown viram texto puro; a fonte padrão do PDF só tem Latin-1 (cobre o português), e travessão, aspas curvas e marcador viram equivalentes ASCII. O nome do arquivo é `Curriculo - <título>.pdf` em ASCII (`filename*` leva o título em UTF-8). O `.md` continua disponível.
 
 ### Pedido preso
 
