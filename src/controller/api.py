@@ -484,13 +484,13 @@ def providers_padrao() -> list:
     if token := _token_apify():
         from src.client.apify_linkedin import ApifyLinkedInClient
 
-        # Cada busca custa até APIFY_LIMITE vagas no Apify (US$ 0,001–0,002 cada em out/2026).
+        # Cada busca custa até APIFY_LIMITE vagas por local no Apify (US$ 0,002 cada em out/2026).
+        from src.client.apify_linkedin import LOCAIS_PADRAO
+
         providers.append(
-            # Vazio (APIFY_LOCAL=${APIFY_LOCAL} sem valor no compose) cai no padrão: sem país, a
-            # busca paga traria vagas do mundo todo.
-            ApifyLinkedInClient(
-                local=os.environ.get("APIFY_LOCAL", "").strip() or "Brasil", limite=_limite_apify(), token=token
-            )
+            # APIFY_LOCAIS vazia cai no padrão (Brasil e América Latina, em inglês, como o LinkedIn
+            # entende): sem local, a busca paga traria vagas do mundo todo.
+            ApifyLinkedInClient(locais=_lista_env("APIFY_LOCAIS") or LOCAIS_PADRAO, limite=_limite_apify(), token=token)
         )
     return providers
 
