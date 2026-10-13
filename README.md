@@ -194,7 +194,7 @@ As rotas `/pedidos-ia/*` não aparecem no `/docs`. Respondem com `Cache-Control:
 }
 ```
 
-`descricao`, `requisitos` e `subtitulo` vêm do detalhe da vaga, buscado quando a pessoa abre a vaga na tela; sem ele saem `null`, `[]` e `null`. O `proximo` não busca nada no provider. `perfil` é `null` sem perfil salvo. `curriculo_base` é a base vigente: sem base, o pedido vira `erro` ("Não há currículo base") e o `proximo` passa ao seguinte.
+`descricao`, `requisitos` e `subtitulo` vêm do detalhe da vaga, buscado quando a pessoa abre a vaga na tela; sem ele saem `null`, `[]` e `null`. O pedido de **currículo** busca antes o detalhe que faltar (o mesmo `carregar` de abrir a vaga), porque o worker adapta o currículo pelo texto e no idioma da vaga (`curriculo-v3`); se o provider falhar (ex.: LinkedIn limitando), o pedido é recusado com o aviso 422 "abra a vaga de novo mais tarde" em vez de seguir sem descrição. Plataforma sem detalhe sob demanda segue como antes. A compatibilidade (inclusive o lote) não busca nada. O `proximo` não busca nada no provider. `perfil` é `null` sem perfil salvo. `curriculo_base` é a base vigente: sem base, o pedido vira `erro` ("Não há currículo base") e o `proximo` passa ao seguinte.
 
 ### Resultado (`PUT /pedidos-ia/{id}`)
 

@@ -2,12 +2,13 @@
 
 O layout é o que os ATS leem sem errar: uma coluna, fonte padrão (Helvetica), texto de verdade
 (selecionável, nada de imagem), títulos de seção em linhas próprias e tópicos com hífen. Sem tabela,
-cabeçalho, rodapé, ícone nem cor. Entende o markdown do prompt `curriculo-v2`:
+cabeçalho, rodapé, ícone nem cor. Entende o markdown dos prompts `curriculo-v2` e `curriculo-v3` (este no
+idioma da vaga, com `### Cargo | Empresa`):
 
     # Nome                      -> nome, em destaque
     linha logo abaixo do nome   -> contato
     ## Seção                    -> título de seção, com uma linha fina embaixo
-    ### Cargo — Empresa         -> subtítulo em negrito
+    ### Cargo | Empresa         -> subtítulo em negrito
     - tópico                    -> tópico com hífen e recuo
     qualquer outra linha        -> parágrafo
 

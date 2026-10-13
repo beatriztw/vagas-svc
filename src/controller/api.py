@@ -219,7 +219,8 @@ def criar_app(
     if pedidos_ia is None:
         pedidos_ia = PedidoIARepositoryMemoria(vaga_por_url_em(encontradas))
     # Um serviço só para as rotas do worker, as da tela e as métricas.
-    servico_ia = PedidoIAService(pedidos_ia, encontradas, perfis, curriculos, trava_lote=trava_lote_ia)
+    # Com `detalhe`, o pedido de currículo busca antes a descrição que faltar (LinkedIn sob demanda).
+    servico_ia = PedidoIAService(pedidos_ia, encontradas, perfis, curriculos, trava_lote=trava_lote_ia, detalhe=detalhe)
     # Toda coleta (API, tela, CLI) termina mandando as vagas sem nota para a fila da IA em lote.
     coleta = ColetaService(
         recomendacao, perfis, encontradas, trava, ao_terminar=lambda _: servico_ia.enfileirar_lote(historico.visiveis())
