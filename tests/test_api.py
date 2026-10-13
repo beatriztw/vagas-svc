@@ -432,6 +432,8 @@ class ProvidersPadraoTest(unittest.TestCase):
 
         for env, esperado in (
             ({"APIFY_LOCAL": "Rio de Janeiro"}, ("Rio de Janeiro",)),
+            # A antiga era um local só: a vírgula faz parte dele.
+            ({"APIFY_LOCAL": "São Paulo, SP"}, ("São Paulo, SP",)),
             ({"APIFY_LOCAL": "Rio de Janeiro", "APIFY_LOCAIS": "Brazil, Mexico"}, ("Brazil", "Mexico")),
             ({"APIFY_LOCAL": " ", "APIFY_LOCAIS": ""}, ("Brazil", "Latin America")),
         ):

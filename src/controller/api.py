@@ -452,6 +452,11 @@ def _limite_apify() -> int:
     return limite if limite > 0 else APIFY_LIMITE_PADRAO
 
 
+def _local_antigo_apify() -> list[str]:
+    """APIFY_LOCAL, anterior à APIFY_LOCAIS, era um local só e pode ter vírgula ("São Paulo, SP")."""
+    return [local] if (local := os.environ.get("APIFY_LOCAL", "").strip()) else []
+
+
 def _token_apify() -> str | None:
     """APIFY_TOKEN ou o conteúdo do arquivo em APIFY_TOKEN_FILE (secret do Swarm). Arquivo ausente,
     ilegível ou vazio = sem token: o LinkedIn fica desligado e a app sobe igual."""
@@ -488,11 +493,11 @@ def providers_padrao() -> list:
         from src.client.apify_linkedin import LOCAIS_PADRAO
 
         providers.append(
-            # APIFY_LOCAIS, ou a antiga APIFY_LOCAL (também aceita lista), vale como foi configurada;
+            # APIFY_LOCAIS, ou a antiga APIFY_LOCAL (um local só, inteira: "São Paulo, SP"), vale como foi configurada;
             # as duas vazias caem no padrão (Brasil e América Latina, em inglês, como o LinkedIn
             # entende): sem local, a busca paga traria vagas do mundo todo.
             ApifyLinkedInClient(
-                locais=_lista_env("APIFY_LOCAIS") or _lista_env("APIFY_LOCAL") or LOCAIS_PADRAO,
+                locais=_lista_env("APIFY_LOCAIS") or _local_antigo_apify() or LOCAIS_PADRAO,
                 limite=_limite_apify(),
                 token=token,
             )
