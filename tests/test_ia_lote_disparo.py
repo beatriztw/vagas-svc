@@ -5,6 +5,7 @@ Vagas e currículos daqui são inventados e escritos à mão (não são resposta
 
 import io
 import unittest
+from unittest import mock
 
 from fastapi.testclient import TestClient
 
@@ -30,7 +31,7 @@ MUTACAO = {"HX-Request": "true", "Origin": "http://testserver"}
 
 
 class Montagem:
-    def __init__(self, com_base: bool = True):
+    def __init__(self, com_base: bool = True, teto: str | None = None):
         self.perfis = PerfilBuscaRepositoryMemoria()
         self.perfis.salvar(Perfil(termos=["python"]))
         self.encontradas = VagaEncontradaRepositoryMemoria()
@@ -39,13 +40,16 @@ class Montagem:
             self.curriculos.salvar(Curriculo(tipo="base", titulo="Base", conteudo_md="# Base"))
         self.pedidos = PedidoIARepositoryMemoria(vaga_por_url_em(self.encontradas))
         client = ClientPorTermo("A", {"python": [vaga("u1"), vaga("u2")]})
-        self.app = criar_app(
-            self.perfis,
-            self.curriculos,
-            BuscaService([client]),
-            encontradas=self.encontradas,
-            pedidos_ia=self.pedidos,
-        )
+        # O teto do lote vem de IA_LOTE_MAX_POR_DIA, lida quando a app monta o serviço da IA.
+        env = {} if teto is None else {"IA_LOTE_MAX_POR_DIA": teto}
+        with mock.patch.dict("os.environ", env, clear=True):
+            self.app = criar_app(
+                self.perfis,
+                self.curriculos,
+                BuscaService([client]),
+                encontradas=self.encontradas,
+                pedidos_ia=self.pedidos,
+            )
         self.cliente = TestClient(self.app)
 
     def lote(self) -> set[str]:
@@ -188,6 +192,63 @@ class BotaoDaTelaTest(unittest.TestCase):
         self.assertEqual(self.m.lote(), set())
         # A mesma rota com o CSRF certo existe e enfileira (senão o 403 acima não provaria nada).
         self.assertEqual(self.m.cliente.post("/tela/ia/lote", headers=MUTACAO).status_code, 200)
+
+    def test_sem_teto_nao_mostra_restam(self):
+        texto = Pagina(self.m.cliente.get("/tela").text).por_id("lote-ia").texto
+        self.assertNotIn("restam", texto)
+        self.assertNotIn("Limite", texto)
+
+    def test_com_teto_mostra_quantas_restam_e_o_botao_ativo(self):
+        m = Montagem(teto="5")
+        m.encontradas.registrar([vaga("u1"), vaga("u2"), vaga("u3")], "python")
+        pagina = Pagina(m.cliente.get("/tela").text)
+        self.assertIn("restam 5 hoje", pagina.por_id("lote-ia").texto)
+        botao = next(b for b in pagina.tags("button") if "Avaliar vagas" in b.texto)
+        self.assertNotIn("disabled", botao.attrs)
+
+        resposta = Pagina(m.cliente.post("/tela/ia/lote", headers=MUTACAO).text).por_id("lote-ia").texto
+        self.assertIn("3 vagas na fila da IA", resposta)
+        self.assertIn("restam 2 hoje", resposta)
+
+    def test_teto_atingido_depois_do_clique_explica_e_desabilita_o_botao(self):
+        m = Montagem(teto="2")
+        m.encontradas.registrar([vaga("u1"), vaga("u2"), vaga("u3")], "python")
+
+        primeira = Pagina(m.cliente.post("/tela/ia/lote", headers=MUTACAO).text)
+        self.assertIn("2 vagas na fila da IA", primeira.por_id("lote-ia").texto)
+        self.assertIn("Limite de 2 avaliações da IA em 24 h atingido. Tente mais tarde.", primeira.por_id("lote-ia").texto)
+
+        segunda = Pagina(m.cliente.post("/tela/ia/lote", headers=MUTACAO).text)
+        lote = segunda.por_id("lote-ia")
+        # Em vez do "0 vagas na fila da IA", a explicação, como status para o leitor de tela.
+        self.assertNotIn("0 vagas na fila da IA", lote.texto)
+        [status] = [e for e in segunda.elementos if e.attrs.get("role") == "status"]
+        self.assertEqual(status.texto.strip(), "Limite de 2 avaliações da IA em 24 h atingido. Tente mais tarde.")
+        botao = next(b for b in segunda.tags("button") if "Avaliar vagas" in b.texto)
+        self.assertIn("disabled", botao.attrs)
+        # A página inteira também já abre com o aviso e o botão desabilitado.
+        pagina = Pagina(m.cliente.get("/tela").text)
+        self.assertIn("Limite de 2 avaliações", pagina.por_id("lote-ia").texto)
+        self.assertIn("disabled", next(b for b in pagina.tags("button") if "Avaliar vagas" in b.texto).attrs)
+
+    def test_mensagem_usa_o_teto_configurado(self):
+        m = Montagem(teto="1")
+        m.encontradas.registrar([vaga("u1"), vaga("u2")], "python")
+        m.cliente.post("/tela/ia/lote", headers=MUTACAO)
+        texto = Pagina(m.cliente.get("/tela").text).por_id("lote-ia").texto
+        self.assertIn("Limite de 1 avaliação da IA em 24 h atingido", texto)
+        self.assertNotIn("Limite de 40", texto)
+
+    def test_lote_desligado_diz_isso_e_desabilita_o_botao(self):
+        m = Montagem(teto="0")
+        m.encontradas.registrar([vaga("u1")], "python")
+        pagina = Pagina(m.cliente.post("/tela/ia/lote", headers=MUTACAO).text)
+        lote = pagina.por_id("lote-ia")
+        self.assertIn("Avaliação em lote da IA desligada", lote.texto)
+        self.assertNotIn("Limite de", lote.texto)
+        self.assertNotIn("0 vagas na fila", lote.texto)
+        self.assertIn("disabled", next(b for b in pagina.tags("button") if "Avaliar vagas" in b.texto).attrs)
+        self.assertEqual(m.lote(), set())
 
     def test_sem_base_mostra_o_aviso_e_nao_o_botao(self):
         m = Montagem(com_base=False)

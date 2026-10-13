@@ -1,5 +1,6 @@
 """Peças de segurança e renderização compartilhadas pelas rotas HTML de `/tela`."""
 
+import re
 from pathlib import Path
 from urllib.parse import urlsplit
 
@@ -36,9 +37,17 @@ def url_segura(valor: object) -> str | None:
     return valor
 
 
+def plataforma_curta(valor: object) -> str:
+    """O nome da plataforma sem o sufixo entre parênteses: "LinkedIn (Apify)" vira "LinkedIn"."""
+    if not isinstance(valor, str):
+        return ""
+    return re.sub(r"\s*\([^()]*\)\s*$", "", valor).strip()
+
+
 # Autoescape ligado de forma explícita: dado de provider nunca é confiável.
 templates = Jinja2Templates(env=Environment(loader=FileSystemLoader(DIRETORIO_TEMPLATES), autoescape=True))
 templates.env.filters["url_segura"] = url_segura
+templates.env.filters["plataforma_curta"] = plataforma_curta
 
 
 def caminho_da_tela(caminho: str) -> bool:

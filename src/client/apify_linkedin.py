@@ -1,3 +1,4 @@
+import html
 import json
 import os
 import urllib.parse
@@ -6,6 +7,8 @@ from collections.abc import Callable
 from typing import Any
 
 from src.client.base import USER_AGENT, ProviderClient, normalizar, parse_data
+from src.client.sanitizar import MAX_CARACTERES_DESCRICAO, html_para_texto
+from src.model.detalhe_vaga import DetalheVaga
 from src.model.vaga_externa import VagaExterna
 
 # Input conferido contra o schema gravado em tests/fixtures/apify_linkedin_input_schema.json
@@ -61,6 +64,16 @@ def _remoto(item: dict) -> bool | None:
         # O actor devolve o rótulo no idioma do LinkedIn: "Remote", "Remoto", "Remota".
         return any("remot" in normalizar(str(t)) for t in tipos)
     return None
+
+
+def _detalhe(item: dict) -> DetalheVaga | None:
+    """A descrição do item: `descriptionHtml` sanitizado ou, sem ele, `descriptionText`; sem nenhum, None
+    (a coleta não apaga o detalhe que já estava gravado)."""
+    descricao = html_para_texto(item.get("descriptionHtml"), MAX_CARACTERES_DESCRICAO)
+    if not descricao and isinstance(item.get("descriptionText"), str):
+        # Texto puro também passa pelo sanitizador: limpa controles e espaços e corta no mesmo teto.
+        descricao = html_para_texto(html.escape(item["descriptionText"]), MAX_CARACTERES_DESCRICAO)
+    return DetalheVaga(descricao=descricao) if descricao else None
 
 
 def _local_do_linkedin(local: str) -> str:
@@ -138,6 +151,7 @@ class ApifyLinkedInClient(ProviderClient):
                     # A busca já filtrou remoto (f_WT=2); o item quase nunca traz a modalidade.
                     remoto=r if (r := _remoto(item)) is not None else True,
                     publicada_em=_data(item.get("postedAt")),
+                    detalhe=_detalhe(item),
                 )
             )
         return vagas

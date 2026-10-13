@@ -201,9 +201,28 @@ class ListaTest(unittest.TestCase):
 
         textos = {c.attrs["data-url"]: re.sub(r"\s+", " ", c.texto).strip() for c in Pagina(cliente.get("/tela").text).cards()}
 
-        self.assertEqual(textos["https://exemplo.test/vaga/1"], "Analista 1 nova Empresa Teste não informado")
-        self.assertEqual(textos["https://exemplo.test/vaga/2"], "Analista 2 nova Empresa Teste - Rio de Janeiro remoto")
-        self.assertEqual(textos["https://exemplo.test/vaga/3"], "Analista 3 nova Empresa Teste - Rio de Janeiro presencial")
+        self.assertEqual(textos["https://exemplo.test/vaga/1"], "Analista 1 nova Empresa Teste não informado · Remotar")
+        self.assertEqual(textos["https://exemplo.test/vaga/2"], "Analista 2 nova Empresa Teste - Rio de Janeiro remoto · Remotar")
+        self.assertEqual(textos["https://exemplo.test/vaga/3"], "Analista 3 nova Empresa Teste - Rio de Janeiro presencial · Remotar")
+
+    def test_card_mostra_a_plataforma_curta_junto_da_modalidade(self):
+        cliente, _ = criar([
+            VagaExterna("Analista de BI", "Empresa Teste", "LinkedIn (Apify)", "https://exemplo.test/vaga/li", remoto=True),
+            vaga(2, remoto=False),
+        ])
+
+        textos = {c.attrs["data-url"]: re.sub(r"\s+", " ", c.texto).strip() for c in Pagina(cliente.get("/tela").text).cards()}
+
+        self.assertEqual(textos["https://exemplo.test/vaga/li"], "Analista de BI nova Empresa Teste remoto · LinkedIn")
+        self.assertTrue(textos["https://exemplo.test/vaga/2"].endswith("presencial · Remotar"))
+
+    def test_plataforma_curta(self):
+        from src.controller.tela_seguranca import plataforma_curta
+
+        self.assertEqual(plataforma_curta("LinkedIn (Apify)"), "LinkedIn")
+        self.assertEqual(plataforma_curta("Remotar"), "Remotar")
+        self.assertEqual(plataforma_curta("  Trampos  "), "Trampos")
+        self.assertEqual(plataforma_curta(None), "")
 
     def test_deslocamento_invalido_e_422_html(self):
         cliente, _ = criar([vaga(1)])

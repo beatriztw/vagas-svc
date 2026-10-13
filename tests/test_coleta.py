@@ -64,6 +64,24 @@ class ContratoVagaEncontrada:
         self.assertIsInstance(salva.primeira_vez_em, datetime)
         self.assertEqual(salva.primeira_vez_em, salva.ultima_vez_em)
 
+    def test_coleta_do_linkedin_grava_a_descricao_e_sem_descricao_nao_apaga(self):
+        from src.client.apify_linkedin import ApifyLinkedInClient
+        from tests.test_clients import fake_post
+
+        perfis = PerfilBuscaRepositoryMemoria()
+        perfis.salvar(Perfil(termos=["dados"]))
+        linkedin = ApifyLinkedInClient(token="tk", http_post=fake_post("apify_linkedin.json"))
+        ColetaService(RecomendacaoService(BuscaService([linkedin])), perfis, self.repo).coletar()
+
+        url = "https://www.linkedin.com/jobs/view/4310298811"
+        salva = self.repo.obter(url)
+        self.assertEqual(salva.descricao, "Vaga inventada para teste.\n\n• Power BI\n• SQL")
+        self.assertIsNotNone(salva.detalhada_em)
+        # A mesma vaga vista de novo sem descrição (o actor às vezes não traz) mantém a gravada.
+        sem = [{"id": "4310298811", "link": url, "title": "Analista de Dados Pleno - Power BI"}]
+        self.repo.registrar(ApifyLinkedInClient(token="tk", http_post=lambda u, c, t: sem).buscar("dados"), "dados")
+        self.assertEqual(self.repo.obter(url).descricao, salva.descricao)
+
     def test_mesma_vaga_por_dois_termos_vira_uma_linha_com_os_dois(self):
         self.assertEqual(self.repo.registrar([vaga("u1")], "python"), 1)
         self.assertEqual(self.repo.registrar([vaga("u1")], "django"), 0)

@@ -43,7 +43,7 @@ class Relogio:
 
 
 class Montagem:
-    def __init__(self, max_por_dia: int = 40, com_base: bool = True):
+    def __init__(self, max_por_dia: int | None = None, com_base: bool = True):
         self.relogio = Relogio()
         self.encontradas = VagaEncontradaRepositoryMemoria()
         self.encontradas.registrar(
@@ -182,6 +182,29 @@ class LoteTest(unittest.TestCase):
         m.relogio.agora += timedelta(hours=24, seconds=1)
         self.assertEqual(m.servico.enfileirar_lote(m.vagas(4, 5)), 2)
 
+    def test_sem_teto_enfileira_todas_as_que_faltam(self):
+        m = Montagem()
+        self.assertIsNone(m.servico.restante_lote())
+        self.assertEqual(m.servico.enfileirar_lote(m.vagas(0, 1, 2, 3, 4, 5)), 6)
+        self.assertIsNone(m.servico.restante_lote())
+        # O `limite` de quem chama ainda vale sem teto.
+        m = Montagem()
+        self.assertEqual(m.servico.enfileirar_lote(m.vagas(0, 1, 2), limite=2), 2)
+
+    def test_restante_do_lote_nas_24_h(self):
+        m = Montagem(max_por_dia=3)
+        self.assertEqual(m.servico.restante_lote(), 3)
+        m.servico.enfileirar_lote(m.vagas(0, 1))
+        self.assertEqual(m.servico.restante_lote(), 1)
+        m.servico.enfileirar_lote(m.vagas(2, 3, 4))
+        self.assertEqual(m.servico.restante_lote(), 0)
+        # O clique da pessoa (prioridade 0) não gasta o teto do lote.
+        m.servico.pedir(URLS[5], "compatibilidade")
+        self.assertEqual(m.servico.restante_lote(), 0)
+        m.relogio.agora += timedelta(hours=24, seconds=1)
+        self.assertEqual(m.servico.restante_lote(), 3)
+        self.assertEqual(Montagem(max_por_dia=0).servico.restante_lote(), 0)
+
     def test_sem_base_ou_teto_zero_nao_enfileira(self):
         self.assertEqual(Montagem(com_base=False).servico.enfileirar_lote(Montagem().vagas(0)), 0)
         m = Montagem(max_por_dia=0)
@@ -312,10 +335,12 @@ class LoteTest(unittest.TestCase):
 
 class ConfigTest(unittest.TestCase):
     def test_ia_lote_max_por_dia(self):
-        self.assertEqual(lote_max_por_dia({}), LOTE_MAX_POR_DIA_PADRAO)
+        # Sem a variável não há teto: o lote enfileira todas as que faltam.
+        self.assertIsNone(LOTE_MAX_POR_DIA_PADRAO)
+        self.assertIsNone(lote_max_por_dia({}))
         self.assertEqual(lote_max_por_dia({"IA_LOTE_MAX_POR_DIA": "15"}), 15)
         self.assertEqual(lote_max_por_dia({"IA_LOTE_MAX_POR_DIA": "0"}), 0)
-        for ruim in ("", "dez", "-3", "2.5"):
+        for ruim in ("", "  ", "dez", "-3", "2.5"):
             with self.subTest(ruim=ruim):
                 self.assertEqual(lote_max_por_dia({"IA_LOTE_MAX_POR_DIA": ruim}), LOTE_MAX_POR_DIA_PADRAO)
 
