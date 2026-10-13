@@ -441,6 +441,25 @@ def _lista_env(nome: str) -> list[str]:
     return [p.strip() for p in os.environ.get(nome, "").split(",") if p.strip()]
 
 
+def _providers_latam() -> list:
+    """LATAM_PROVIDERS: ausente ou vazia = Himalayas e Remotive; `nenhum` = nenhum; senão a lista separada
+    por vírgula (`himalayas`, `remotive`, sem caixa nem acento). Nome desconhecido = valor inválido, que cai
+    no padrão (os dois) sem derrubar a app."""
+    from src.client.base import normalizar
+    from src.client.himalayas import HimalayasClient
+    from src.client.remotive import RemotiveClient
+
+    classes = {"himalayas": HimalayasClient, "remotive": RemotiveClient}
+    nomes = [normalizar(n) for n in _lista_env("LATAM_PROVIDERS")]
+    if nomes == ["nenhum"]:
+        return []
+    if not nomes or any(n not in classes for n in nomes):
+        if nomes:
+            logging.getLogger(__name__).warning("LATAM_PROVIDERS inválida (%s): usando Himalayas e Remotive", os.environ.get("LATAM_PROVIDERS"))
+        nomes = list(classes)
+    return [classes[n]() for n in dict.fromkeys(nomes)]
+
+
 APIFY_LIMITE_PADRAO = 50
 
 
@@ -483,9 +502,10 @@ def _limite_posts_apify() -> int:
 
 
 def providers_padrao() -> list:
-    """Remotar e Trampos sempre; Greenhouse, Lever e Ashby só com empresas em GREENHOUSE_EMPRESAS etc.;
-    o LinkedIn pelo Apify só com APIFY_TOKEN ou APIFY_TOKEN_FILE; os posts do LinkedIn só com o token
-    e APIFY_POSTS_LIMITE >= 1."""
+    """Remotar e Trampos sempre; Himalayas e Remotive (vagas remotas abertas ao Brasil/América Latina) por
+    padrão, com opt-out por LATAM_PROVIDERS; Greenhouse, Lever e Ashby só com empresas em
+    GREENHOUSE_EMPRESAS etc.; o LinkedIn pelo Apify só com APIFY_TOKEN ou APIFY_TOKEN_FILE; os posts do
+    LinkedIn só com o token e APIFY_POSTS_LIMITE >= 1."""
     from src.client.ashby import AshbyClient
     from src.client.greenhouse import GreenhouseClient
     from src.client.lever import LeverClient
@@ -495,6 +515,7 @@ def providers_padrao() -> list:
 
     # A vaga do Remotar que fechou no Gupy (onde a candidatura acontece) sai como expirada.
     providers = [RemotarClient(gupy=GupyClient().encerramento), TramposClient()]
+    providers.extend(_providers_latam())
     for classe, env in ((GreenhouseClient, "GREENHOUSE_EMPRESAS"), (LeverClient, "LEVER_EMPRESAS"), (AshbyClient, "ASHBY_EMPRESAS")):
         if empresas := _lista_env(env):
             providers.append(classe(empresas))

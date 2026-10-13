@@ -16,9 +16,9 @@ TIMEOUT_SEGUNDOS = 20
 HttpGet = Callable[[str], Any]
 
 
-def get_json(url: str) -> Any:
+def get_json(url: str, timeout: float = TIMEOUT_SEGUNDOS) -> Any:
     req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT, "Accept": "application/json"})
-    with urllib.request.urlopen(req, timeout=TIMEOUT_SEGUNDOS) as resp:
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
         return json.load(resp)
 
 
