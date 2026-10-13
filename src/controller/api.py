@@ -1,6 +1,8 @@
 """API HTTP do vagas-svc. Sem autenticação: só é exposta na rede interna do Swarm."""
 
+import logging
 import os
+import sys
 import threading
 from collections.abc import Callable
 from contextlib import asynccontextmanager
@@ -417,6 +419,23 @@ class _PoolPreguicoso:
             return self._pool
 
 
+def configurar_log() -> None:
+    """Liga o log da app (logger `src`) em INFO, ou no nível de `LOG_NIVEL`, numa linha por evento no stderr.
+
+    Sem isso o root fica em WARNING e somem os `log.info` (migrations, coleta agendada, pedidos de IA). Só o
+    `src`, nunca o root: em INFO o httpx loga a URL de cada requisição, e a do Apify leva o token. `LOG_NIVEL`
+    inválido cai em INFO. Chamar de novo não duplica o handler."""
+    nivel = logging.getLevelName(os.environ.get("LOG_NIVEL", "INFO").strip().upper())
+    logger = logging.getLogger("src")
+    logger.setLevel(nivel if isinstance(nivel, int) else logging.INFO)
+    if not any(getattr(h, "_da_app", False) for h in logger.handlers):
+        handler = logging.StreamHandler(sys.stderr)
+        handler.setFormatter(logging.Formatter("%(levelname)s: %(name)s: %(message)s"))
+        handler._da_app = True
+        logger.addHandler(handler)
+    logger.propagate = False
+
+
 def _lista_env(nome: str) -> list[str]:
     return [p.strip() for p in os.environ.get(nome, "").split(",") if p.strip()]
 
@@ -518,6 +537,8 @@ def _migrar() -> list[str]:
 
 def criar_app_producao() -> FastAPI:
     from src.client.remotar import RemotarClient
+
+    configurar_log()
 
     pool = _PoolPreguicoso()
     encontradas = _PorChamada(pool, _encontradas_postgres)

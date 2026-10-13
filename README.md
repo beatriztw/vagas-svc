@@ -95,6 +95,8 @@ A app de produção lê o Postgres pelas variáveis `PG*` (`PGHOST`, `PGPORT`, `
 
 A própria app coleta às 08:00 e às 18:00 de Brasília (`COLETA_HORARIOS`, `HH:MM` separados por vírgula; fuso `America/Sao_Paulo`). Vazia desliga; inválida gera um aviso no log e desliga, sem derrubar a app. Uma thread daemon (`src/service/agendador_coleta.py`) é iniciada no lifespan da app de produção, depois das migrations, e parada no shutdown; `criar_app` sem `agendador` (testes) não agenda nada.
 
+O log da app (logger `src`: migrations, coleta agendada, pedidos de IA) sai no stderr em INFO, ou no nível de `LOG_NIVEL` (`DEBUG`, `INFO`, `WARNING`...; inválido cai em INFO). Só contagens e ids, nunca vaga, termo ou dado do perfil. O root e as bibliotecas ficam em WARNING: em INFO o httpx logaria a URL do Apify, que leva o token.
+
 - É a mesma coleta do `POST /coletas`: a mesma trava (outra coleta rodando = "em andamento") e, no fim, o lote da IA.
 - Cada horário é reservado em `coleta_agendada` (`migrations/008_coleta_agendada.sql`) ANTES de coletar, com `INSERT ... ON CONFLICT DO NOTHING`: só quem insere coleta, então um reinício ou uma segunda réplica nunca rodam o mesmo horário.
 - Recuperação: ao subir e a cada volta (no máximo 5 min), o horário mais recente que passou há até 6 h e não foi reservado roda (Pi desligado ou app reiniciando no horário). Mais velho que isso fica para o próximo.
