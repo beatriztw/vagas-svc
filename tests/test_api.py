@@ -424,6 +424,21 @@ class ProvidersPadraoTest(unittest.TestCase):
                 apify = [p for p in providers_padrao() if isinstance(p, ApifyLinkedInClient)]
             self.assertEqual(apify[0].locais, ("Brazil", "Latin America"), repr(valor))
 
+    def test_apify_local_antiga_ainda_vale_e_a_nova_tem_preferencia(self):
+        from unittest import mock
+
+        from src.client.apify_linkedin import ApifyLinkedInClient
+        from src.controller.api import providers_padrao
+
+        for env, esperado in (
+            ({"APIFY_LOCAL": "Rio de Janeiro"}, ("Rio de Janeiro",)),
+            ({"APIFY_LOCAL": "Rio de Janeiro", "APIFY_LOCAIS": "Brazil, Mexico"}, ("Brazil", "Mexico")),
+            ({"APIFY_LOCAL": " ", "APIFY_LOCAIS": ""}, ("Brazil", "Latin America")),
+        ):
+            with mock.patch.dict(os.environ, {"APIFY_TOKEN": "tk", **env}, clear=True):
+                apify = [p for p in providers_padrao() if isinstance(p, ApifyLinkedInClient)]
+            self.assertEqual(apify[0].locais, esperado, env)
+
     def test_apify_limite_invalido_cai_no_padrao_sem_derrubar_a_app(self):
         from unittest import mock
 

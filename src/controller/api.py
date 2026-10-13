@@ -488,9 +488,14 @@ def providers_padrao() -> list:
         from src.client.apify_linkedin import LOCAIS_PADRAO
 
         providers.append(
-            # APIFY_LOCAIS vazia cai no padrão (Brasil e América Latina, em inglês, como o LinkedIn
+            # APIFY_LOCAIS, ou a antiga APIFY_LOCAL (também aceita lista), vale como foi configurada;
+            # as duas vazias caem no padrão (Brasil e América Latina, em inglês, como o LinkedIn
             # entende): sem local, a busca paga traria vagas do mundo todo.
-            ApifyLinkedInClient(locais=_lista_env("APIFY_LOCAIS") or LOCAIS_PADRAO, limite=_limite_apify(), token=token)
+            ApifyLinkedInClient(
+                locais=_lista_env("APIFY_LOCAIS") or _lista_env("APIFY_LOCAL") or LOCAIS_PADRAO,
+                limite=_limite_apify(),
+                token=token,
+            )
         )
     return providers
 
