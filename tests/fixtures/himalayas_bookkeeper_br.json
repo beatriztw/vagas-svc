@@ -1,0 +1,163 @@
+{
+  "updatedAt": 1791671357,
+  "offset": 0,
+  "limit": 20,
+  "totalCount": 3,
+  "jobs": [
+    {
+      "title": "International Bookkeeping Associate",
+      "excerpt": "OverviewJoin Our Team at Solvency Now Bookkeeping as a Bookkeeper!",
+      "companyName": "Solvency Now Bookkeeping",
+      "companySlug": "solvency-now-bookkeeping",
+      "companyLogo": "",
+      "employmentType": "Contractor",
+      "minSalary": null,
+      "maxSalary": null,
+      "salaryPeriod": "hourly",
+      "seniority": [
+        "Mid-level"
+      ],
+      "currency": "USD",
+      "locationRestrictions": [],
+      "timezoneRestrictions": [
+        -11,
+        -10,
+        -9.5,
+        -9,
+        -8
+      ],
+      "categories": [
+        "Bookkeeper",
+        "Bookkeeping-Clerk",
+        "Accounting-Assistant"
+      ],
+      "parentCategories": [
+        "Finance"
+      ],
+      "description": "<h3>Overview</h3>",
+      "pubDate": 1790929856,
+      "expiryDate": 1796113855,
+      "applicationLink": "https://himalayas.app/companies/solvency-now-bookkeeping/jobs/international-bookkeeping-associate",
+      "guid": "https://himalayas.app/companies/solvency-now-bookkeeping/jobs/international-bookkeeping-associate"
+    },
+    {
+      "title": "Bookkeeper / CPA (US or AU Accounting)",
+      "excerpt": "Bookkeeper / CPA (US or AU Accounting)We are building a select talent pool of highly qualified Bookkeepers, CPAs, and Ac",
+      "companyName": "Bamboo Works",
+      "companySlug": "bambooworks",
+      "companyLogo": "https://cdn-images.himalayas.app/d1993ofng58s01v3m2jjhtemaaq9",
+      "employmentType": "Full Time",
+      "minSalary": null,
+      "maxSalary": null,
+      "salaryPeriod": "monthly",
+      "seniority": [
+        "Senior"
+      ],
+      "currency": "USD",
+      "locationRestrictions": [
+        "Brazil"
+      ],
+      "timezoneRestrictions": [
+        -5,
+        -4,
+        -3,
+        -2
+      ],
+      "categories": [
+        "Bookkeeping",
+        "CPA",
+        "Accounting-Specialist"
+      ],
+      "parentCategories": [
+        "Finance"
+      ],
+      "description": "<h3>Bookkeeper / CPA (US or AU Accounting)</h3>",
+      "pubDate": 1788712850,
+      "expiryDate": 1793896850,
+      "applicationLink": "https://himalayas.app/companies/bambooworks/jobs/bookkeeper-cpa-us-or-au-accounting-4757680638",
+      "guid": "https://himalayas.app/companies/bambooworks/jobs/bookkeeper-cpa-us-or-au-accounting-4757680638"
+    },
+    {
+      "title": "Bookkeeper",
+      "excerpt": "WorkBetterNow () provides full-time positions for professionals in LATAM looking to work with United States-based compan",
+      "companyName": "Work Better Now",
+      "companySlug": "work-better-now",
+      "companyLogo": "",
+      "employmentType": "Full Time",
+      "minSalary": 1200,
+      "maxSalary": 1600,
+      "salaryPeriod": "monthly",
+      "seniority": [
+        "Mid-level"
+      ],
+      "currency": "USD",
+      "locationRestrictions": [
+        "Anguilla",
+        "Antigua and Barbuda",
+        "Argentina",
+        "Aruba",
+        "Bahamas",
+        "Barbados",
+        "Belize",
+        "Bermuda",
+        "Bolivia",
+        "Bonaire, Sint Eustatius and Saba",
+        "Brazil",
+        "Cayman Islands",
+        "Chile",
+        "Colombia",
+        "Costa Rica",
+        "Cuba",
+        "Dominica",
+        "Dominican Republic",
+        "Ecuador",
+        "El Salvador",
+        "Falkland Islands (Malvinas)",
+        "Grenada",
+        "Guatemala",
+        "Guyana",
+        "Haiti",
+        "Honduras",
+        "Jamaica",
+        "Mexico",
+        "Montserrat",
+        "Nicaragua",
+        "Panama",
+        "Paraguay",
+        "Peru",
+        "Puerto Rico",
+        "Saint Kitts and Nevis",
+        "Saint Lucia",
+        "Saint Vincent and the Grenadines",
+        "South Georgia and the South Sandwich Islands",
+        "Suriname",
+        "Trinidad and Tobago",
+        "Turks and Caicos Islands",
+        "Uruguay",
+        "Venezuela",
+        "Virgin Islands, British",
+        "Virgin Islands, U.S."
+      ],
+      "timezoneRestrictions": [
+        -8,
+        -7,
+        -6,
+        -5,
+        -4
+      ],
+      "categories": [
+        "Bookkeeper",
+        "Accounting-Clerk",
+        "Junior-Accountant"
+      ],
+      "parentCategories": [
+        "Finance"
+      ],
+      "description": "<div>\n<strong>WorkBetterNow</strong> () provides full-time positions for professionals in LATAM looking to work with United States-based companies. Our remote professionals come first and are the most important part of our team. If you want to be part of a company that values work-life balance and supports your professional development, you’re in the right place.  <br><br><strong>Our Core Values</strong>\n</div>",
+      "pubDate": 1791175571,
+      "expiryDate": 1796359570,
+      "applicationLink": "https://himalayas.app/companies/work-better-now/jobs/bookkeeper",
+      "guid": "https://himalayas.app/companies/work-better-now/jobs/bookkeeper"
+    }
+  ]
+}
