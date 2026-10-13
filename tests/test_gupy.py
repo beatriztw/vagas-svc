@@ -49,6 +49,12 @@ class EncerramentoDoJobTest(unittest.TestCase):
         job["registerEndDate"] = "2026-12-01"  # escrito à mão: o fim do anúncio (2026-11-02) vem antes
         self.assertEqual(encerramento_do_job(job, AGORA), datetime(2026, 11, 3, 3, 0, tzinfo=timezone.utc))
 
+    def test_data_no_limite_do_calendario_conta_como_sem_prazo(self):
+        job = dict(JOBS["inscricoes_encerradas"], registerEndDate="9999-12-31", expiresAt="9999-12-31")  # escrito à mão
+        self.assertIsNone(encerramento_do_job(job, AGORA))
+        job["expiresAt"] = "2026-11-02"  # escrito à mão: a outra data ainda vale
+        self.assertEqual(encerramento_do_job(job, AGORA), datetime(2026, 11, 3, 3, 0, tzinfo=timezone.utc))
+
     def test_publicada_sem_prazo_ou_com_data_torta_nao_fecha(self):
         job = dict(JOBS["inscricoes_encerradas"], registerEndDate=None, expiresAt="não é data")  # escrito à mão
         self.assertIsNone(encerramento_do_job(job, AGORA))
@@ -69,6 +75,15 @@ class GupyClientTest(unittest.TestCase):
             with self.subTest(html=html), self.assertRaises(ErroGupy):
                 GupyClient(http=lambda url: html).encerramento(LINK)
 
+    def test_link_com_query_nao_ascii_abre_so_a_pagina(self):
+        link = "https://grupotecnospeed.gupy.io/job/abc?utm_campaign=promoção"  # escrito à mão
+        self.assertEqual(link_gupy(link), "https://grupotecnospeed.gupy.io/job/abc")
+
+    def test_get_html_url_impossivel_de_mandar_e_erro_gupy(self):
+        with mock.patch("urllib.request.urlopen", side_effect=UnicodeEncodeError("ascii", "ç", 0, 1, "x")):
+            with self.assertRaises(ErroGupy):
+                get_html("https://x.gupy.io/job/abc?q=ç")
+
     def test_get_html_404_e_none_e_500_e_erro(self):
         def falha(codigo):
             return urllib.error.HTTPError(LINK, codigo, "x", {}, None)
@@ -83,7 +98,7 @@ class GupyClientTest(unittest.TestCase):
 
 class LinkGupyTest(unittest.TestCase):
     def test_aceita_so_pagina_de_vaga_no_gupy_por_https(self):
-        self.assertEqual(link_gupy(LINK), LINK)
+        self.assertEqual(link_gupy(LINK), LINK.split("?")[0])
         self.assertIsNotNone(link_gupy("https://cogna.gupy.io/jobs/11985278?jobBoardSource=gupy_public_page"))
         for link in (
             LINK.replace("https://", "http://"),
@@ -114,7 +129,7 @@ class RemotarComGupyTest(unittest.TestCase):
             return GupyClient(http=lambda url: pagina(JOBS["inscricoes_encerradas"]), relogio=lambda: AGORA).encerramento(link)
 
         vagas = self.buscar(gupy)
-        self.assertEqual(consultados, ["https://compass.gupy.io/job/eyJqb2JJZCI6MTI3MTA4NDgsInNvdXJjZSI6InJlbW90YXIifQ==?jobBoardSource=remotar"])
+        self.assertEqual(consultados, ["https://compass.gupy.io/job/eyJqb2JJZCI6MTI3MTA4NDgsInNvdXJjZSI6InJlbW90YXIifQ=="])
         fim = datetime(2026, 10, 6, 3, 0, tzinfo=timezone.utc)
         self.assertEqual([v.expirada_em for v in vagas], [fim, None])
         self.assertEqual([v.tem_prazo for v in vagas], [True, None])
@@ -127,6 +142,12 @@ class RemotarComGupyTest(unittest.TestCase):
         vagas = self.buscar(gupy)
         self.assertEqual([v.expirada_em for v in vagas], [None, None])
         self.assertEqual([v.tem_prazo for v in vagas], [None, None])
+
+    def test_data_absurda_no_gupy_nao_derruba_a_busca(self):
+        job = dict(JOBS["inscricoes_encerradas"], registerEndDate="9999-12-31", expiresAt="9999-12-31")  # escrito à mão
+        gupy = GupyClient(http=lambda url: pagina(job), relogio=lambda: AGORA)
+        vagas = self.buscar(gupy.encerramento)
+        self.assertEqual([v.expirada_em for v in vagas], [None, None])
 
     def test_detalhar_tambem_olha_o_gupy(self):
         job = json.loads((FIXTURES / "remotar.json").read_text(encoding="utf-8"))["data"][0]

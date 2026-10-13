@@ -26,7 +26,11 @@ class ErroGupy(Exception):
 
 
 def link_gupy(link: object) -> str | None:
-    """O link, se for a página de uma vaga no Gupy (https, `<empresa>.gupy.io/job/...` ou `/jobs/...`)."""
+    """A página da vaga, se o link for de uma vaga no Gupy (https, `<empresa>.gupy.io/job/...` ou `/jobs/...`).
+
+    Volta só host e caminho, já conferidos: a query (`utm_*`, `jobBoardSource`) não muda a página e
+    pode trazer caractere que não é ASCII, que o `http.client` não consegue mandar.
+    """
     if not isinstance(link, str):
         return None
     try:
@@ -37,7 +41,7 @@ def link_gupy(link: object) -> str | None:
         return None
     if not re.fullmatch(r"/jobs?/[A-Za-z0-9=_%-]{1,200}", partes.path):
         return None
-    return link.strip()
+    return f"https://{partes.hostname}{partes.path}"
 
 
 def get_html(url: str) -> str | None:
@@ -50,7 +54,8 @@ def get_html(url: str) -> str | None:
         if erro.code in (404, 410):
             return None
         raise ErroGupy(f"HTTP {erro.code}") from erro
-    except (OSError, http.client.HTTPException) as erro:
+    except (OSError, http.client.HTTPException, ValueError) as erro:
+        # ValueError: URL que não dá para mandar (ex.: `UnicodeEncodeError` na linha da requisição).
         raise ErroGupy(type(erro).__name__) from erro
     if len(corpo) > MAX_BYTES:
         raise ErroGupy("resposta grande demais")
@@ -66,9 +71,13 @@ def _dia(valor: object) -> date | None:
         return None
 
 
-def _fim_do_dia(dia: date) -> datetime:
-    """A vaga aceita inscrição no dia todo: fecha à meia-noite seguinte, em Brasília."""
-    return datetime.combine(dia + timedelta(days=1), time(), FUSO).astimezone(timezone.utc)
+def _fim_do_dia(dia: date) -> datetime | None:
+    """A vaga aceita inscrição no dia todo: fecha à meia-noite seguinte, em Brasília. Data no limite
+    do calendário ("9999-12-31") não tem dia seguinte: conta como sem prazo, sem derrubar a busca."""
+    try:
+        return datetime.combine(dia + timedelta(days=1), time(), FUSO).astimezone(timezone.utc)
+    except OverflowError:
+        return None
 
 
 def encerramento_do_job(job: dict, agora: datetime) -> datetime | None:
@@ -82,7 +91,7 @@ def encerramento_do_job(job: dict, agora: datetime) -> datetime | None:
     if isinstance(status, str) and status != "published":
         return agora
     prazos = [_fim_do_dia(d) for d in (_dia(job.get("registerEndDate")), _dia(job.get("expiresAt"))) if d]
-    return min(prazos, default=None)
+    return min((p for p in prazos if p is not None), default=None)
 
 
 def job_da_pagina(html: str) -> dict:
