@@ -143,6 +143,24 @@ class RemotarComGupyTest(unittest.TestCase):
         self.assertEqual([v.expirada_em for v in vagas], [None, None])
         self.assertEqual([v.tem_prazo for v in vagas], [None, None])
 
+    def test_gupy_ilegivel_nao_apaga_o_prazo_que_o_gupy_deu_antes(self):
+        listagem = json.loads((FIXTURES / "remotar.json").read_text(encoding="utf-8"))
+        listagem["data"][0]["expires"] = False  # escrito à mão: o Remotar diz que não há prazo
+
+        def buscar(gupy):
+            return RemotarClient(http=lambda url: copy.deepcopy(listagem), relogio=lambda: AGORA, gupy=gupy).buscar("dados")[0]
+
+        def ilegivel(link):
+            raise ErroGupy("timeout")
+
+        # Gupy lido e sem prazo: o "sem prazo" do Remotar vale e apaga o prazo antigo.
+        self.assertIs(buscar(lambda link: None).tem_prazo, False)
+        # Gupy ilegível: não se sabe, e o repositório mantém o prazo gravado.
+        vaga = buscar(ilegivel)
+        self.assertIsNone(vaga.expirada_em)
+        self.assertIsNone(vaga.tem_prazo)
+        self.assertIsNone(vaga.detalhe.tem_prazo)
+
     def test_data_absurda_no_gupy_nao_derruba_a_busca(self):
         job = dict(JOBS["inscricoes_encerradas"], registerEndDate="9999-12-31", expiresAt="9999-12-31")  # escrito à mão
         gupy = GupyClient(http=lambda url: pagina(job), relogio=lambda: AGORA)

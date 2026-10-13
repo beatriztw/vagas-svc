@@ -5,6 +5,7 @@ import urllib.error
 import urllib.request
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
+from dataclasses import dataclass
 from datetime import datetime, timezone
 
 from src.client.base import USER_AGENT, HttpGet, ProviderClient, get_json, relevancia_termo, montar_url, parse_data
@@ -29,6 +30,19 @@ MAX_BYTES_DETALHE = 2_000_000
 ID_DA_VAGA = re.compile(r"[0-9]{1,12}")
 # Páginas do Gupy abertas ao mesmo tempo numa busca.
 CONSULTAS_GUPY_SIMULTANEAS = 8
+
+
+@dataclass(frozen=True)
+class ConsultaGupy:
+    """O que o Gupy disse da vaga. `lida=False` quando a página não deu para ler: aí não se sabe se há
+    prazo, e um prazo que o Gupy deu numa coleta anterior não pode ser apagado."""
+
+    encerramento: datetime | None = None
+    lida: bool = True
+
+
+# Vaga sem link do Gupy (ou cliente sem Gupy): nada a acrescentar ao que o Remotar disse.
+SEM_GUPY = ConsultaGupy()
 
 
 class VagaNaoEncontrada(Exception):
@@ -95,18 +109,17 @@ class RemotarClient(ProviderClient):
         # fecha no Gupy, onde a candidatura acontece. None não consulta o Gupy.
         self._gupy = gupy
 
-    def _encerramento_gupy(self, job: dict) -> datetime | None:
-        """Quando a vaga fecha no Gupy, se o link de candidatura for de lá; None sem prazo, sem
-        link do Gupy ou se a página não deu para ler (aí vale só o que o Remotar disse)."""
+    def _consultar_gupy(self, job: dict) -> ConsultaGupy:
+        """Quando a vaga fecha no Gupy, se o link de candidatura for de lá."""
         link = link_gupy(job.get("externalLink")) if self._gupy is not None else None
         if link is None:
-            return None
+            return SEM_GUPY
         try:
-            return self._gupy(link)
+            return ConsultaGupy(self._gupy(link))
         except ErroGupy:
-            return None
+            return ConsultaGupy(lida=False)
 
-    def _expirada_em(self, job: dict, gupy: datetime | None = None) -> datetime | None:
+    def _expirada_em(self, job: dict, gupy: ConsultaGupy = SEM_GUPY) -> datetime | None:
         """O `expiresAt` (mesmo futuro: a vaga some quando o prazo passa); `expired: true` vale no
         máximo agora. Data que não é ISO 8601 não conta, e a vaga fica como está. `gupy` (o
         encerramento lá) vale quando chega antes."""
@@ -114,20 +127,22 @@ class RemotarClient(ProviderClient):
         prazo = _instante(job.get("expiresAt"))
         if job.get("expired") is True:
             prazo = min(prazo, agora) if prazo is not None else agora
-        return min((p for p in (prazo, gupy) if p is not None), default=None)
+        return min((p for p in (prazo, gupy.encerramento) if p is not None), default=None)
 
-    def _tem_prazo(self, job: dict, expirada_em: datetime | None) -> bool | None:
+    def _tem_prazo(self, job: dict, expirada_em: datetime | None, gupy: ConsultaGupy = SEM_GUPY) -> bool | None:
         """False só quando o Remotar diz que NÃO há prazo (`expires: false`, sem `expiresAt` e sem
         `expired: true`) e o Gupy também não deu um: aí um prazo futuro gravado numa coleta anterior
-        é removido. True quando há `expirada_em`. Qualquer outra coisa (campo ausente, torto ou
-        contraditório) é None e o repositório mantém a data que já estava."""
+        é removido. True quando há `expirada_em`. Gupy ilegível, ou qualquer outra coisa (campo
+        ausente, torto ou contraditório), é None e o repositório mantém a data que já estava."""
         if expirada_em is not None:
             return True
+        if not gupy.lida:
+            return None
         if job.get("expires") is False and job.get("expired") is not True and job.get("expiresAt") is None:
             return False
         return None
 
-    def _detalhe_do_job(self, job: dict, gupy: datetime | None = None) -> DetalheVaga:
+    def _detalhe_do_job(self, job: dict, gupy: ConsultaGupy = SEM_GUPY) -> DetalheVaga:
         """O detalhe de um job (da listagem ou de /jobs/{id}); campo malformado descarta só o campo."""
         requisitos = []
         for item in job.get("jobRequirements") if isinstance(job.get("jobRequirements"), list) else []:
@@ -155,10 +170,10 @@ class RemotarClient(ProviderClient):
             beneficios=beneficios[:MAX_BENEFICIOS],
             subtitulo=html_para_linha(job.get("subtitle"), MAX_TEXTO_SUBTITULO) or None,
             expirada_em=(expirada_em := self._expirada_em(job, gupy)),
-            tem_prazo=self._tem_prazo(job, expirada_em),
+            tem_prazo=self._tem_prazo(job, expirada_em, gupy),
         )
 
-    def _detalhe_seguro(self, job: dict, gupy: datetime | None) -> DetalheVaga | None:
+    def _detalhe_seguro(self, job: dict, gupy: ConsultaGupy) -> DetalheVaga | None:
         """O detalhe da listagem; se este job vier estranho, só ele fica sem detalhe (a busca segue)."""
         try:
             return self._detalhe_do_job(job, gupy)
@@ -174,7 +189,7 @@ class RemotarClient(ProviderClient):
         if not isinstance(job, dict):
             raise ErroProvider("resposta não é um objeto")
         try:
-            return self._detalhe_do_job(job, self._encerramento_gupy(job))
+            return self._detalhe_do_job(job, self._consultar_gupy(job))
         except (KeyError, TypeError, ValueError, AttributeError, IndexError, RecursionError) as erro:
             raise ErroProvider(f"resposta com forma inesperada: {type(erro).__name__}") from erro
 
@@ -189,9 +204,9 @@ class RemotarClient(ProviderClient):
             pagina += 1
         # Uma página do Gupy por vaga: em paralelo, senão a coleta espera uma por uma.
         with ThreadPoolExecutor(CONSULTAS_GUPY_SIMULTANEAS) as pool:
-            encerramentos = list(pool.map(self._encerramento_gupy, jobs))
+            consultas = list(pool.map(self._consultar_gupy, jobs))
         vagas = []
-        for job, gupy in zip(jobs, encerramentos):
+        for job, gupy in zip(jobs, consultas):
             expirada_em = self._expirada_em(job, gupy)
             empresa = job.get("companyDisplayName") or (job.get("company") or {}).get("name") or ""
             local = ", ".join(p for p in (job.get("city"), job.get("state")) if p) or None
@@ -205,7 +220,7 @@ class RemotarClient(ProviderClient):
                     remoto=job.get("type") == "remote",
                     publicada_em=parse_data(job.get("createdAt")),
                     expirada_em=expirada_em,
-                    tem_prazo=self._tem_prazo(job, expirada_em),
+                    tem_prazo=self._tem_prazo(job, expirada_em, gupy),
                     detalhe=self._detalhe_seguro(job, gupy),
                 )
             )
