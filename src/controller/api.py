@@ -491,10 +491,21 @@ def _token_apify() -> str | None:
         return None
 
 
+def _limite_posts_apify() -> int:
+    """APIFY_POSTS_LIMITE (posts por termo). Ausente, inválido ou não positivo = 0, desligado: o provider é
+    pago e só gasta com uma decisão explícita; valor torto não derruba a app."""
+    try:
+        limite = int(os.environ.get("APIFY_POSTS_LIMITE", "0"))
+    except ValueError:
+        return 0
+    return max(limite, 0)
+
+
 def providers_padrao() -> list:
     """Remotar e Trampos sempre; Himalayas e Remotive (vagas remotas abertas ao Brasil/América Latina) por
     padrão, com opt-out por LATAM_PROVIDERS; Greenhouse, Lever e Ashby só com empresas em
-    GREENHOUSE_EMPRESAS etc.; o LinkedIn pelo Apify só com APIFY_TOKEN ou APIFY_TOKEN_FILE."""
+    GREENHOUSE_EMPRESAS etc.; o LinkedIn pelo Apify só com APIFY_TOKEN ou APIFY_TOKEN_FILE; os posts do
+    LinkedIn só com o token e APIFY_POSTS_LIMITE >= 1."""
     from src.client.ashby import AshbyClient
     from src.client.greenhouse import GreenhouseClient
     from src.client.lever import LeverClient
@@ -524,6 +535,11 @@ def providers_padrao() -> list:
                 token=token,
             )
         )
+        if limite_posts := _limite_posts_apify():
+            from src.client.apify_linkedin_posts import ApifyLinkedInPostsClient
+
+            # Cada busca custa até APIFY_POSTS_LIMITE posts por termo (US$ 0,002 cada em out/2026).
+            providers.append(ApifyLinkedInPostsClient(limite=limite_posts, token=token))
     return providers
 
 

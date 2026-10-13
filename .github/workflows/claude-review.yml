@@ -85,13 +85,19 @@ jobs:
                uma correção já feita, só comente se ela QUEBROU algo, nunca porque deixou
                de cobrir mais uma variação rara do mesmo caso.
             5. Severidade no começo do comentário: [ALTA] perde dado, 500 em caminho comum,
-               custo ou segurança; [MÉDIA] errado num caso plausível. Caso raro de borda:
-               não reporte.
-            6. No máximo 3 achados por rodada, os mais graves. Um comentário inline por
+               custo ou segurança; [MÉDIA] errado num caso plausível. Concorrência entre dois
+               gatilhos que já existem (timer, botão, duas abas, reentrega), timeout, soma de
+               tempos contra um limite, processo que sobra depois de kill, falha passageira de
+               rede ou de provider: NÃO é caso raro, reporte. Só não reporte combinação de
+               entrada que nenhum caminho do código produz.
+            6. No máximo 5 achados por rodada, os mais graves. Um comentário inline por
                achado, em português, em até 8 linhas.
-            7. Se nada passar por esses filtros: um único comentário curto no PR, "Não
+            7. Antes de concluir que não há bugs, liste para você mesmo os caminhos de erro,
+               de tempo e de concorrência que o diff toca, e confira cada um.
+            8. Se nada passar por esses filtros: um único comentário curto no PR, "Não
                encontrei bugs.", e mais nada.
-          # Opus: o Sonnet errava demais nos achados. Gasta mais da cota do Pro,
+          # Opus: o Sonnet errava demais nos achados (13/10, com este prompt, em 5 bugs reais
+          # antigos: Sonnet 0 de 5, Opus 5 de 5). Gasta mais da cota do Pro,
           # a mesma das sessões do celular. As ferramentas ficam limitadas a ler
           # o PR e comentar; as threads inline chegam pelo arquivo do passo acima.
           claude_args: |
