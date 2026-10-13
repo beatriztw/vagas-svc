@@ -193,8 +193,12 @@ class BotaoDaTelaTest(unittest.TestCase):
         # A mesma rota com o CSRF certo existe e enfileira (senão o 403 acima não provaria nada).
         self.assertEqual(self.m.cliente.post("/tela/ia/lote", headers=MUTACAO).status_code, 200)
 
-    def test_sem_teto_nao_mostra_restam(self):
-        texto = Pagina(self.m.cliente.get("/tela").text).por_id("lote-ia").texto
+    def test_sem_teto_enfileira_alem_do_antigo_padrao_de_40_e_nao_mostra_restam(self):
+        # Sem IA_LOTE_MAX_POR_DIA o lote não tem teto: 41 vagas (uma acima do antigo padrão) entram todas.
+        self.m.encontradas.registrar([vaga(f"x{i}") for i in range(38)], "python")
+        texto = Pagina(self.m.cliente.post("/tela/ia/lote", headers=MUTACAO).text).por_id("lote-ia").texto
+        self.assertIn("41 vagas na fila da IA", texto)
+        self.assertEqual(len(self.m.lote()), 41)
         self.assertNotIn("restam", texto)
         self.assertNotIn("Limite", texto)
 
