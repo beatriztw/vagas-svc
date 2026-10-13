@@ -2,9 +2,15 @@ name: Claude review
 
 # Review automático de PR com a assinatura do Claude (estilo Bugbot): procura
 # bugs no diff e comenta no PR. Não faz push nem aprova.
+# Não roda a cada push: cada review do Opus gasta o equivalente a 10–15 avaliações de vaga da cota
+# do Pro (a mesma do worker da IA e do celular). Roda quando o PR abre, sai de rascunho ou reabre;
+# para revisar de novo depois de um push, ponha o label `review` no PR (tire e ponha para repetir).
+# PR que só mexe em markdown não roda.
 on:
   pull_request:
-    types: [opened, synchronize, ready_for_review, reopened]
+    types: [opened, ready_for_review, reopened, labeled]
+    paths-ignore:
+      - "**/*.md"
 
 concurrency:
   group: claude-review-${{ github.event.pull_request.number }}
@@ -16,7 +22,8 @@ jobs:
     # os secrets, então o job falharia de qualquer jeito.
     if: >-
       github.event.pull_request.draft == false &&
-      github.event.pull_request.head.repo.full_name == github.repository
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      (github.event.action != 'labeled' || github.event.label.name == 'review')
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
