@@ -57,6 +57,9 @@ def criar_router_tela_candidaturas(servico: CandidaturaService) -> APIRouter:
     def bloco_com_acao(request: Request, vaga_url: str, candidatura):
         """O bloco #aplicadas e, por OOB, a área do botão no detalhe (que já aberto é desta vaga)."""
         contexto = {**contexto_aplicadas(servico), "oob_vaga_url": vaga_url, "candidatura": candidatura}
+        if candidatura is not None:
+            # A vaga aplicada saiu das salvas: a resposta leva a bandeirinha e o número da aba (OOB).
+            contexto["total_salvas"] = servico.contar_salvas()
         return templates.TemplateResponse(request, "tela/_aplicadas_e_acao.html", contexto)
 
     @router.post("", dependencies=[Depends(exigir_mutacao_da_tela)])

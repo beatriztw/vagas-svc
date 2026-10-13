@@ -1,7 +1,7 @@
 {# Partial = alvo do swap (outerHTML): resumo, contador, alternância e lista trocam juntos; a página inteira inclui este mesmo arquivo. #}
 <div id="vagas">
   {# O filtro "Novas" atual: o campo de busca (fora deste bloco) e a coleta levam isto com `hx-include`. O `q` é o do próprio campo. #}
-  <div id="estado-lista" hidden>{% if novas %}<input type="hidden" name="novas" value="1">{% endif %}{% if ordem_pedida %}<input type="hidden" name="ordem" value="{{ ordem_pedida.value }}">{% endif %}{% if faixa %}<input type="hidden" name="faixa" value="{{ faixa.value }}">{% endif %}</div>
+  <div id="estado-lista" hidden>{% if novas %}<input type="hidden" name="novas" value="1">{% endif %}{% if ordem_pedida %}<input type="hidden" name="ordem" value="{{ ordem_pedida.value }}">{% endif %}{% if faixa %}<input type="hidden" name="faixa" value="{{ faixa.value }}">{% endif %}{% if salvas %}<input type="hidden" name="salvas" value="1">{% endif %}</div>
   {% if resumo is defined %}
   <div class="resumo" role="status">
     {% if resumo.falhou %}
@@ -13,20 +13,26 @@
   </div>
   {% endif %}
   <div class="lista-barra">
-    <p class="mono contador">{{ total }} {{ "novas" if novas else "encontradas" }}</p>
+    <p class="mono contador">{{ total }} {{ "salvas" if salvas else "novas" if novas else "encontradas" }}</p>
     <nav class="alternancia" aria-label="Filtro da lista">
-      <a class="botao{% if not novas %} botao-ativo{% endif %}"{% if not novas %} aria-current="page"{% endif %}
+      <a class="botao{% if not novas and not salvas %} botao-ativo{% endif %}"{% if not novas and not salvas %} aria-current="page"{% endif %}
          href="/tela{{ '?' ~ query_todas if query_todas }}"
          hx-get="/tela/vagas{{ '?' ~ query_todas if query_todas }}" hx-include="#detalhe-url" hx-target="#vagas" hx-swap="outerHTML">Todas</a>
       <a class="botao{% if novas %} botao-ativo{% endif %}"{% if novas %} aria-current="page"{% endif %}
          href="/tela?{{ query_novas }}"
          hx-get="/tela/vagas?{{ query_novas }}" hx-include="#detalhe-url" hx-target="#vagas" hx-swap="outerHTML">Novas</a>
+      {# O número fica num span próprio: a bandeirinha o troca por OOB sem saber em que aba a tela está.
+         `&nbsp;`: o .botao é flex, e o espaço comum entre o texto e o span sumiria. #}
+      <a class="botao{% if salvas %} botao-ativo{% endif %}"{% if salvas %} aria-current="page"{% endif %}
+         href="/tela?{{ query_salvas }}"
+         hx-get="/tela/vagas?{{ query_salvas }}" hx-include="#detalhe-url" hx-target="#vagas" hx-swap="outerHTML">Salvas&nbsp;·&nbsp;<span id="contador-salvas">{{ total_salvas }}</span></a>
     </nav>
     <button type="button" class="botao botao-primario" hx-post="/tela/coletas" hx-include="#busca, #estado-lista"
             hx-target="#vagas" hx-swap="outerHTML" hx-disabled-elt="this">Coletar agora</button>
   </div>
   {% if lote %}{% include "tela/_lote_ia.html" %}{% endif %}
-  {% if tem_ia %}
+  {# Na aba "Salvas" a ordem é a de quando a pessoa salvou: sem ordem nem corte da IA. #}
+  {% if tem_ia and not salvas %}
   <div class="lista-barra lista-ia">
     <nav class="alternancia" aria-label="Ordem da lista">
       <span class="mono">Ordem</span>
@@ -48,7 +54,11 @@
   <ul id="lista-vagas" class="lista-vagas">
     {% if total == 0 %}
     <li class="vazio">
-      {% if faixa %}
+      {% if salvas and q %}
+      <p>Nenhuma vaga salva encontrada para a busca.</p>
+      {% elif salvas %}
+      <p>Nenhuma vaga salva. Use a bandeirinha de uma vaga para guardá-la aqui.</p>
+      {% elif faixa %}
       <p>Nenhuma vaga avaliada pela IA nessa faixa.</p>
       {% elif q %}
       <p>Nenhuma vaga encontrada para a busca.</p>

@@ -156,6 +156,24 @@ class HistoricoService:
             visiveis = ordenar_por_nota(visiveis, notas)
         return PaginaHistorico(vagas=visiveis[deslocamento : deslocamento + limite], total=len(visiveis), ordem=ordem)
 
+    def salvas(
+        self, limite: int, q: str | None = None, apos: tuple[datetime, str] | None = None
+    ) -> PaginaHistorico:
+        """A aba "Salvas": só as salvas, da salva mais recente para a mais antiga. Sem os filtros do
+        perfil (a pessoa salvou de propósito, e mudar o perfil não esconde o que ela guardou), sem a
+        ordem nem o corte da IA, e com as expiradas (a tela as marca como encerradas).
+
+        O "carregar mais" continua DEPOIS da última vaga mostrada (`apos` = seu `salva_em` e sua url),
+        não por deslocamento: tirar uma vaga dos salvos com a página aberta encolhe a lista, e um
+        deslocamento pularia a vaga seguinte. `total` é o da aba inteira."""
+        limite = validar_limite(limite)
+        salvas = self.vagas.listar_salvas(teto=TETO_VARREDURA_HISTORICO, q=q)
+        restantes = salvas
+        if apos is not None:
+            em, url = apos
+            restantes = [v for v in salvas if v.salva_em < em or (v.salva_em == em and v.url > url)]
+        return PaginaHistorico(vagas=restantes[:limite], total=len(salvas))
+
     def visiveis(self, hoje: date | None = None) -> list[VagaEncontrada]:
         """A lista inteira, sem busca e sem o filtro de novas, na ordem da tela: com perfil, as que
         passam nele, por match; sem perfil, as mais recentes. Nunca as expiradas. Teto da varredura."""

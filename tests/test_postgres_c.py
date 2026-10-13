@@ -319,6 +319,8 @@ class PostgresTest(ContratoDetalhe, ContratoHistorico, unittest.TestCase):
         self.conn.execute((MIGRATIONS / "002_vaga_encontrada.sql").read_text(encoding="utf-8"))
         self.conn.execute("INSERT INTO vaga_encontrada (url, titulo, empresa, plataforma) VALUES ('u', 't', 'e', 'p')")
         self.conn.execute((MIGRATIONS / "004_detalhe_vaga.sql").read_text(encoding="utf-8"))
+        # As migrations seguintes que mexem em vaga_encontrada: o repositório lê as colunas delas.
+        self.conn.execute((MIGRATIONS / "009_vaga_salva.sql").read_text(encoding="utf-8"))
         self.assertEqual(self.repo.contar(False), 1)
         self.assertIsNone(self.repo.obter("u").expirada_em)
 
