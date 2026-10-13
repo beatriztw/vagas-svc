@@ -219,6 +219,30 @@ class AbaSalvasTest(unittest.TestCase):
         segunda = Pagina(t.cliente.get(sentinela.attrs["hx-get"], headers=HX).text)
         self.assertEqual(len(segunda.cards()), 10)
 
+    def test_tirar_dos_salvos_com_a_pagina_aberta_nao_pula_vaga_no_carregar_mais(self):
+        # O bug do review: com deslocamento, tirar uma vaga da 1ª página fazia a 51ª nunca aparecer.
+        t = Tela([vaga(i) for i in range(60)])
+        for i in range(60):
+            t.salvar(i)
+
+        primeira = t.lista("?salvas=1")
+        vistas = [c.attrs["data-url"] for c in primeira.cards()]
+        t.salvar(int(vistas[10].rsplit("/", 1)[1]), "0")  # o card continua na tela
+        sentinela = next(e for e in primeira.tags("li") if "mais" in (e.attrs.get("class") or ""))
+        segunda = Pagina(t.cliente.get(sentinela.attrs["hx-get"], headers=HX).text)
+        vistas += [c.attrs["data-url"] for c in segunda.cards()]
+
+        self.assertEqual(sorted(vistas), sorted(url(i) for i in range(60)))
+        self.assertEqual(len(vistas), len(set(vistas)))
+        # A última página não deixa outro sentinela.
+        self.assertFalse([e for e in segunda.tags("li") if "mais" in (e.attrs.get("class") or "")])
+
+    def test_cursor_torto_e_422(self):
+        t = Tela([vaga(1)])
+        for query in ("?salvas=1&apos_em=ontem&apos_url=x", "?salvas=1&apos_em=2026-10-13T10:00:00&apos_url=x", "?salvas=1&apos_url=x"):
+            with self.subTest(query=query):
+                self.assertEqual(t.cliente.get(f"/tela/vagas{query}", headers=HX).status_code, 422)
+
     def test_aba_vazia_e_busca_sem_resultado(self):
         t = Tela([vaga(1)])
         self.assertIn("Nenhuma vaga salva", t.lista("?salvas=1").por_id("vagas").texto)

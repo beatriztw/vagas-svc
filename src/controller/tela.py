@@ -72,6 +72,19 @@ def _query(**parametros) -> str:
     return urlencode(limpos, quote_via=quote)
 
 
+def _apos(em: str | None, url: str | None) -> tuple[datetime, str] | None:
+    """O cursor do "carregar mais" da aba "Salvas": `salva_em` (ISO 8601) e url da última vaga mostrada."""
+    if not em and not url:
+        return None
+    try:
+        instante = datetime.fromisoformat(em or "")
+    except ValueError:
+        raise DadoInvalido("apos_em tem que ser uma data ISO 8601") from None
+    if instante.tzinfo is None or not url or len(url) > MAX_TAMANHO_URL:
+        raise DadoInvalido("cursor da aba Salvas inválido")
+    return instante, url
+
+
 def id_salvar(url: str) -> str:
     """Pedaço de id HTML estável para a bandeirinha da vaga: a URL inteira não serve de id."""
     return hashlib.sha256(url.encode("utf-8", "surrogatepass")).hexdigest()[:16]
@@ -129,6 +142,7 @@ def criar_router_tela(
         ordem: Ordem | None = None,
         faixa: FaixaMinima | None = None,
         salvas: bool = False,
+        apos: tuple[datetime, str] | None = None,
     ) -> dict:
         """O que `_lista.html` e `_cards.html` precisam. Página e total saem da mesma leitura do
         histórico com o perfil aplicado: o contador é o da lista inteira, nunca o tamanho da página.
@@ -137,7 +151,7 @@ def criar_router_tela(
         notas = ia.notas_validas() if ia is not None else {}
         if salvas:
             novas, ordem, faixa = False, None, None
-            lida = historico.salvas(limite=TAMANHO_PAGINA, q=q, deslocamento=deslocamento)
+            lida = historico.salvas(limite=TAMANHO_PAGINA, q=q, apos=apos)
         else:
             lida = historico.pagina(
                 somente_novas=novas,
@@ -153,9 +167,14 @@ def criar_router_tela(
         # O que a pessoa escolheu viaja nas urls (a ordem padrão não: ela muda sozinha com as notas).
         escolha = {"q": q, "ordem": ordem, "faixa": faixa}
         query_proximo = None
-        if vagas and proximo < total and proximo <= MAX_DESLOCAMENTO_VAGAS:
+        if salvas:
+            # A aba "Salvas" continua depois da última vaga mostrada (ver `HistoricoService.salvas`).
+            if len(vagas) == TAMANHO_PAGINA:
+                ultima = vagas[-1]
+                query_proximo = _query(salvas=True, q=q, apos_em=ultima.salva_em.isoformat(), apos_url=ultima.url)
+        elif vagas and proximo < total and proximo <= MAX_DESLOCAMENTO_VAGAS:
             # Codificado aqui, uma vez: o template só imprime (e escapa para atributo).
-            query_proximo = _query(deslocamento=proximo, novas=novas, salvas=salvas, **escolha)
+            query_proximo = _query(deslocamento=proximo, novas=novas, **escolha)
         com_novas = {**escolha, "novas": novas, "salvas": salvas}
         agora = datetime.now(timezone.utc)
         return {
@@ -186,7 +205,7 @@ def criar_router_tela(
             "query_faixa_alta": _query(**{**com_novas, "faixa": FaixaMinima.ALTA}),
             "max_busca": MAX_TAMANHO_BUSCA,
             # Só no 1º bloco (a barra da lista); os blocos do "carregar mais" não têm barra.
-            "lote": contexto_lote(notas=notas) if deslocamento == 0 else None,
+            "lote": contexto_lote(notas=notas) if deslocamento == 0 and apos is None else None,
         }
 
     def pagina(
@@ -261,19 +280,23 @@ def criar_router_tela(
         ordem: str | None = None,
         faixa: str | None = None,
         salvas: str | None = None,
+        apos_em: str | None = None,
+        apos_url: str | None = None,
     ):
         q = _busca(q)
         somente_novas, so_salvas = _novas(novas), _salvas(salvas)
         ordem_, faixa_ = validar_ordem(ordem), validar_faixa_minima(faixa)
         # Validado também na página inteira: um deslocamento ruim é 422, não é ignorado.
         inicio = validar_deslocamento(_deslocamento(deslocamento))
+        apos = _apos(apos_em, apos_url)
         if not eh_htmx(request):
             return pagina(request, q, somente_novas, None, False, ordem_, faixa_, so_salvas)
-        contexto = contexto_lista(q, somente_novas, inicio, ordem_, faixa_, so_salvas)
+        contexto = contexto_lista(q, somente_novas, inicio, ordem_, faixa_, so_salvas, apos if so_salvas else None)
+        continuacao = inicio > 0 or (so_salvas and apos is not None)
         # Do 2º bloco em diante só entram os cards e o novo sentinela (substitui o anterior).
-        partial = "tela/_cards.html" if inicio > 0 else "tela/_lista.html"
+        partial = "tela/_cards.html" if continuacao else "tela/_lista.html"
         resposta = templates.TemplateResponse(request, partial, contexto)
-        if inicio == 0:
+        if not continuacao:
             # A barra mostra a PÁGINA (`/tela?...`), não o partial, e mantém a vaga aberta (`url`):
             # F5 e link copiado reabrem a mesma tela. `detalhe_url` vem do #detalhe-url, se houver detalhe.
             aberta = detalhe_url if detalhe_url and len(detalhe_url) <= MAX_TAMANHO_URL else None
