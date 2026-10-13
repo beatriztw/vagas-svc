@@ -1,0 +1,67 @@
+[
+  {
+    "type": "post",
+    "id": "7000000000000000001",
+    "linkedinUrl": "https://www.linkedin.com/posts/empresa-ficticia_vagas-activity-7000000000000000001-AbCd",
+    "content": "🚀 Vaga aberta: Assistente Financeiro (100% remoto) #vagas #financeiro\n\nTexto inventado para teste: a Empresa Fictícia está contratando para trabalho remoto em todo o Brasil.\n• Contas a pagar\n• Conciliação bancária",
+    "author": {"type": "company", "name": "Empresa Fictícia", "publicIdentifier": "empresa-ficticia", "info": "Empresa inventada"},
+    "postedAt": {"timestamp": 1791806400000, "date": "2026-10-12T12:00:00.000Z", "postedAgoShort": "5h", "postedAgoText": "5h"},
+    "query": "\"assistente financeiro\""
+  },
+  {
+    "type": "post",
+    "id": "7000000000000000002",
+    "linkedinUrl": "https://www.linkedin.com/posts/pessoa-ficticia_contratando-activity-7000000000000000002-EfGh",
+    "content": "#contratando #homeoffice\nEstamos contratando analista de contas a pagar, home-office, CLT.\nTexto inventado para teste.",
+    "author": {"type": "profile", "name": "Pessoa Fictícia", "publicIdentifier": "pessoa-ficticia", "info": "Recrutadora inventada"},
+    "postedAt": {"timestamp": 1791676800000, "date": "2026-10-11T00:00:00.000Z"}
+  },
+  {
+    "type": "post",
+    "id": "7000000000000000003",
+    "content": "Olá, rede! #OpenToWork Estou em busca de uma vaga de assistente financeiro remoto. Texto inventado.",
+    "author": {"type": "profile", "name": "Pessoa Fictícia Dois"},
+    "postedAt": {"timestamp": 1791676800000}
+  },
+  {
+    "type": "post",
+    "id": "7000000000000000004",
+    "content": "Inscrições abertas para a mentoria de carreira em finanças: garanta sua vaga, link na bio! Texto inventado.",
+    "author": {"type": "company", "name": "Escola Fictícia"},
+    "postedAt": {"timestamp": 1791676800000}
+  },
+  {
+    "type": "post",
+    "id": "7000000000000000005",
+    "content": "Cinco dicas de Excel para o assistente financeiro que trabalha remoto. Texto inventado.",
+    "author": {"type": "company", "name": "Blog Fictício"},
+    "postedAt": {"timestamp": 1791676800000}
+  },
+  {
+    "type": "post",
+    "id": "7000000000000000006",
+    "content": "Oportunidade: assistente financeiro júnior, modelo híbrido em São Paulo (2 dias de home office). Texto inventado.",
+    "author": {"type": "company", "name": "Outra Empresa Fictícia"},
+    "postedAt": {"timestamp": 1791676800000}
+  },
+  {
+    "type": "post",
+    "linkedinUrl": "https://www.linkedin.com/posts/sem-id",
+    "content": "Vaga sem id, item torto. Texto inventado.",
+    "author": {"type": "company", "name": "Sem Id"}
+  },
+  "erro do actor",
+  {
+    "type": "post",
+    "id": "7000000000000000009",
+    "content": "Buscamos assistente administrativo-financeiro para a nossa equipe. Texto inventado.",
+    "author": {"type": "company", "name": "Terceira Empresa Fictícia"},
+    "postedAt": {"timestamp": 100000000000000000000, "date": "ontem"}
+  },
+  {
+    "type": "post",
+    "id": "7000000000000000001",
+    "content": "Vaga aberta: repost do mesmo post (mesmo id). Texto inventado.",
+    "author": {"type": "company", "name": "Empresa Fictícia"}
+  }
+]

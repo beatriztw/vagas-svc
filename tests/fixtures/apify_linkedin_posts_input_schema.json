@@ -1,0 +1,133 @@
+{
+  "_fonte": "GET https://api.apify.com/v2/acts/harvestapi~linkedin-post-search/builds/default",
+  "_build": "0.0.114",
+  "_baixado_em": "2026-10-12",
+  "required": [],
+  "properties": {
+    "searchQueries": {
+      "type": "array"
+    },
+    "maxPosts": {
+      "type": "integer"
+    },
+    "postedLimit": {
+      "type": "string",
+      "enum": [
+        "any",
+        "1h",
+        "24h",
+        "week",
+        "month",
+        "3months",
+        "6months",
+        "year"
+      ]
+    },
+    "postedLimitDate": {
+      "type": "string"
+    },
+    "sortBy": {
+      "type": "string",
+      "enum": [
+        "relevance",
+        "date"
+      ]
+    },
+    "authorUrls": {
+      "type": "array"
+    },
+    "authorsCompanies": {
+      "type": "array"
+    },
+    "mentioningMember": {
+      "type": "array"
+    },
+    "mentioningCompany": {
+      "type": "array"
+    },
+    "contentType": {
+      "type": "string",
+      "enum": [
+        "all",
+        "videos",
+        "images",
+        "jobs",
+        "live_videos",
+        "documents",
+        "collaborative_articles"
+      ]
+    },
+    "authorsIndustryId": {
+      "type": "array"
+    },
+    "authorKeywords": {
+      "type": "string"
+    },
+    "profileScraperMode": {
+      "type": "string",
+      "enum": [
+        "short",
+        "main"
+      ],
+      "default": "short"
+    },
+    "startPage": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 100,
+      "default": 1
+    },
+    "scrapePages": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 100
+    },
+    "scrapeReactions": {
+      "type": "boolean"
+    },
+    "maxReactions": {
+      "type": "integer"
+    },
+    "reactionsProfileScraperMode": {
+      "type": "string",
+      "enum": [
+        "short",
+        "main"
+      ],
+      "default": "short"
+    },
+    "postNestedReactions": {
+      "type": "boolean"
+    },
+    "scrapeComments": {
+      "type": "boolean"
+    },
+    "commentsPostedLimit": {
+      "type": "string",
+      "enum": [
+        "any",
+        "1h",
+        "24h",
+        "week",
+        "month",
+        "3months",
+        "6months",
+        "year"
+      ]
+    },
+    "maxComments": {
+      "type": "integer"
+    },
+    "commentsProfileScraperMode": {
+      "type": "string",
+      "enum": [
+        "short",
+        "main"
+      ],
+      "default": "short"
+    },
+    "postNestedComments": {
+      "type": "boolean"
+    }
+  }
+}
