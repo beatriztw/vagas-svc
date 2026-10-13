@@ -111,7 +111,8 @@ class ListaTest(unittest.TestCase):
         urls = [c.attrs["data-url"] for c in pagina.cards()]
         sentinelas = [e for e in pagina.tags("li") if "mais" in (e.attrs.get("class") or "")]
         self.assertEqual(len(sentinelas), 1)
-        self.assertEqual(sentinelas[0].attrs["hx-trigger"], "revealed")
+        # `revealed` só dispara com a rolagem da janela; a lista rola dentro do painel.
+        self.assertEqual(sentinelas[0].attrs["hx-trigger"], "intersect once")
         proximo = sentinelas[0].attrs["hx-get"]
         self.assertIn("deslocamento=50", proximo)
 
