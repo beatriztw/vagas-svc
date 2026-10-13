@@ -36,12 +36,18 @@ from src.repository.base import (
 from src.repository.candidatura import validar_vaga_url
 from src.repository.pedido_ia import PedidoIARepository, validar_faixa, validar_tipo
 from src.repository.trava import ColetaEmAndamento, TravaColeta, TravaColetaMemoria
+from src.service.detalhe_service import DetalheService
 from src.service.metricas_ia import maior_versao
 
 log = logging.getLogger(__name__)
 
 MAX_URL = 2048
 MSG_SEM_BASE = "Salve um currículo base antes de usar a IA"
+# O currículo é adaptado pelo texto da vaga (e no idioma dela): sem a descrição, a IA adaptaria às cegas.
+MSG_SEM_DESCRICAO = (
+    "Não foi possível carregar a descrição da vaga agora, e o currículo precisa dela. "
+    "Abra a vaga de novo mais tarde e peça o currículo."
+)
 # Teto de pedidos sem base descartados numa só chamada de `proximo`: a próxima chamada continua.
 _MAX_DESCARTES = 100
 # Lote: por padrão sem teto (enfileira todas as que faltam); com IA_LOTE_MAX_POR_DIA, no máximo tantos
@@ -92,8 +98,11 @@ class PedidoIAService:
         max_lote_por_dia: int | None | object = _DO_AMBIENTE,
         relogio: Callable[[], datetime] | None = None,
         trava_lote: TravaColeta | None = None,
+        detalhe: DetalheService | None = None,
     ):
         self.pedidos = pedidos
+        # Busca a descrição que faltar antes do pedido de currículo. None (testes): não busca nada.
+        self.detalhe = detalhe
         self.encontradas = encontradas
         self.perfis = perfis
         self.curriculos = curriculos
@@ -117,10 +126,25 @@ class PedidoIAService:
         base = self.curriculos.obter_base()
         if base is None:
             raise DadoInvalido(MSG_SEM_BASE)
+        if tipo == TipoPedidoIA.CURRICULO:
+            self._garantir_descricao(vaga_url)
         pedido, criado = self.pedidos.criar(vaga_url, tipo, curriculo_base_id=base.id)
         if criado:
             _log(pedido)
         return pedido, criado
+
+    def _garantir_descricao(self, vaga_url: str) -> None:
+        """Carrega a descrição da vaga se ainda faltar (o mesmo `carregar` de quando a vaga é aberta).
+
+        Só recusa quando havia o que buscar e o provider falhou (LinkedIn limitando, rede): plataforma
+        sem detalhe sob demanda, ou vaga já detalhada, segue como antes. A compatibilidade (lote) não
+        passa por aqui: buscar o detalhe de cada vaga do lote estouraria o limite do LinkedIn.
+        """
+        if self.detalhe is None:
+            return
+        aberta = self.detalhe.carregar(vaga_url)
+        if aberta is not None and aberta.aviso is not None:
+            raise DadoInvalido(MSG_SEM_DESCRICAO)
 
     def versao_compatibilidade(self) -> str | None:
         """A versão do prompt de compatibilidade que vale: a maior `compatibilidade-vN` já vista nos
