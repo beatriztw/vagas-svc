@@ -37,11 +37,19 @@ MAX_CARACTERES_TITULO = 120
 _MODELO_CONSULTA = '"{termo}" AND ("vaga" OR "contratando" OR "contratamos") AND ("remoto" OR "home office")'
 
 # Frases comparadas por palavra normalizada (sem acento e caixa; hífen entre letras junta: "home-office" = "homeoffice").
-_PROCURA_EMPREGO = (("opentowork",), ("open", "to", "work"), ("estou", "em", "busca"), ("procuro", "oportunidade"),
-                    ("procuro", "oportunidades"), ("estou", "disponivel"))
-# "curso" sozinho não entra: "curso superior completo" é requisito comum em vaga de verdade.
-_CURSO = (("mentoria",), ("mentorias",), ("inscricoes",), ("link", "na", "bio"), ("curso", "gratuito"),
-          ("cursos", "gratuitos"), ("curso", "online"), ("meu", "curso"), ("nosso", "curso"), ("novo", "curso"))
+# "Estou em busca de <cargo>" sozinho não entra: é a abertura mais comum de recrutador. Só a busca DE
+# oportunidade/emprego/recolocação, que é de quem procura.
+_PROCURA_EMPREGO = (("opentowork",), ("open", "to", "work"), ("recolocacao",), ("procuro", "oportunidade"),
+                    ("procuro", "oportunidades"), ("procuro", "emprego"), ("estou", "disponivel"),
+                    ("busca", "de", "oportunidade"), ("busca", "de", "oportunidades"), ("busca", "de", "emprego"),
+                    ("busca", "de", "uma", "oportunidade"), ("busca", "de", "nova", "oportunidade"),
+                    ("busca", "de", "uma", "nova", "oportunidade"), ("busca", "de", "novas", "oportunidades"))
+# "curso" sozinho não entra: "curso superior completo" é requisito comum em vaga de verdade. Nem "inscrições"
+# sozinho: "inscrições abertas para a vaga de estágio" é vaga. Só a inscrição em curso ou mentoria.
+_CURSO = (("mentoria",), ("mentorias",), ("link", "na", "bio"), ("curso", "gratuito"), ("cursos", "gratuitos"),
+          ("curso", "online"), ("meu", "curso"), ("nosso", "curso"), ("novo", "curso"), ("inscricoes", "para", "o", "curso"),
+          ("inscricoes", "abertas", "para", "o", "curso"), ("inscricoes", "para", "a", "mentoria"),
+          ("inscricoes", "abertas", "para", "a", "mentoria"))
 _CONTRATACAO = {"contratando", "contratamos", "vaga", "vagas", "oportunidade", "oportunidades", "hiring", "buscamos",
                 "procuramos"}
 _REMOTO = (("remoto",), ("remota",), ("remote",), ("home", "office"), ("homeoffice",))

@@ -204,6 +204,7 @@ class FiltroDeRuidoTest(unittest.TestCase):
             "Open to work: procuro vaga de analista.",
             "Estou em BUSCA de oportunidade como analista.",
             "Procuro oportunidades na área financeira (vaga remota).",
+            "Em busca de recolocação: aceito vaga remota.",
             "Estou disponível para vaga imediata.",
         ):
             self.assertEqual(motivo_de_descarte(texto), PROCURA_EMPREGO, texto)
@@ -211,7 +212,7 @@ class FiltroDeRuidoTest(unittest.TestCase):
     def test_curso_e_mentoria(self):
         for texto in (
             "Mentoria para conseguir sua vaga.",
-            "INSCRIÇÕES abertas! Oportunidade única.",
+            "INSCRIÇÕES abertas para o curso! Oportunidade única de vaga.",
             "Vaga garantida: link na bio.",
             "Curso gratuito de Excel com oportunidade de vaga.",
         ):
@@ -219,6 +220,14 @@ class FiltroDeRuidoTest(unittest.TestCase):
 
     def test_sem_verbo_de_contratacao(self):
         self.assertEqual(motivo_de_descarte("Cinco dicas de Excel para quem trabalha remoto."), SEM_CONTRATACAO)
+
+    def test_post_de_recrutador_e_programa_de_estagio_nao_sao_descartados(self):
+        # Achado do review do #49: a abertura de recrutador e o programa com inscrição são vaga.
+        for texto in (
+            "Estou em busca de Assistente Financeiro para vaga 100% remota, CLT.",
+            "Inscrições abertas para a vaga de estágio remoto em finanças!",
+        ):
+            self.assertIsNone(motivo_de_descarte(texto), texto)
 
     def test_vaga_de_verdade_passa(self):
         for texto in (
