@@ -10,7 +10,8 @@
      hx-push-url="/tela?url={{ destino }}{{ extra }}">
     <span class="card-titulo">{{ vaga.titulo }}{% if vaga.vista_em is none %} <span class="selo-nova">nova</span>{% endif %}</span>
     <span class="card-sec">{{ vaga.empresa }}{% if (vaga.local or "").strip() %} - {{ vaga.local }}{% endif %}</span>
-    <span class="mono">{{ "remoto" if vaga.remoto is true else "presencial" if vaga.remoto is false else "não informado" }}</span>
+    {%- set fonte = vaga.plataforma | plataforma_curta %}
+    <span class="mono">{{ "remoto" if vaga.remoto is true else "presencial" if vaga.remoto is false else "não informado" }}{% if fonte %} · {{ fonte }}{% endif %}</span>
     {%- if nota %}
     {%- set classe = "alta" if nota.faixa.value == "alta" else "media" if nota.faixa.value == "média" else "baixa" %}
     <span class="chip-ia chip-ia-{{ classe }}" title="Compatibilidade pela IA">{{ nota.nota }} · {{ nota.faixa.value }}</span>

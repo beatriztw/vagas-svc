@@ -17,7 +17,7 @@ log = logging.getLogger(__name__)
 # Chave fixa do `pg_try_advisory_lock` (bigint): vale entre processos e é só desta coleta.
 # Outro uso de advisory lock neste banco tem que escolher outra chave.
 CHAVE_TRAVA_COLETA = 7_650_001_001
-# Enfileirar o lote da IA (teto diário): dois disparos ao mesmo tempo leriam a mesma contagem.
+# Enfileirar o lote da IA (teto diário, quando configurado): dois disparos ao mesmo tempo leriam a mesma contagem.
 CHAVE_TRAVA_LOTE_IA = 7_650_001_002
 
 

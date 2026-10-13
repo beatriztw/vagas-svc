@@ -75,6 +75,19 @@ class BuscaTest(unittest.TestCase):
             self.assertFalse(any("JavaScript" in t for t in textos))
             self.assertIn("2 encontradas", pagina.por_id("vagas").texto)
 
+    def test_q_linkedin_filtra_pela_plataforma_e_por_palavra(self):
+        cliente, _ = criar([
+            VagaExterna("Analista de BI", "Empresa Teste", "LinkedIn (Apify)", "https://exemplo.test/vaga/li", remoto=True),
+            vaga(2, "Analista de Dados"),
+            # "Linked" não é "LinkedIn": a busca é por palavra, nunca por pedaço.
+            vaga(3, "Dev Linked Data"),
+        ])
+
+        for q, esperado in (("linkedin", ["https://exemplo.test/vaga/li"]), ("LinkedIn analista", ["https://exemplo.test/vaga/li"]),
+                            ("linked", ["https://exemplo.test/vaga/3"]), ("remotar analista", ["https://exemplo.test/vaga/2"])):
+            with self.subTest(q=q):
+                self.assertEqual(urls(Pagina(cliente.get("/tela/vagas", params={"q": q}, headers=HX).text)), esperado)
+
     def test_deep_link_da_url_empurrada_devolve_a_pagina_com_campo_e_lista_filtrados(self):
         cliente, _ = criar([vaga(1, "Dev Java"), vaga(2, "Dev Python")])
 

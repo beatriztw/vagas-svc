@@ -148,14 +148,15 @@ def exigidas_da_busca(q: str | None) -> list[str]:
 
 
 def casa_busca(vaga: VagaEncontrada, exigidas: list[str]) -> bool:
-    """Toda palavra de `q` casa com uma palavra de título, empresa ou local (E entre elas).
+    """Toda palavra de `q` casa com uma palavra de título, empresa, local ou plataforma (E entre elas).
 
     Mesma comparação da relevância da recomendação: palavra inteira por radical, nunca por
     pedaço (`java` não casa com JavaScript, `sql` não casa com NoSQL), sem acento, caixa,
     hífen, gênero e plural; "front end" = "front-end" = "frontend". Sem palavras, não filtra.
     """
     formas: set[str] = set()
-    for campo in (vaga.titulo, vaga.empresa, vaga.local):
+    # A plataforma entra para "linkedin" filtrar as vagas que vieram do LinkedIn.
+    for campo in (vaga.titulo, vaga.empresa, vaga.local, vaga.plataforma):
         # Por campo: o par vizinho não atravessa do fim do título para o começo da empresa.
         formas.update(_formas_do_titulo(campo or ""))
     i = 0

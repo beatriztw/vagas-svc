@@ -44,8 +44,11 @@ MAX_URL = 2048
 MSG_SEM_BASE = "Salve um currículo base antes de usar a IA"
 # Teto de pedidos sem base descartados numa só chamada de `proximo`: a próxima chamada continua.
 _MAX_DESCARTES = 100
-# Lote: no máximo tantos pedidos de prioridade 1 criados em 24 h (a cota da assinatura do worker é curta).
-LOTE_MAX_POR_DIA_PADRAO = 40
+# Lote: por padrão sem teto (enfileira todas as que faltam); com IA_LOTE_MAX_POR_DIA, no máximo tantos
+# pedidos de prioridade 1 criados em 24 h.
+LOTE_MAX_POR_DIA_PADRAO: int | None = None
+# `max_lote_por_dia` não informado: lê do ambiente (None ali quer dizer sem teto).
+_DO_AMBIENTE = object()
 _JANELA_LOTE = timedelta(hours=24)
 # Vaga cuja avaliação deu erro com a base atual fica fora do lote por este tempo: sem isso ela voltaria
 # em toda coleta e gastaria o teto diário (e a cota) com o mesmo erro. O clique da pessoa ainda pede.
@@ -53,8 +56,9 @@ _ESPERA_ERRO_LOTE = timedelta(days=7)
 ESPERA_TRAVA_LOTE_S = 30
 
 
-def lote_max_por_dia(env: Mapping[str, str] | None = None) -> int:
-    """IA_LOTE_MAX_POR_DIA: inteiro >= 0 (0 desliga o lote). Inválido cai no padrão, sem derrubar a app."""
+def lote_max_por_dia(env: Mapping[str, str] | None = None) -> int | None:
+    """IA_LOTE_MAX_POR_DIA: inteiro >= 1 é o teto em 24 h, 0 desliga o lote; ausente, vazio ou inválido
+    cai no padrão (None, sem teto), sem derrubar a app."""
     bruto = (os.environ if env is None else env).get("IA_LOTE_MAX_POR_DIA", "").strip()
     try:
         valor = int(bruto)
@@ -85,7 +89,7 @@ class PedidoIAService:
         encontradas: VagaEncontradaRepository,
         perfis: PerfilBuscaRepository,
         curriculos: CurriculoRepository,
-        max_lote_por_dia: int | None = None,
+        max_lote_por_dia: int | None | object = _DO_AMBIENTE,
         relogio: Callable[[], datetime] | None = None,
         trava_lote: TravaColeta | None = None,
     ):
@@ -93,7 +97,10 @@ class PedidoIAService:
         self.encontradas = encontradas
         self.perfis = perfis
         self.curriculos = curriculos
-        self.max_lote_por_dia = lote_max_por_dia() if max_lote_por_dia is None else max_lote_por_dia
+        # None = sem teto; 0 = lote desligado.
+        self.max_lote_por_dia: int | None = (
+            lote_max_por_dia() if max_lote_por_dia is _DO_AMBIENTE else max_lote_por_dia
+        )
         self._relogio = relogio or (lambda: datetime.now(timezone.utc))
         # Um enfileiramento por vez (coleta do timer, botão, duas abas): sem isso as chamadas leriam
         # a mesma contagem do teto diário e cada uma criaria até o teto. Produção usa a do Postgres.
@@ -144,23 +151,23 @@ class PedidoIAService:
         """Cria pedidos de compatibilidade do lote (prioridade 1) para as `candidatas`, na ordem dada,
         pulando as que já têm pedido ativo ou nota válida. Devolve quantos criou.
 
-        Respeita o teto diário (`max_lote_por_dia` pedidos do lote criados nas últimas 24 h) e, se
-        informado, `limite`. Sem currículo base não enfileira nada.
+        Respeita o teto diário, se houver (`max_lote_por_dia` pedidos do lote criados nas últimas 24 h),
+        e, se informado, `limite`. Sem currículo base não enfileira nada.
         """
         base = self.curriculos.obter_base()
         if base is None:
             return 0
-        restante = self.max_lote_por_dia - self.pedidos.contar_lote_desde(self._relogio() - _JANELA_LOTE)
+        restante = self.restante_lote()
         if limite is not None:
-            restante = min(restante, limite)
-        if restante <= 0:
+            restante = limite if restante is None else min(restante, limite)
+        if restante is not None and restante <= 0:
             return 0
         pular = self.pedidos.urls_ativas(TipoPedidoIA.COMPATIBILIDADE)
         pular |= set(self.pedidos.notas_compatibilidade(base.id, self.versao_compatibilidade()))
         pular |= self.pedidos.urls_com_erro_desde(base.id, self._relogio() - _ESPERA_ERRO_LOTE)
         criados = 0
         for vaga in candidatas:
-            if criados >= restante:
+            if restante is not None and criados >= restante:
                 break
             if vaga.url in pular:
                 continue
@@ -176,6 +183,15 @@ class PedidoIAService:
                 _log(pedido)
         log.info("pedido_ia lote criados=%s", criados)
         return criados
+
+    def restante_lote(self) -> int | None:
+        """Quantos pedidos do lote ainda cabem nas próximas 24 h (mínimo 0); None = sem teto."""
+        if self.max_lote_por_dia is None:
+            return None
+        if self.max_lote_por_dia <= 0:
+            return 0
+        criados = self.pedidos.contar_lote_desde(self._relogio() - _JANELA_LOTE)
+        return max(0, self.max_lote_por_dia - criados)
 
     def progresso_lote(self, candidatas: Iterable, notas: Mapping[str, NotaIA] | None = None) -> tuple[int, int]:
         """(avaliadas, na_fila) entre as `candidatas`: com nota válida e com compatibilidade ativa.

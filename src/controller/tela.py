@@ -92,6 +92,10 @@ def criar_router_tela(
             "na_fila": na_fila,
             "criados": criados,
             "sem_base": ia.curriculos.obter_base() is None,
+            # Teto em 24 h (None = sem teto; 0 = lote desligado) e quanto ainda cabe nele.
+            "teto": ia.max_lote_por_dia,
+            "restante": ia.restante_lote(),
+            "desligado": ia.max_lote_por_dia == 0,
         }
 
     def candidatura_da(vaga):
@@ -280,7 +284,7 @@ def criar_router_tela(
 
     @router.post("/ia/lote", dependencies=[Depends(exigir_mutacao_da_tela)])
     def lote_ia(request: Request):
-        """Manda as vagas da lista sem nota válida para a fila da IA (prioridade do lote, teto diário)."""
+        """Manda as vagas da lista sem nota válida para a fila da IA (prioridade do lote, teto diário se houver)."""
         if ia is None:
             return Response(status_code=404)
         criados = ia.enfileirar_lote(historico.visiveis())

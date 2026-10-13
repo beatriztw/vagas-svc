@@ -248,6 +248,43 @@ class ApifyLinkedInClientTest(unittest.TestCase):
         # Sem a modalidade no item, vale o filtro de remoto da busca.
         self.assertTrue(vagas[2].remoto)
 
+    def test_descricao_sai_do_html_sem_tags_nem_script(self):
+        vagas = ApifyLinkedInClient(token="tk", http_post=fake_post("apify_linkedin.json")).buscar("dados")
+
+        self.assertEqual(vagas[0].detalhe.descricao, "Vaga inventada para teste.\n\n• Power BI\n• SQL")
+
+    def test_sem_html_a_descricao_cai_no_texto(self):
+        vagas = ApifyLinkedInClient(token="tk", http_post=fake_post("apify_linkedin.json")).buscar("dados")
+
+        self.assertEqual(vagas[1].detalhe.descricao, "Texto inventado: apuração de impostos\ncom SQL.")
+
+    def test_sem_html_nem_texto_fica_sem_detalhe(self):
+        # Só espaço, só tag ou campo que não é texto também não viram detalhe vazio (a coleta não apaga o gravado).
+        itens = [
+            {"id": "1", "link": "https://br.linkedin.com/jobs/view/1", "title": "Com", "descriptionText": "Inventada."},
+            {"id": "2", "link": "https://br.linkedin.com/jobs/view/2", "title": "Sem"},
+            {"id": "3", "link": "https://br.linkedin.com/jobs/view/3", "title": "Torta",
+             "descriptionHtml": "<p> </p><script>x</script>", "descriptionText": ["não é texto"]},
+        ]
+        vagas = ApifyLinkedInClient(token="tk", http_post=lambda url, corpo, token: itens).buscar("a")
+
+        # A primeira prova que o client lê a descrição; as outras ficam sem detalhe.
+        self.assertEqual(vagas[0].detalhe.descricao, "Inventada.")
+        self.assertEqual([v.detalhe for v in vagas[1:]], [None, None])
+
+    def test_descricao_e_cortada_no_maximo(self):
+        from src.client.sanitizar import MAX_CARACTERES_DESCRICAO
+
+        itens = [
+            {"id": "1", "link": "https://br.linkedin.com/jobs/view/1", "title": "A", "descriptionHtml": "<p>" + "x" * 30_000 + "</p>"},
+            {"id": "2", "link": "https://br.linkedin.com/jobs/view/2", "title": "B", "descriptionText": "y" * 30_000},
+        ]
+        vagas = ApifyLinkedInClient(token="tk", http_post=lambda url, corpo, token: itens).buscar("a")
+
+        for vaga in vagas:
+            self.assertEqual(len(vaga.detalhe.descricao), MAX_CARACTERES_DESCRICAO)
+            self.assertTrue(vaga.detalhe.descricao.endswith("…"))
+
     def test_remoto_com_rotulo_em_portugues(self):
         itens = [{"id": "1", "link": "https://br.linkedin.com/jobs/view/1", "title": "Analista", "workplaceTypes": ["Remoto"]}]
         vagas = ApifyLinkedInClient(token="tk", http_post=lambda url, corpo, token: itens).buscar("analista")
