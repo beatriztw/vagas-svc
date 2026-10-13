@@ -158,6 +158,15 @@ As vagas em que a pessoa aplicou ficam na tabela `candidatura` de `migrations/00
 - Respostas de `/tela` e `/static` levam `Content-Security-Policy: default-src 'self'; ...`, `X-Content-Type-Options: nosniff` e `Referrer-Policy: same-origin`; `/tela` também `Cache-Control: no-store`. Por isso não há JS nem CSS inline.
 - `DadoInvalido` em rota de `/tela` vira 422 com o partial `_erro.html`; nas rotas JSON continua `{"detail": ...}`. Qualquer outro erro é 500.
 
+### Vagas salvas (a bandeirinha)
+
+Cada card e o detalhe da vaga têm uma bandeirinha (como a do Instagram) para salvar a vaga e ver depois; a aba **Salvas · N**, ao lado de Todas e Novas, lista só as salvas (`/tela?salvas=1`). `migrations/009_vaga_salva.sql` acrescenta `vaga_encontrada.salva_em` (NULL = não salva), aplicada sozinha na subida.
+
+- `POST /tela/vagas/salva` (`url`, `salvar=1|0`) responde só com trocas OOB: a bandeirinha do card e a do detalhe dessa vaga e o número da aba. A lista não é redesenhada: na aba, a vaga tirada dos salvos fica até a próxima leitura, para um clique errado ter volta. Salvar de novo guarda a data da primeira vez.
+- A aba vem da salva mais recente para a mais antiga, **sem** os filtros do perfil (salvou de propósito), sem a ordem nem o corte da IA, e **com** as expiradas, marcadas como "encerrada". A busca e o "carregar mais" funcionam nela.
+- "Marcar como aplicada" (tela e `POST /candidaturas`) tira a vaga das salvas: ela passa para "Vagas aplicadas".
+- A bandeirinha do card fica fora do link (botão dentro de `<a>` não é HTML válido): clicar nela não abre a vaga.
+
 ### Meu perfil (`/tela/perfil`)
 
 O botão "Meu perfil" do header leva a `GET /tela/perfil` (página inteira; com `HX-Request`, só o formulário). Os campos são os do perfil JSON: termos, excluir, localidades, plataformas e skills em textareas (uma entrada por linha, linha em branco ignorada), modalidades e níveis em checkboxes com os valores dos enums, `publicada_desde_dias` (vazio = sem limite) e `ocultar_candidatadas`. Sem perfil salvo o formulário vem vazio.

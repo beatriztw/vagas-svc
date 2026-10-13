@@ -1,8 +1,10 @@
 {# Card de vaga. O `href` é o mesmo da navegação do HTMX: sem JS o link recarrega a página na vaga. #}
-{% macro card(vaga, selecionada, filtro="", nota=none, na_fila=false) -%}
+{% from "tela/_salvar.html" import botao_salvar %}
+{% macro card(vaga, selecionada, filtro="", nota=none, na_fila=false, encerrada=false) -%}
 {%- set destino = vaga.url | urlencode -%}
 {%- set extra = "&" ~ filtro if filtro else "" -%}
-<li>
+{# A bandeirinha fica FORA do link (botão dentro de <a> não é HTML válido): clicar nela não abre a vaga. #}
+<li class="card-item">
   <a class="card" data-url="{{ vaga.url }}"{% if selecionada %} aria-current="true"{% endif %}
      href="/tela?url={{ destino }}{{ extra }}"
      hx-get="/tela/vagas/detalhe?url={{ destino }}{{ extra }}"
@@ -12,6 +14,9 @@
     <span class="card-sec">{{ vaga.empresa }}{% if (vaga.local or "").strip() %} - {{ vaga.local }}{% endif %}</span>
     {%- set fonte = vaga.plataforma | plataforma_curta %}
     <span class="mono">{{ "remoto" if vaga.remoto is true else "presencial" if vaga.remoto is false else "não informado" }}{% if fonte %} · {{ fonte }}{% endif %}</span>
+    {%- if encerrada %}
+    <span class="chip-encerrada">encerrada</span>
+    {%- endif %}
     {%- if nota %}
     {%- set classe = "alta" if nota.faixa.value == "alta" else "media" if nota.faixa.value == "média" else "baixa" %}
     <span class="chip-ia chip-ia-{{ classe }}" title="Compatibilidade pela IA">{{ nota.nota }} · {{ nota.faixa.value }}</span>
@@ -19,5 +24,6 @@
     <span class="chip-ia chip-ia-fila">IA na fila</span>
     {%- endif %}
   </a>
+  {{ botao_salvar(vaga.url, vaga.salva_em is not none, "c") }}
 </li>
 {%- endmacro %}

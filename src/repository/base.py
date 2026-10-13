@@ -113,6 +113,21 @@ class VagaEncontradaRepository(ABC):
         """O provider disse que saiu do ar: `expirada_em` = agora, salvo se já expirou antes (essa data
         fica). Um prazo futuro vira agora. False se a URL não existe."""
 
+    @abstractmethod
+    def marcar_salva(self, url: str, salva: bool) -> bool:
+        """Salva (`salva_em` = agora; já salva fica com a data da primeira vez) ou tira dos salvos.
+        False se a URL não existe."""
+
+    @abstractmethod
+    def listar_salvas(self, teto: int, q: str | None = None) -> list[VagaEncontrada]:
+        """As salvas, da salva mais recente para a mais antiga (a URL desempata), inclusive as
+        expiradas: a pessoa salvou de propósito, e a tela mostra "encerrada" em vez de sumir com ela.
+        Até `teto` salvas; `q` filtra por palavra, como em `listar`."""
+
+    @abstractmethod
+    def contar_salvas(self) -> int:
+        """Quantas vagas estão salvas, expiradas inclusive (o número da aba "Salvas")."""
+
 
 def validar_termo(termo: str) -> str:
     """Termo da coleta sem espaços nas pontas; vazio é recusado antes de gravar."""
@@ -513,6 +528,26 @@ class VagaEncontradaRepositoryMemoria(VagaEncontradaRepository):
         if atual.expirada_em is None or atual.expirada_em > agora:
             self._linhas[url] = replace(atual, expirada_em=agora)
         return True
+
+    def marcar_salva(self, url: str, salva: bool) -> bool:
+        atual = self._linhas.get(url) if isinstance(url, str) else None
+        if atual is None:
+            return False
+        if not salva:
+            self._linhas[url] = replace(atual, salva_em=None)
+        elif atual.salva_em is None:
+            self._linhas[url] = replace(atual, salva_em=self._agora())
+        return True
+
+    def listar_salvas(self, teto: int, q: str | None = None) -> list[VagaEncontrada]:
+        teto = validar_teto(teto)
+        exigidas = exigidas_da_busca(q)
+        salvas = sorted((v for v in self._linhas.values() if v.salva_em is not None), key=lambda v: v.url)
+        salvas = sorted(salvas, key=lambda v: v.salva_em, reverse=True)[:teto]
+        return [replace(v, termos=list(v.termos)) for v in salvas if casa_busca(v, exigidas)]
+
+    def contar_salvas(self) -> int:
+        return sum(1 for v in self._linhas.values() if v.salva_em is not None)
 
     def marcar_vistas(self, urls: list[str]) -> int:
         urls = validar_urls(urls)

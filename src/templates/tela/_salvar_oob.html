@@ -1,0 +1,5 @@
+{# Resposta da bandeirinha (POST /tela/vagas/salva, hx-swap="none"): só trocas OOB. A que não estiver na tela é ignorada. #}
+{% from "tela/_salvar.html" import botao_salvar %}
+{{ botao_salvar(vaga_url, salva, "c", oob=true) }}
+{{ botao_salvar(vaga_url, salva, "d", oob=true) }}
+<span id="contador-salvas" hx-swap-oob="true">{{ total_salvas }}</span>

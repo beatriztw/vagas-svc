@@ -229,7 +229,7 @@ def criar_app(
     if candidaturas is None:
         candidaturas = CandidaturaRepositoryMemoria(vaga_por_url_em(encontradas))
     # Um serviço só, para as rotas JSON e as da tela (na produção, o repositório é o _PorChamada).
-    servico_candidaturas = CandidaturaService(candidaturas)
+    servico_candidaturas = CandidaturaService(candidaturas, encontradas)
     # Só para os testes alcançarem o serviço; as rotas recebem o serviço explicitamente.
     app.state.candidaturas = servico_candidaturas
     app.include_router(criar_router_candidaturas(servico_candidaturas))

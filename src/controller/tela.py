@@ -1,11 +1,13 @@
 """Rotas HTML da tela (`/tela`): renderizadas no servidor, com partials trocados pelo HTMX."""
 
+import hashlib
+from datetime import datetime, timezone
 from urllib.parse import quote, urlencode
 
 from fastapi import APIRouter, Depends, Form, Request, Response
 
 from src.controller.tela_candidaturas import contexto_aplicadas
-from src.controller.tela_seguranca import PREFIXO_TELA, eh_htmx, exigir_mutacao_da_tela, templates
+from src.controller.tela_seguranca import PREFIXO_TELA, eh_htmx, exigir_mutacao_da_tela, resposta_de_erro, templates
 from src.model.erros import DadoInvalido
 from src.repository.base import MAX_DESLOCAMENTO_VAGAS, MAX_TAMANHO_BUSCA, VagaEncontradaRepository, validar_deslocamento
 from src.service.candidatura_service import CandidaturaService
@@ -41,23 +43,41 @@ def _busca(q: str | None) -> str | None:
     return q
 
 
-def _novas(texto: str | None) -> bool:
-    """`novas` da query: "1"/"true" só as não vistas; ausente, "0" ou "false" todas (o padrão do PR2)."""
+def _sim_ou_nao(texto: str | None, nome: str) -> bool:
     valor = (texto or "").strip().lower()
     if valor in ("", "0", "false"):
         return False
     if valor in ("1", "true"):
         return True
-    raise DadoInvalido("novas tem que ser 0 ou 1")
+    raise DadoInvalido(f"{nome} tem que ser 0 ou 1")
+
+
+def _novas(texto: str | None) -> bool:
+    """`novas` da query: "1"/"true" só as não vistas; ausente, "0" ou "false" todas (o padrão do PR2)."""
+    return _sim_ou_nao(texto, "novas")
+
+
+def _salvas(texto: str | None) -> bool:
+    """`salvas` da query: "1"/"true" só as salvas (a aba "Salvas"); vale mais que `novas`."""
+    return _sim_ou_nao(texto, "salvas")
 
 
 def _query(**parametros) -> str:
-    """Query já codificada, só com o que tem valor; `novas` vai como 1 e os enums pelo valor. Os
-    templates só imprimem."""
+    """Query já codificada, só com o que tem valor; `novas` e `salvas` vão como 1 e os enums pelo
+    valor. Os templates só imprimem."""
     limpos = {n: getattr(v, "value", v) for n, v in parametros.items() if v}
-    if "novas" in limpos:
-        limpos["novas"] = "1"
+    for marca in ("novas", "salvas"):
+        if marca in limpos:
+            limpos[marca] = "1"
     return urlencode(limpos, quote_via=quote)
+
+
+def id_salvar(url: str) -> str:
+    """Pedaço de id HTML estável para a bandeirinha da vaga: a URL inteira não serve de id."""
+    return hashlib.sha256(url.encode("utf-8", "surrogatepass")).hexdigest()[:16]
+
+
+templates.env.filters["id_salvar"] = id_salvar
 
 
 def criar_router_tela(
@@ -108,20 +128,26 @@ def criar_router_tela(
         deslocamento: int,
         ordem: Ordem | None = None,
         faixa: FaixaMinima | None = None,
+        salvas: bool = False,
     ) -> dict:
         """O que `_lista.html` e `_cards.html` precisam. Página e total saem da mesma leitura do
         histórico com o perfil aplicado: o contador é o da lista inteira, nunca o tamanho da página.
-        As notas da IA saem de UMA consulta e servem à ordem, ao corte por faixa e aos chips."""
+        As notas da IA saem de UMA consulta e servem à ordem, ao corte por faixa e aos chips.
+        Na aba "Salvas" a leitura é outra (`historico.salvas`): sem perfil, sem ordem nem faixa da IA."""
         notas = ia.notas_validas() if ia is not None else {}
-        lida = historico.pagina(
-            somente_novas=novas,
-            limite=TAMANHO_PAGINA,
-            q=q,
-            deslocamento=deslocamento,
-            notas=notas,
-            ordem=ordem,
-            faixa_minima=faixa,
-        )
+        if salvas:
+            novas, ordem, faixa = False, None, None
+            lida = historico.salvas(limite=TAMANHO_PAGINA, q=q, deslocamento=deslocamento)
+        else:
+            lida = historico.pagina(
+                somente_novas=novas,
+                limite=TAMANHO_PAGINA,
+                q=q,
+                deslocamento=deslocamento,
+                notas=notas,
+                ordem=ordem,
+                faixa_minima=faixa,
+            )
         vagas, total = lida.vagas, lida.total
         proximo = deslocamento + len(vagas)
         # O que a pessoa escolheu viaja nas urls (a ordem padrão não: ela muda sozinha com as notas).
@@ -129,13 +155,18 @@ def criar_router_tela(
         query_proximo = None
         if vagas and proximo < total and proximo <= MAX_DESLOCAMENTO_VAGAS:
             # Codificado aqui, uma vez: o template só imprime (e escapa para atributo).
-            query_proximo = _query(deslocamento=proximo, novas=novas, **escolha)
-        com_novas = {**escolha, "novas": novas}
+            query_proximo = _query(deslocamento=proximo, novas=novas, salvas=salvas, **escolha)
+        com_novas = {**escolha, "novas": novas, "salvas": salvas}
+        agora = datetime.now(timezone.utc)
         return {
             "vagas": vagas,
             "total": total,
             "q": q,
             "novas": novas,
+            "salvas": salvas,
+            "total_salvas": encontradas.contar_salvas(),
+            # Salva que expirou continua na aba "Salvas", com a etiqueta "encerrada".
+            "encerradas": {v.url for v in vagas if v.expirada_em is not None and v.expirada_em <= agora},
             "ordem": lida.ordem,
             "ordem_pedida": ordem,
             "faixa": faixa,
@@ -147,6 +178,7 @@ def criar_router_tela(
             "filtro": _query(**com_novas),
             "query_todas": _query(**escolha),
             "query_novas": _query(**escolha, novas=True),
+            "query_salvas": _query(q=q, salvas=True),
             "query_ordem_ia": _query(**{**com_novas, "ordem": Ordem.IA}),
             "query_ordem_perfil": _query(**{**com_novas, "ordem": Ordem.PERFIL}),
             "query_faixa_todas": _query(**{**com_novas, "faixa": None}),
@@ -165,9 +197,10 @@ def criar_router_tela(
         pedida: bool,
         ordem: Ordem | None = None,
         faixa: FaixaMinima | None = None,
+        salvas: bool = False,
     ):
         """A página inteira. `aberta` é a selecionada; `pedida` sem vaga é um link para o que não existe."""
-        contexto = contexto_lista(q, novas, 0, ordem, faixa)
+        contexto = contexto_lista(q, novas, 0, ordem, faixa, salvas)
         nao_encontrada = pedida and aberta is None
         if not pedida and contexto["vagas"]:
             aberta = obter(contexto["vagas"][0].url)
@@ -211,11 +244,12 @@ def criar_router_tela(
         novas: str | None = None,
         ordem: str | None = None,
         faixa: str | None = None,
+        salvas: str | None = None,
     ):
         # A página inteira sempre, mesmo com HX-Request: as rotas de partial são as de baixo.
-        busca, somente_novas = _busca(q), _novas(novas)
+        busca, somente_novas, so_salvas = _busca(q), _novas(novas), _salvas(salvas)
         ordem_, faixa_ = validar_ordem(ordem), validar_faixa_minima(faixa)
-        return pagina(request, busca, somente_novas, obter(url), bool(url), ordem_, faixa_)
+        return pagina(request, busca, somente_novas, obter(url), bool(url), ordem_, faixa_, so_salvas)
 
     @router.get("/vagas")
     def vagas(
@@ -226,15 +260,16 @@ def criar_router_tela(
         detalhe_url: str | None = None,
         ordem: str | None = None,
         faixa: str | None = None,
+        salvas: str | None = None,
     ):
         q = _busca(q)
-        somente_novas = _novas(novas)
+        somente_novas, so_salvas = _novas(novas), _salvas(salvas)
         ordem_, faixa_ = validar_ordem(ordem), validar_faixa_minima(faixa)
         # Validado também na página inteira: um deslocamento ruim é 422, não é ignorado.
         inicio = validar_deslocamento(_deslocamento(deslocamento))
         if not eh_htmx(request):
-            return pagina(request, q, somente_novas, None, False, ordem_, faixa_)
-        contexto = contexto_lista(q, somente_novas, inicio, ordem_, faixa_)
+            return pagina(request, q, somente_novas, None, False, ordem_, faixa_, so_salvas)
+        contexto = contexto_lista(q, somente_novas, inicio, ordem_, faixa_, so_salvas)
         # Do 2º bloco em diante só entram os cards e o novo sentinela (substitui o anterior).
         partial = "tela/_cards.html" if inicio > 0 else "tela/_lista.html"
         resposta = templates.TemplateResponse(request, partial, contexto)
@@ -242,7 +277,9 @@ def criar_router_tela(
             # A barra mostra a PÁGINA (`/tela?...`), não o partial, e mantém a vaga aberta (`url`):
             # F5 e link copiado reabrem a mesma tela. `detalhe_url` vem do #detalhe-url, se houver detalhe.
             aberta = detalhe_url if detalhe_url and len(detalhe_url) <= MAX_TAMANHO_URL else None
-            query = _query(q=q, novas=somente_novas, ordem=ordem_, faixa=faixa_, url=aberta)
+            query = _query(
+                q=q, novas=contexto["novas"], salvas=so_salvas, ordem=contexto["ordem_pedida"], faixa=contexto["faixa"], url=aberta
+            )
             resposta.headers["HX-Push-Url"] = f"{PREFIXO_TELA}?{query}".rstrip("?")
         return resposta
 
@@ -254,12 +291,13 @@ def criar_router_tela(
         novas: str | None = None,
         ordem: str | None = None,
         faixa: str | None = None,
+        salvas: str | None = None,
     ):
-        busca, somente_novas = _busca(q), _novas(novas)  # validados antes de buscar no provider
+        busca, somente_novas, so_salvas = _busca(q), _novas(novas), _salvas(salvas)  # validados antes do provider
         ordem_, faixa_ = validar_ordem(ordem), validar_faixa_minima(faixa)
         aberta = obter(url)
         if not eh_htmx(request):
-            return pagina(request, busca, somente_novas, aberta, True, ordem_, faixa_)
+            return pagina(request, busca, somente_novas, aberta, True, ordem_, faixa_, so_salvas)
         return detalhe_partial(request, aberta)
 
     @router.get("/vagas/secoes")
@@ -272,6 +310,21 @@ def criar_router_tela(
             "tela/_detalhe_conteudo.html",
             {"vaga": aberta.vaga if aberta else None, "aberta": aberta, "recarregar": False},
             status_code=404 if aberta is None else 200,
+        )
+
+    @router.post("/vagas/salva", dependencies=[Depends(exigir_mutacao_da_tela)])
+    def salvar(request: Request, url: str = Form(""), salvar: str = Form("")):
+        """A bandeirinha: salva (`salvar=1`) ou tira dos salvos (`salvar=0`). A resposta só tem trocas
+        OOB: a bandeirinha do card e a do detalhe dessa vaga (a que não estiver na tela é ignorada) e
+        o número da aba "Salvas". A lista não é redesenhada: na aba "Salvas", o card de uma vaga tirada
+        dos salvos fica até a próxima leitura, para um clique errado ter volta."""
+        salva = _sim_ou_nao(salvar, "salvar")
+        if not url or len(url) > MAX_TAMANHO_URL:
+            raise DadoInvalido("url da vaga inválida")
+        if not encontradas.marcar_salva(url, salva):
+            return resposta_de_erro(request, "Vaga não encontrada", 404)
+        return templates.TemplateResponse(
+            request, "tela/_salvar_oob.html", {"vaga_url": url, "salva": salva, "total_salvas": encontradas.contar_salvas()}
         )
 
     @router.post("/vagas/vista", dependencies=[Depends(exigir_mutacao_da_tela)])
@@ -292,13 +345,18 @@ def criar_router_tela(
 
     @router.post("/coletas", dependencies=[Depends(exigir_mutacao_da_tela)])
     def coletar(
-        request: Request, q: str = Form(""), novas: str = Form(""), ordem: str = Form(""), faixa: str = Form("")
+        request: Request,
+        q: str = Form(""),
+        novas: str = Form(""),
+        ordem: str = Form(""),
+        faixa: str = Form(""),
+        salvas: str = Form(""),
     ):
         """Roda a coleta (a trava de uma por vez é do ColetaService: 409 em HTML se já há uma) e devolve a lista."""
-        busca, somente_novas = _busca(q), _novas(novas)
+        busca, somente_novas, so_salvas = _busca(q), _novas(novas), _salvas(salvas)
         ordem_, faixa_ = validar_ordem(ordem), validar_faixa_minima(faixa)
         resultado = coleta.coletar()
-        contexto = contexto_lista(busca, somente_novas, 0, ordem_, faixa_)
+        contexto = contexto_lista(busca, somente_novas, 0, ordem_, faixa_, so_salvas)
         contexto["resumo"] = {
             "novas": resultado.novas,
             "falhou": resultado.falhou,
