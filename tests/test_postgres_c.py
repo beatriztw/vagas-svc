@@ -77,6 +77,42 @@ class ContratoDetalhe:
         self.assertIsNotNone(self.repo.obter(A).expirada_em)
         self.assertEqual(self.repo.contar(False), 0)
 
+    def test_linkedin_sem_detalhe_carrega_grava_e_na_falha_nao_expira(self):
+        from src.client.remotar import ErroProvider
+        from src.service.detalhe_service import AVISO_SEM_DETALHE, PLATAFORMA_LINKEDIN, DetalheService
+
+        url = "https://www.linkedin.com/jobs/view/4012345678"
+        self.repo.registrar([VagaExterna("Analista de Dados", "Empresa", PLATAFORMA_LINKEDIN, url)], "dados")
+
+        class Provider:
+            def __init__(self):
+                self.resultado = ErroProvider("HTTP 429")
+                self.chamadas = []
+
+            def detalhar(self, id):
+                self.chamadas.append(id)
+                if isinstance(self.resultado, Exception):
+                    raise self.resultado
+                return self.resultado
+
+        provider = Provider()
+        servico = DetalheService(self.repo, linkedin=provider, agora=self.agora)
+        self.assertTrue(servico.abrir(url).carregar)
+        falha = servico.carregar(url)
+        self.assertEqual((falha.aviso, falha.expirada), (AVISO_SEM_DETALHE, False))
+        self.assertIsNone(self.repo.obter(url).expirada_em)
+        self.assertIsNone(self.repo.obter(url).detalhada_em)
+        self.assertEqual(self.repo.contar(False), 1)
+
+        provider.resultado = DetalheVaga(descricao="Descrição do LinkedIn")
+        aberta = servico.carregar(url)
+        self.assertEqual((aberta.vaga.descricao, aberta.aviso, aberta.carregar), ("Descrição do LinkedIn", None, False))
+        lida = self.repo.obter(url)
+        self.assertEqual(lida.descricao, "Descrição do LinkedIn")
+        self.assertIsNotNone(lida.detalhada_em)
+        self.assertIsNone(lida.expirada_em)
+        self.assertEqual(provider.chamadas, ["4012345678", "4012345678"])
+
     def test_expirada_some_de_listar_contar_e_listar_recentes_mas_obter_acha(self):
         self.repo.registrar([vaga(A), vaga(B)], "dados")
         self.repo.marcar_expirada(A)

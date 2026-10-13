@@ -549,6 +549,7 @@ def _migrar() -> list[str]:
 
 def criar_app_producao() -> FastAPI:
     from src.client.gupy import GupyClient
+    from src.client.linkedin_detalhe import LinkedInDetalheClient
     from src.client.remotar import RemotarClient
 
     configurar_log()
@@ -565,7 +566,11 @@ def criar_app_producao() -> FastAPI:
         trava=TravaColetaPostgres(),
         pedidos_ia=_PorChamada(pool, _pedidos_ia_postgres),
         trava_lote_ia=TravaColetaPostgres(chave=CHAVE_TRAVA_LOTE_IA),
-        detalhe=DetalheService(encontradas, RemotarClient(gupy=GupyClient().encerramento)),
+        # LinkedIn: a coleta (Apify) não traz a descrição; a página pública da vaga dá, uma requisição
+        # por vaga aberta sem descrição.
+        detalhe=DetalheService(
+            encontradas, RemotarClient(gupy=GupyClient().encerramento), linkedin=LinkedInDetalheClient()
+        ),
         # Aplica migrations/*.sql pendentes antes de atender; banco fora além do teto ou migration com erro = não sobe.
         ao_subir=_migrar,
         # Coleta às 08:00 e 18:00 de Brasília (COLETA_HORARIOS; vazia ou inválida desliga).
