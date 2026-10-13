@@ -453,10 +453,12 @@ def providers_padrao() -> list:
     from src.client.ashby import AshbyClient
     from src.client.greenhouse import GreenhouseClient
     from src.client.lever import LeverClient
+    from src.client.gupy import GupyClient
     from src.client.remotar import RemotarClient
     from src.client.trampos import TramposClient
 
-    providers = [RemotarClient(), TramposClient()]
+    # A vaga do Remotar que fechou no Gupy (onde a candidatura acontece) sai como expirada.
+    providers = [RemotarClient(gupy=GupyClient().encerramento), TramposClient()]
     for classe, env in ((GreenhouseClient, "GREENHOUSE_EMPRESAS"), (LeverClient, "LEVER_EMPRESAS"), (AshbyClient, "ASHBY_EMPRESAS")):
         if empresas := _lista_env(env):
             providers.append(classe(empresas))
@@ -517,6 +519,7 @@ def _migrar() -> list[str]:
 
 
 def criar_app_producao() -> FastAPI:
+    from src.client.gupy import GupyClient
     from src.client.remotar import RemotarClient
 
     pool = _PoolPreguicoso()
@@ -531,7 +534,7 @@ def criar_app_producao() -> FastAPI:
         trava=TravaColetaPostgres(),
         pedidos_ia=_PorChamada(pool, _pedidos_ia_postgres),
         trava_lote_ia=TravaColetaPostgres(chave=CHAVE_TRAVA_LOTE_IA),
-        detalhe=DetalheService(encontradas, RemotarClient()),
+        detalhe=DetalheService(encontradas, RemotarClient(gupy=GupyClient().encerramento)),
         # Aplica migrations/*.sql pendentes antes de atender; banco fora além do teto ou migration com erro = não sobe.
         ao_subir=_migrar,
         # Coleta às 08:00 e 18:00 de Brasília (COLETA_HORARIOS; vazia ou inválida desliga).

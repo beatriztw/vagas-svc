@@ -262,11 +262,11 @@ class ListagemExpiracaoTest(unittest.TestCase):
         original = RemotarClient._detalhe_do_job
         chamadas = []
 
-        def estranho(self, job):
+        def estranho(self, job, *resto):
             chamadas.append(job["id"])
             if len(chamadas) == 1:
                 raise TypeError("forma inesperada")  # escrito à mão
-            return original(self, job)
+            return original(self, job, *resto)
 
         with mock.patch.object(RemotarClient, "_detalhe_do_job", estranho):
             vagas = self.buscar(fixture("remotar_listagem_expiracao.json"), lambda: HOJE)
