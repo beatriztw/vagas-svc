@@ -91,7 +91,11 @@ class ApifyLinkedInClient(ProviderClient):
         http_post: HttpPost = post_json,
     ):
         super().__init__()
-        self.locais = tuple(_local_do_linkedin(local) for local in locais) or LOCAIS_PADRAO
+        # Sem repetidos (pelo texto normalizado): local repetido seria cobrado duas vezes pelas mesmas vagas.
+        vistos: dict[str, str] = {}
+        for local in locais:
+            vistos.setdefault(normalizar(_local_do_linkedin(local)).strip(), _local_do_linkedin(local).strip())
+        self.locais = tuple(v for k, v in vistos.items() if k) or LOCAIS_PADRAO
         self.limite = limite
         self._token = token
         self._http_post = http_post

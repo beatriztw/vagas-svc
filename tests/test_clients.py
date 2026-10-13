@@ -202,6 +202,14 @@ class ApifyLinkedInClientTest(unittest.TestCase):
             ApifyLinkedInClient(locais=[local], token="tk", http_post=fake_post("apify_linkedin.json", chamadas)).buscar("dados")
             self.assertIn("location=Brazil&", chamadas[0][1]["urls"][0], local)
 
+    def test_local_repetido_vai_uma_vez_so_e_nao_dobra_o_teto(self):
+        chamadas: list[tuple] = []
+        ApifyLinkedInClient(locais=["Brasil", "Brazil", " brazil ", "Latin America", "latin america"], limite=5, token="tk",
+                            http_post=fake_post("apify_linkedin.json", chamadas)).buscar("dados")
+        url, corpo, _ = chamadas[0]
+        self.assertEqual(len(corpo["urls"]), 2)
+        self.assertTrue(url.endswith("?maxItems=10"))
+
     def test_input_bate_com_o_schema_gravado_do_actor(self):
         """O schema é o do build 1.7.18, baixado da API do Apify em 2026-10-11 (não tem `count`)."""
         schema = json.loads((FIXTURES / "apify_linkedin_input_schema.json").read_text(encoding="utf-8"))
