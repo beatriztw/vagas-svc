@@ -1,5 +1,6 @@
 import json
 import os
+import urllib.parse
 import urllib.request
 from collections.abc import Callable
 from typing import Any
@@ -8,10 +9,17 @@ from src.client.base import USER_AGENT, ProviderClient, normalizar, parse_data
 from src.model.vaga_externa import VagaExterna
 
 # Input conferido contra o schema gravado em tests/fixtures/apify_linkedin_input_schema.json
-# (build 1.7.18): keywords/location/limitPerSource; o schema não tem `count`.
+# (build 1.7.18): urls/limitPerSource; o schema não tem `count`. Vai a URL de busca pronta, e não
+# keywords/location, porque só pela URL dá para pedir o filtro de remoto do LinkedIn (`f_WT=2`).
 ACTOR = "curious_coder~linkedin-jobs-scraper"
 RUN_URL = "https://api.apify.com/v2/acts/{actor}/run-sync-get-dataset-items"
 VAGA_URL = "https://www.linkedin.com/jobs/view/{id}"
+BUSCA_URL = "https://www.linkedin.com/jobs/search/?"
+# O LinkedIn só entende o local em inglês: "Brasil" cai numa busca sem local e traz vagas dos EUA
+# (conferido em 12/10/2026). "Latin America" traz as vagas abertas para a região (México, Chile, Brasil...).
+LOCAIS_PADRAO = ("Brazil", "Latin America")
+# Filtros da busca do LinkedIn: só remoto (f_WT=2), da última semana (f_TPR), mais novas primeiro.
+_FILTROS = {"f_WT": "2", "f_TPR": "r604800", "sortBy": "DD"}
 # O run síncrono espera o actor terminar; o Apify corta em 300 s.
 TIMEOUT_SEGUNDOS = 300
 
@@ -55,26 +63,39 @@ def _remoto(item: dict) -> bool | None:
     return None
 
 
-class ApifyLinkedInClient(ProviderClient):
-    """Vagas do LinkedIn pelo actor curious_coder/linkedin-jobs-scraper do Apify.
+def _local_do_linkedin(local: str) -> str:
+    """"Brasil" (o padrão antigo da APIFY_LOCAL, com qualquer acento ou caixa) vira "Brazil"."""
+    return "Brazil" if normalizar(local).strip() == "brasil" else local
 
-    Usa só a busca pública de vagas, sem login no LinkedIn. O Apify cobra por vaga
-    devolvida (US$ 0,001 a 0,002 em out/2026), então `limite` controla o custo de cada
-    busca. O token vem de APIFY_TOKEN; sem ele a busca falha e o BuscaService registra
-    o erro sem derrubar os outros providers.
+
+def url_de_busca(termo: str, local: str) -> str:
+    return BUSCA_URL + urllib.parse.urlencode({"keywords": termo, "location": local, **_FILTROS})
+
+
+class ApifyLinkedInClient(ProviderClient):
+    """Vagas remotas do LinkedIn pelo actor curious_coder/linkedin-jobs-scraper do Apify.
+
+    Usa só a busca pública de vagas, sem login no LinkedIn: uma URL de busca por local, só
+    remotas e da última semana. O Apify cobra por vaga devolvida (US$ 0,002 em out/2026), então
+    `limite` (por local) controla o custo de cada busca. O token vem de APIFY_TOKEN; sem ele a
+    busca falha e o BuscaService registra o erro sem derrubar os outros providers.
     """
 
     nome = "LinkedIn (Apify)"
 
     def __init__(
         self,
-        local: str = "Brasil",
+        locais: tuple[str, ...] | list[str] = LOCAIS_PADRAO,
         limite: int = 50,
         token: str | None = None,
         http_post: HttpPost = post_json,
     ):
         super().__init__()
-        self.local = local
+        # Sem repetidos (pelo texto normalizado): local repetido seria cobrado duas vezes pelas mesmas vagas.
+        vistos: dict[str, str] = {}
+        for local in locais:
+            vistos.setdefault(normalizar(_local_do_linkedin(local)).strip(), _local_do_linkedin(local).strip())
+        self.locais = tuple(v for k, v in vistos.items() if k) or LOCAIS_PADRAO
         self.limite = limite
         self._token = token
         self._http_post = http_post
@@ -84,14 +105,14 @@ class ApifyLinkedInClient(ProviderClient):
         if not token:
             raise RuntimeError("APIFY_TOKEN não definido")
         corpo = {
-            "keywords": termo,
-            "location": self.local,
+            "urls": [url_de_busca(termo, local) for local in self.locais],
+            # Por URL: o total da busca fica em limite x locais.
             "limitPerSource": self.limite,
             # Dados da empresa custam um request extra por vaga e não são usados aqui.
             "scrapeCompany": False,
         }
         # maxItems é o teto de cobrança do próprio Apify, valha o input do actor ou não.
-        url = f"{RUN_URL.format(actor=ACTOR)}?maxItems={self.limite}"
+        url = f"{RUN_URL.format(actor=ACTOR)}?maxItems={self.limite * len(self.locais)}"
         itens = self._http_post(url, corpo, token)
         if not isinstance(itens, list):
             raise ValueError(f"resposta do Apify não é uma lista: {str(itens)[:200]}")
@@ -114,7 +135,8 @@ class ApifyLinkedInClient(ProviderClient):
                     # e a deduplicação do BuscaService funciona entre buscas.
                     url=VAGA_URL.format(id=item["id"]) if item.get("id") else link,
                     local=item.get("location") or None,
-                    remoto=_remoto(item),
+                    # A busca já filtrou remoto (f_WT=2); o item quase nunca traz a modalidade.
+                    remoto=r if (r := _remoto(item)) is not None else True,
                     publicada_em=_data(item.get("postedAt")),
                 )
             )

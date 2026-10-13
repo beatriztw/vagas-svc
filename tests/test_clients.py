@@ -166,17 +166,49 @@ def fake_post(arquivo: str, chamadas: list[tuple] | None = None):
 class ApifyLinkedInClientTest(unittest.TestCase):
     """A fixture segue os campos documentados no README do actor; não é uma resposta gravada."""
 
-    def test_envia_busca_ao_actor_com_token(self):
+    def test_envia_uma_busca_remota_por_local_ao_actor_com_token(self):
         chamadas: list[tuple] = []
-        ApifyLinkedInClient(local="Rio de Janeiro", limite=20, token="tk", http_post=fake_post("apify_linkedin.json", chamadas)).buscar("power bi")
+        ApifyLinkedInClient(locais=["Brazil", "Latin America"], limite=20, token="tk", http_post=fake_post("apify_linkedin.json", chamadas)).buscar("power bi")
 
         url, corpo, token = chamadas[0]
-        self.assertEqual(url, "https://api.apify.com/v2/acts/curious_coder~linkedin-jobs-scraper/run-sync-get-dataset-items?maxItems=20")
-        self.assertEqual(corpo["keywords"], "power bi")
-        self.assertEqual(corpo["location"], "Rio de Janeiro")
+        # Teto de cobrança: limite por local.
+        self.assertEqual(url, "https://api.apify.com/v2/acts/curious_coder~linkedin-jobs-scraper/run-sync-get-dataset-items?maxItems=40")
+        self.assertEqual(
+            corpo["urls"],
+            [
+                "https://www.linkedin.com/jobs/search/?keywords=power+bi&location=Brazil&f_WT=2&f_TPR=r604800&sortBy=DD",
+                "https://www.linkedin.com/jobs/search/?keywords=power+bi&location=Latin+America&f_WT=2&f_TPR=r604800&sortBy=DD",
+            ],
+        )
+        self.assertNotIn("keywords", corpo)
+        self.assertNotIn("location", corpo)
         self.assertEqual(corpo["limitPerSource"], 20)
         self.assertFalse(corpo["scrapeCompany"])
         self.assertEqual(token, "tk")
+
+    def test_por_padrao_busca_brasil_e_america_latina_em_ingles(self):
+        """"Brasil" o LinkedIn não reconhece: a busca sai sem local e traz vagas dos EUA (12/10/2026)."""
+        chamadas: list[tuple] = []
+        ApifyLinkedInClient(token="tk", http_post=fake_post("apify_linkedin.json", chamadas)).buscar("dados")
+
+        urls = chamadas[0][1]["urls"]
+        self.assertEqual(len(urls), 2)
+        self.assertIn("location=Brazil&", urls[0])
+        self.assertIn("location=Latin+America&", urls[1])
+
+    def test_brasil_vira_brazil_que_o_linkedin_entende(self):
+        for local in ("Brasil", "brasil", " BRASIL "):
+            chamadas: list[tuple] = []
+            ApifyLinkedInClient(locais=[local], token="tk", http_post=fake_post("apify_linkedin.json", chamadas)).buscar("dados")
+            self.assertIn("location=Brazil&", chamadas[0][1]["urls"][0], local)
+
+    def test_local_repetido_vai_uma_vez_so_e_nao_dobra_o_teto(self):
+        chamadas: list[tuple] = []
+        ApifyLinkedInClient(locais=["Brasil", "Brazil", " brazil ", "Latin America", "latin america"], limite=5, token="tk",
+                            http_post=fake_post("apify_linkedin.json", chamadas)).buscar("dados")
+        url, corpo, _ = chamadas[0]
+        self.assertEqual(len(corpo["urls"]), 2)
+        self.assertTrue(url.endswith("?maxItems=10"))
 
     def test_input_bate_com_o_schema_gravado_do_actor(self):
         """O schema é o do build 1.7.18, baixado da API do Apify em 2026-10-11 (não tem `count`)."""
@@ -213,7 +245,8 @@ class ApifyLinkedInClientTest(unittest.TestCase):
 
         self.assertEqual([v.titulo for v in vagas], ["Analista de Dados Pleno - Power BI", "Analista Fiscal com SQL", "Assistente de Indicadores"])
         self.assertIsNone(vagas[2].publicada_em)
-        self.assertIsNone(vagas[2].remoto)
+        # Sem a modalidade no item, vale o filtro de remoto da busca.
+        self.assertTrue(vagas[2].remoto)
 
     def test_remoto_com_rotulo_em_portugues(self):
         itens = [{"id": "1", "link": "https://br.linkedin.com/jobs/view/1", "title": "Analista", "workplaceTypes": ["Remoto"]}]

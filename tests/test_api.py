@@ -364,11 +364,11 @@ class ProvidersPadraoTest(unittest.TestCase):
         with mock.patch.dict(os.environ, {}, clear=True):
             self.assertFalse(any(isinstance(p, ApifyLinkedInClient) for p in providers_padrao()))
 
-        env = {"APIFY_TOKEN": "tk", "APIFY_LOCAL": "Rio de Janeiro", "APIFY_LIMITE": "20"}
+        env = {"APIFY_TOKEN": "tk", "APIFY_LOCAIS": "Brazil, Mexico", "APIFY_LIMITE": "20"}
         with mock.patch.dict(os.environ, env, clear=True):
             apify = [p for p in providers_padrao() if isinstance(p, ApifyLinkedInClient)]
         self.assertEqual(len(apify), 1)
-        self.assertEqual((apify[0].local, apify[0].limite), ("Rio de Janeiro", 20))
+        self.assertEqual((apify[0].locais, apify[0].limite), (("Brazil", "Mexico"), 20))
 
     def test_token_do_apify_pelo_arquivo_do_secret(self):
         import tempfile
@@ -413,16 +413,33 @@ class ProvidersPadraoTest(unittest.TestCase):
                 self.assertFalse(any(isinstance(p, ApifyLinkedInClient) for p in providers), env)
                 self.assertTrue(providers, env)
 
-    def test_apify_local_vazio_cai_no_padrao(self):
+    def test_apify_locais_vazio_cai_no_padrao(self):
         from unittest import mock
 
         from src.client.apify_linkedin import ApifyLinkedInClient
         from src.controller.api import providers_padrao
 
-        for valor in ("", "   "):
-            with mock.patch.dict(os.environ, {"APIFY_TOKEN": "tk", "APIFY_LOCAL": valor}, clear=True):
+        for valor in ("", "   ", " , "):
+            with mock.patch.dict(os.environ, {"APIFY_TOKEN": "tk", "APIFY_LOCAIS": valor}, clear=True):
                 apify = [p for p in providers_padrao() if isinstance(p, ApifyLinkedInClient)]
-            self.assertEqual(apify[0].local, "Brasil", repr(valor))
+            self.assertEqual(apify[0].locais, ("Brazil", "Latin America"), repr(valor))
+
+    def test_apify_local_antiga_ainda_vale_e_a_nova_tem_preferencia(self):
+        from unittest import mock
+
+        from src.client.apify_linkedin import ApifyLinkedInClient
+        from src.controller.api import providers_padrao
+
+        for env, esperado in (
+            ({"APIFY_LOCAL": "Rio de Janeiro"}, ("Rio de Janeiro",)),
+            # A antiga era um local só: a vírgula faz parte dele.
+            ({"APIFY_LOCAL": "São Paulo, SP"}, ("São Paulo, SP",)),
+            ({"APIFY_LOCAL": "Rio de Janeiro", "APIFY_LOCAIS": "Brazil, Mexico"}, ("Brazil", "Mexico")),
+            ({"APIFY_LOCAL": " ", "APIFY_LOCAIS": ""}, ("Brazil", "Latin America")),
+        ):
+            with mock.patch.dict(os.environ, {"APIFY_TOKEN": "tk", **env}, clear=True):
+                apify = [p for p in providers_padrao() if isinstance(p, ApifyLinkedInClient)]
+            self.assertEqual(apify[0].locais, esperado, env)
 
     def test_apify_limite_invalido_cai_no_padrao_sem_derrubar_a_app(self):
         from unittest import mock
