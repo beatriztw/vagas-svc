@@ -45,7 +45,21 @@
     }
   }
 
+  // A lista rola dentro do painel e o voltar do navegador (ou um link com ?url=) a recria do topo:
+  // rola só a lista até o card selecionado, sem mexer na rolagem da página.
+  function mostrarSelecionado() {
+    var lista = document.getElementById("lista-vagas");
+    var card = lista ? lista.querySelector(".card[aria-current]") : null;
+    if (!card) { return; }
+    var topo = card.offsetTop;
+    if (topo < lista.scrollTop || topo + card.offsetHeight > lista.scrollTop + lista.clientHeight) {
+      lista.scrollTop = Math.max(0, topo - lista.clientHeight / 3);
+    }
+  }
+
   document.addEventListener("htmx:afterSettle", marcarSelecionado);
+  document.addEventListener("htmx:historyRestore", mostrarSelecionado);
+  document.addEventListener("DOMContentLoaded", mostrarSelecionado);
   document.addEventListener("htmx:afterRequest", tirarSelo);
   document.addEventListener("htmx:afterRequest", function (evento) {
     // O 422/404/409 contam como `successful` no htmx (responseHandling com error:false). Quando a

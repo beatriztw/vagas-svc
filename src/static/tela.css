@@ -113,6 +113,16 @@ input[type="search"], input[type="text"], select {
 }
 
 .lista-vagas { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+/* A lista rola dentro do painel: a rolagem infinita não empurra "Vagas aplicadas" para o fim da página.
+   `relative` faz do offsetTop dos cards a posição dentro da lista (tela.js); o padding não corta o foco.
+   Sem `overscroll-behavior: contain`: no fim da lista a rolagem passa para a página, que desce até o fim
+   do painel aparecer e o sentinela do "carregar mais" entrar na tela. */
+.lista-vagas {
+  position: relative;
+  max-height: 70vh;
+  overflow-y: auto;
+  padding: 2px 4px 2px 2px;
+}
 
 .card {
   display: flex;
