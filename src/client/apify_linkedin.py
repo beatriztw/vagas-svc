@@ -63,6 +63,11 @@ def _remoto(item: dict) -> bool | None:
     return None
 
 
+def _local_do_linkedin(local: str) -> str:
+    """"Brasil" (o padrão antigo da APIFY_LOCAL, com qualquer acento ou caixa) vira "Brazil"."""
+    return "Brazil" if normalizar(local).strip() == "brasil" else local
+
+
 def url_de_busca(termo: str, local: str) -> str:
     return BUSCA_URL + urllib.parse.urlencode({"keywords": termo, "location": local, **_FILTROS})
 
@@ -86,7 +91,7 @@ class ApifyLinkedInClient(ProviderClient):
         http_post: HttpPost = post_json,
     ):
         super().__init__()
-        self.locais = tuple(locais) or LOCAIS_PADRAO
+        self.locais = tuple(_local_do_linkedin(local) for local in locais) or LOCAIS_PADRAO
         self.limite = limite
         self._token = token
         self._http_post = http_post
