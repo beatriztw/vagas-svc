@@ -1,56 +1,66 @@
 {# Partial = alvo do swap (outerHTML): resumo, contador, alternância e lista trocam juntos; a página inteira inclui este mesmo arquivo. #}
 <div id="vagas">
-  {# O filtro "Novas" atual: o campo de busca (fora deste bloco) e a coleta levam isto com `hx-include`. O `q` é o do próprio campo. #}
+  {# O filtro "Não abertas" atual: o campo de busca (fora deste bloco) e a coleta levam isto com `hx-include`. O `q` é o do próprio campo. #}
   <div id="estado-lista" hidden>{% if novas %}<input type="hidden" name="novas" value="1">{% endif %}{% if ordem_pedida %}<input type="hidden" name="ordem" value="{{ ordem_pedida.value }}">{% endif %}{% if faixa %}<input type="hidden" name="faixa" value="{{ faixa.value }}">{% endif %}{% if salvas %}<input type="hidden" name="salvas" value="1">{% endif %}</div>
-  {% if resumo is defined %}
-  <div class="resumo" role="status">
-    {% if resumo.falhou %}
-    <p>Coleta sem resultado: todas as fontes deram erro.</p>
-    {% else %}
-    <p>Coleta concluída: {{ resumo.novas }} novas.</p>
-    {% endif %}
-    {% for erro in resumo.erros %}<p class="mono">{{ erro }}</p>{% endfor %}
-  </div>
-  {% endif %}
+  {# Em cima o que só muda o que aparece (filtros); embaixo, depois da divisória, o que vai aos sites ou à IA (ações). #}
   <div class="lista-barra">
-    <p class="mono contador">{{ total }} {{ "salvas" if salvas else "novas" if novas else "encontradas" }}</p>
-    <nav class="alternancia" aria-label="Filtro da lista">
+    <nav class="alternancia segmentado" aria-label="Filtro da lista">
       <a class="botao{% if not novas and not salvas %} botao-ativo{% endif %}"{% if not novas and not salvas %} aria-current="page"{% endif %}
          href="/tela{{ '?' ~ query_todas if query_todas }}"
          hx-get="/tela/vagas{{ '?' ~ query_todas if query_todas }}" hx-include="#detalhe-url" hx-target="#vagas" hx-swap="outerHTML">Todas</a>
       <a class="botao{% if novas %} botao-ativo{% endif %}"{% if novas %} aria-current="page"{% endif %}
          href="/tela?{{ query_novas }}"
-         hx-get="/tela/vagas?{{ query_novas }}" hx-include="#detalhe-url" hx-target="#vagas" hx-swap="outerHTML">Novas</a>
+         hx-get="/tela/vagas?{{ query_novas }}" hx-include="#detalhe-url" hx-target="#vagas" hx-swap="outerHTML">Não abertas</a>
       {# O número fica num span próprio: a bandeirinha o troca por OOB sem saber em que aba a tela está.
          `&nbsp;`: o .botao é flex, e o espaço comum entre o texto e o span sumiria. #}
       <a class="botao{% if salvas %} botao-ativo{% endif %}"{% if salvas %} aria-current="page"{% endif %}
          href="/tela?{{ query_salvas }}"
          hx-get="/tela/vagas?{{ query_salvas }}" hx-include="#detalhe-url" hx-target="#vagas" hx-swap="outerHTML">Salvas&nbsp;·&nbsp;<span id="contador-salvas">{{ total_salvas }}</span></a>
     </nav>
-    <button type="button" class="botao botao-primario" hx-post="/tela/coletas" hx-include="#busca, #estado-lista"
-            hx-target="#vagas" hx-swap="outerHTML" hx-disabled-elt="this">Coletar agora</button>
+    <p class="mono contador">{{ total }} {{ "salvas" if salvas else "não abertas" if novas else "encontradas" }}</p>
   </div>
-  {% if lote %}{% include "tela/_lote_ia.html" %}{% endif %}
   {# Na aba "Salvas" a ordem é a de quando a pessoa salvou: sem ordem nem corte da IA. #}
   {% if tem_ia and not salvas %}
-  <div class="lista-barra lista-ia">
-    <nav class="alternancia" aria-label="Ordem da lista">
-      <span class="mono">Ordem</span>
-      {% for valor, rotulo, query in (("ia", "Compatibilidade (IA)", query_ordem_ia), ("perfil", "Perfil", query_ordem_perfil)) %}
-      <a class="botao{% if ordem.value == valor %} botao-ativo{% endif %}"{% if ordem.value == valor %} aria-current="page"{% endif %}
-         href="/tela?{{ query }}" hx-get="/tela/vagas?{{ query }}" hx-include="#detalhe-url" hx-target="#vagas" hx-swap="outerHTML">{{ rotulo }}</a>
-      {% endfor %}
-    </nav>
-    <nav class="alternancia" aria-label="Faixa mínima da IA">
-      <span class="mono">Faixa</span>
-      {% for valor, rotulo, query in ((none, "Qualquer faixa", query_faixa_todas), ("media", "Média ou mais", query_faixa_media), ("alta", "Alta", query_faixa_alta)) %}
-      {% set ativa = (faixa.value if faixa else none) == valor %}
-      <a class="botao{% if ativa %} botao-ativo{% endif %}"{% if ativa %} aria-current="page"{% endif %}
-         href="/tela{{ '?' ~ query if query }}" hx-get="/tela/vagas{{ '?' ~ query if query }}" hx-include="#detalhe-url" hx-target="#vagas" hx-swap="outerHTML">{{ rotulo }}</a>
-      {% endfor %}
-    </nav>
+  <div class="lista-ia">
+    <div class="filtro-linha">
+      <span class="mono filtro-rotulo">Ordenar</span>
+      <nav class="alternancia segmentado" aria-label="Ordem da lista">
+        {% for valor, rotulo, query in (("ia", "Nota da IA", query_ordem_ia), ("perfil", "Meus termos", query_ordem_perfil)) %}
+        <a class="botao{% if ordem.value == valor %} botao-ativo{% endif %}"{% if ordem.value == valor %} aria-current="page"{% endif %}
+           href="/tela?{{ query }}" hx-get="/tela/vagas?{{ query }}" hx-include="#detalhe-url" hx-target="#vagas" hx-swap="outerHTML">{{ rotulo }}</a>
+        {% endfor %}
+      </nav>
+    </div>
+    <div class="filtro-linha">
+      <span class="mono filtro-rotulo">Nota</span>
+      <nav class="alternancia segmentado" aria-label="Nota mínima da IA">
+        {% for valor, rotulo, query in ((none, "Todas", query_faixa_todas), ("media", "Média+", query_faixa_media), ("alta", "Alta", query_faixa_alta)) %}
+        {% set ativa = (faixa.value if faixa else none) == valor %}
+        <a class="botao{% if ativa %} botao-ativo{% endif %}"{% if ativa %} aria-current="page"{% endif %}
+           href="/tela{{ '?' ~ query if query }}" hx-get="/tela/vagas{{ '?' ~ query if query }}" hx-include="#detalhe-url" hx-target="#vagas" hx-swap="outerHTML">{{ rotulo }}</a>
+        {% endfor %}
+      </nav>
+    </div>
   </div>
   {% endif %}
+  <div class="acoes-lista">
+    {% if resumo is defined %}
+    <div class="resumo" role="status">
+      {% if resumo.falhou %}
+      <p>Coleta sem resultado: todas as fontes deram erro.</p>
+      {% else %}
+      <p>Coleta concluída: {{ resumo.novas }} novas.</p>
+      {% endif %}
+      {% for erro in resumo.erros %}<p class="mono">{{ erro }}</p>{% endfor %}
+    </div>
+    {% endif %}
+    <div class="linha-coleta">
+      <button type="button" class="botao botao-primario" hx-post="/tela/coletas" hx-include="#busca, #estado-lista"
+              hx-target="#vagas" hx-swap="outerHTML" hx-disabled-elt="this">Buscar vagas novas</button>
+      {% if ultima_coleta %}<span class="mono">última: {{ ultima_coleta }}</span>{% endif %}
+    </div>
+    {% if lote %}{% include "tela/_lote_ia.html" %}{% endif %}
+  </div>
   <ul id="lista-vagas" class="lista-vagas">
     {% if total == 0 %}
     <li class="vazio">
@@ -59,15 +69,15 @@
       {% elif salvas %}
       <p>Nenhuma vaga salva. Use a bandeirinha de uma vaga para guardá-la aqui.</p>
       {% elif faixa %}
-      <p>Nenhuma vaga avaliada pela IA nessa faixa.</p>
+      <p>Nenhuma vaga com essa nota da IA.</p>
       {% elif q %}
       <p>Nenhuma vaga encontrada para a busca.</p>
       {% elif novas %}
-      <p>Nenhuma vaga nova.</p>
+      <p>Você já abriu todas as vagas.</p>
       {% else %}
       <p>Nenhuma vaga ainda; rode uma coleta.</p>
       <button type="button" class="botao botao-primario" hx-post="/tela/coletas" hx-include="#busca, #estado-lista"
-              hx-target="#vagas" hx-swap="outerHTML" hx-disabled-elt="this">Coletar agora</button>
+              hx-target="#vagas" hx-swap="outerHTML" hx-disabled-elt="this">Buscar vagas novas</button>
       {% endif %}
     </li>
     {% else %}

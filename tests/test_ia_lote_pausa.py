@@ -1,4 +1,4 @@
-"""Pausar e retomar o lote da IA ("Pausar avaliação" na tela).
+"""Pausar e retomar o lote da IA ("Pausar" e "Retomar" na linha da IA da tela).
 
 Repositório na memória e no Postgres de verdade (PGHOST), com o mesmo contrato; serviço e tela na memória.
 Vagas, currículos e resultados daqui são inventados e escritos à mão (não são respostas gravadas).
@@ -128,8 +128,9 @@ class PausaTelaTest(unittest.TestCase):
     def test_botao_pausar_ao_lado_do_avaliar(self):
         pagina = Pagina(self.m.cliente.get("/tela").text)
         botoes = {b.texto.strip(): b.attrs.get("hx-post") for b in pagina.tags("button")}
-        self.assertEqual(botoes["Pausar avaliação"], "/tela/ia/lote/pausar")
-        self.assertNotIn("Retomar avaliação", botoes)
+        self.assertEqual(botoes["Pausar"], "/tela/ia/lote/pausar")
+        self.assertEqual(botoes["Avaliar 3 sem nota"], "/tela/ia/lote")
+        self.assertNotIn("Retomar", botoes)
 
     def test_pausar_esvazia_a_fila_e_a_coleta_nao_enche_de_novo(self):
         self.m.cliente.post("/tela/ia/lote", headers=MUTACAO)
@@ -137,10 +138,11 @@ class PausaTelaTest(unittest.TestCase):
 
         texto = self.lote_ia(self.m.cliente.post("/tela/ia/lote/pausar", headers=MUTACAO))
 
-        self.assertIn("0 na fila · pausada", texto)
+        self.assertIn("IA pausada · 0 avaliadas · 0 na fila", texto)
         self.assertIn("3 vagas saíram da fila", texto)
-        self.assertIn("Retomar avaliação", texto)
-        self.assertNotIn("Avaliar vagas com IA", texto)
+        self.assertIn("Retomar", texto)
+        self.assertNotIn("Avaliar", texto)
+        self.assertNotIn("Pausar", texto)
         self.assertEqual(self.m.lote(), set())
         # A coleta (pela tela e pela API) não manda vaga para a IA enquanto pausada.
         self.assertEqual(self.m.cliente.post("/tela/coletas", headers=MUTACAO).status_code, 200)
@@ -155,7 +157,8 @@ class PausaTelaTest(unittest.TestCase):
         texto = self.lote_ia(self.m.cliente.post("/tela/ia/lote/retomar", headers=MUTACAO))
 
         self.assertNotIn("pausada", texto)
-        self.assertIn("Avaliar vagas com IA", texto)
+        self.assertIn("IA ligada · 0 avaliadas · 3 na fila", texto)
+        self.assertIn("Pausar", texto)
         self.assertEqual(len(self.m.lote()), 3)
 
     def test_csrf(self):

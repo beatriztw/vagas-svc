@@ -31,7 +31,7 @@ class CampoDeBuscaTest(unittest.TestCase):
     def test_input_tem_rotulo_acessivel_e_atributos_do_htmx(self):
         rotulo = next(e for e in self.pagina.tags("label") if e.attrs.get("for") == "busca")
 
-        self.assertEqual(rotulo.texto.strip(), "Buscar")
+        self.assertEqual(rotulo.texto.strip(), "Filtrar a lista")
         self.assertEqual(self.campo.tag, "input")
         self.assertEqual(self.campo.attrs["type"], "search")
         self.assertEqual(self.campo.attrs["name"], "q")
@@ -114,7 +114,7 @@ class BuscaTest(unittest.TestCase):
 
         self.assertIn("Nenhuma vaga encontrada para a busca", texto)
         # Sem o botão no estado vazio (só o da barra da lista, do PR4): a busca sem resultado não pede coleta.
-        self.assertEqual(texto.count("Coletar agora"), 1)
+        self.assertEqual(texto.count("Buscar vagas novas"), 1)
         self.assertNotIn("rode uma coleta", texto)
         self.assertIn("0 encontradas", texto)
 

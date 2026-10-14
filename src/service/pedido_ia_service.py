@@ -240,13 +240,20 @@ class PedidoIAService:
         criados = self.pedidos.contar_lote_desde(self._relogio() - _JANELA_LOTE)
         return max(0, self.max_lote_por_dia - criados)
 
-    def progresso_lote(self, candidatas: Iterable, notas: Mapping[str, NotaIA] | None = None) -> tuple[int, int]:
-        """(avaliadas, na_fila) entre as `candidatas`: com nota válida e com compatibilidade ativa.
-        `notas` já lidas (as de `notas_validas`) evitam ler de novo."""
+    def progresso_lote(
+        self, candidatas: Iterable, notas: Mapping[str, NotaIA] | None = None
+    ) -> tuple[int, int, int]:
+        """(avaliadas, na_fila, sem_nota) entre as `candidatas`: com nota válida, com compatibilidade
+        ativa e as que o botão "Avaliar" mandaria (sem nota, fora da fila e sem erro recente com a base
+        vigente, que `_enfileirar_lote` pula). `notas` já lidas (as de `notas_validas`) evitam ler de novo."""
         urls = {v.url for v in candidatas}
-        avaliadas = len(urls & set(self.notas_validas() if notas is None else notas))
-        na_fila = len(urls & self.pedidos.urls_ativas(TipoPedidoIA.COMPATIBILIDADE))
-        return avaliadas, na_fila
+        com_nota = urls & set(self.notas_validas() if notas is None else notas)
+        ativas = urls & self.pedidos.urls_ativas(TipoPedidoIA.COMPATIBILIDADE)
+        base = self.curriculos.obter_base()
+        em_espera = (
+            self.pedidos.urls_com_erro_desde(base.id, self._relogio() - _ESPERA_ERRO_LOTE) if base is not None else set()
+        )
+        return len(com_nota), len(ativas), len(urls - com_nota - ativas - em_espera)
 
     def obter(self, id: int) -> PedidoIA | None:
         return self.pedidos.obter(id)

@@ -128,6 +128,11 @@ class VagaEncontradaRepository(ABC):
     def contar_salvas(self) -> int:
         """Quantas vagas estão salvas, expiradas inclusive (o número da aba "Salvas")."""
 
+    @abstractmethod
+    def ultima_coleta(self) -> datetime | None:
+        """Quando uma coleta (manual ou agendada) registrou vaga pela última vez: o maior `ultima_vez_em`.
+        None sem histórico. Coleta que não trouxe nenhuma vaga não conta."""
+
 
 def validar_termo(termo: str) -> str:
     """Termo da coleta sem espaços nas pontas; vazio é recusado antes de gravar."""
@@ -548,6 +553,9 @@ class VagaEncontradaRepositoryMemoria(VagaEncontradaRepository):
 
     def contar_salvas(self) -> int:
         return sum(1 for v in self._linhas.values() if v.salva_em is not None)
+
+    def ultima_coleta(self) -> datetime | None:
+        return max((v.ultima_vez_em for v in self._linhas.values() if v.ultima_vez_em is not None), default=None)
 
     def marcar_vistas(self, urls: list[str]) -> int:
         urls = validar_urls(urls)
