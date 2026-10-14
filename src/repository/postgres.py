@@ -53,6 +53,7 @@ def perfil_para_linha(perfil: Perfil) -> dict:
     linha["niveis"] = [n.value for n in perfil.niveis]
     linha["publicada_desde_dias"] = perfil.publicada_desde_dias
     linha["ocultar_candidatadas"] = perfil.ocultar_candidatadas
+    linha["salario_minimo"] = perfil.salario_minimo
     return linha
 
 
@@ -64,6 +65,7 @@ def linha_para_perfil(linha: dict) -> Perfil:
         niveis=[Nivel(n) for n in linha["niveis"]],
         publicada_desde_dias=linha["publicada_desde_dias"],
         ocultar_candidatadas=linha["ocultar_candidatadas"],
+        salario_minimo=linha["salario_minimo"],
     )
 
 

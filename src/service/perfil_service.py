@@ -67,6 +67,8 @@ def from_json(texto: str) -> Perfil:
     perfil.ocultar_candidatadas = bool(bruto.get("ocultar_candidatadas", True))
     dias = bruto.get("publicada_desde_dias")
     perfil.publicada_desde_dias = None if dias is None else int(dias)
+    salario = bruto.get("salario_minimo")
+    perfil.salario_minimo = None if salario is None else int(salario)
     return perfil
 
 

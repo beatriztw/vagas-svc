@@ -8,24 +8,33 @@ from src.controller.tela_seguranca import PREFIXO_TELA, exigir_mutacao_da_tela, 
 from src.model.erros import DadoInvalido
 from src.model.perfil import Perfil
 from src.model.vaga import Modalidade, Nivel
-from src.repository.base import MAX_PUBLICADA_DESDE_DIAS, PerfilBuscaRepository, validar_perfil
+from src.repository.base import MAX_PUBLICADA_DESDE_DIAS, MAX_SALARIO_MINIMO, PerfilBuscaRepository, validar_perfil
 
 def _linhas(texto: str) -> list[str]:
     """Uma entrada por linha; linha em branco é ignorada. Teto, repetidos e normalização ficam com `validar_perfil`."""
     return [linha.strip() for linha in texto.splitlines() if linha.strip()]
 
 
-def _dias(texto: str) -> int | None:
+def _inteiro(texto: str, nome: str, teto: int) -> int | None:
     texto = texto.strip()
     if not texto:
         return None
     if not (texto.isascii() and texto.isdigit()):
-        raise DadoInvalido(f"publicada_desde_dias tem que ser um número inteiro entre 1 e {MAX_PUBLICADA_DESDE_DIAS}")
+        raise DadoInvalido(f"{nome} tem que ser um número inteiro entre 1 e {teto}")
     # `int()` recusa texto com mais de 4300 dígitos com ValueError (500): com mais dígitos que o teto,
     # já está fora do intervalo. Zeros à esquerda não contam ("0014" é 14).
-    if len(texto.lstrip("0")) > len(str(MAX_PUBLICADA_DESDE_DIAS)):
-        raise DadoInvalido(f"publicada_desde_dias tem que estar entre 1 e {MAX_PUBLICADA_DESDE_DIAS}")
+    if len(texto.lstrip("0")) > len(str(teto)):
+        raise DadoInvalido(f"{nome} tem que estar entre 1 e {teto}")
     return int(texto)
+
+
+def _dias(texto: str) -> int | None:
+    return _inteiro(texto, "publicada_desde_dias", MAX_PUBLICADA_DESDE_DIAS)
+
+
+def _salario(texto: str) -> int | None:
+    """Reais por mês, só dígitos ("3050"); ponto ou vírgula de milhar não são aceitos."""
+    return _inteiro(texto, "salario_minimo", MAX_SALARIO_MINIMO)
 
 
 def contexto_do_formulario(perfil: Perfil | None, salvo: bool = False) -> dict:
@@ -35,6 +44,8 @@ def contexto_do_formulario(perfil: Perfil | None, salvo: bool = False) -> dict:
     return {
         "perfil": perfil,
         "dias": perfil.publicada_desde_dias if perfil.publicada_desde_dias is not None else "",
+        "salario": perfil.salario_minimo if perfil.salario_minimo is not None else "",
+        "max_salario": MAX_SALARIO_MINIMO,
         "marcadas_modalidades": {Modalidade(m).value for m in perfil.modalidades},
         "marcados_niveis": {Nivel(n).value for n in perfil.niveis},
         "modalidades": list(Modalidade),
@@ -63,6 +74,7 @@ def criar_router_tela_perfil(perfis: PerfilBuscaRepository) -> APIRouter:
         niveis: Annotated[list[str] | None, Form()] = None,
         publicada_desde_dias: Annotated[str, Form()] = "",
         ocultar_candidatadas: Annotated[str | None, Form()] = None,
+        salario_minimo: Annotated[str, Form()] = "",
     ):
         # Modalidade/nível fora dos enums, dias fora de 1..teto: DadoInvalido, que em /tela vira o aviso 422
         # (o handler de api.py) e não grava nada. A validação é a da rota JSON.
@@ -76,6 +88,7 @@ def criar_router_tela_perfil(perfis: PerfilBuscaRepository) -> APIRouter:
             skills=_linhas(skills),
             publicada_desde_dias=_dias(publicada_desde_dias),
             ocultar_candidatadas=ocultar_candidatadas is not None,
+            salario_minimo=_salario(salario_minimo),
         )
         perfis.salvar(validar_perfil(perfil))
         # Relê do repositório: o formulário mostra o que ficou gravado (normalizado, sem repetidos).

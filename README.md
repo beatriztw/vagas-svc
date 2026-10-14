@@ -170,7 +170,7 @@ Cada card e o detalhe da vaga têm uma bandeirinha (como a do Instagram) para sa
 
 ### Meu perfil (`/tela/perfil`)
 
-O botão "Meu perfil" do header leva a `GET /tela/perfil` (página inteira; com `HX-Request`, só o formulário). Os campos são os do perfil JSON: termos, excluir, localidades, plataformas e skills em textareas (uma entrada por linha, linha em branco ignorada), modalidades e níveis em checkboxes com os valores dos enums, `publicada_desde_dias` (vazio = sem limite) e `ocultar_candidatadas`. Sem perfil salvo o formulário vem vazio.
+O botão "Meu perfil" do header leva a `GET /tela/perfil` (página inteira; com `HX-Request`, só o formulário). Os campos são os do perfil JSON: termos, excluir, localidades, plataformas e skills em textareas (uma entrada por linha, linha em branco ignorada), modalidades e níveis em checkboxes com os valores dos enums, `publicada_desde_dias` (vazio = sem limite), `ocultar_candidatadas` e `salario_minimo` (reais por mês, só dígitos; vazio = sem piso; não filtra a coleta, vai para a IA da compatibilidade). Sem perfil salvo o formulário vem vazio.
 
 - Salvar é `PUT /tela/perfil` (HTMX, nunca GET), protegido pelo mesmo CSRF das outras mutações da tela. Usa o mesmo repositório e a mesma validação de `PUT /perfil` (`validar_perfil`): `DadoInvalido` vira o aviso 422 e não grava nada; repetidos saem na normalização.
 - Depois de salvar, o formulário é relido do repositório e mostra "Perfil salvo" com o link de volta para a lista, que já obedece ao perfil na leitura.

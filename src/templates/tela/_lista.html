@@ -34,10 +34,11 @@
     <div class="filtro-linha">
       <span class="mono filtro-rotulo">Nota</span>
       <nav class="alternancia segmentado" aria-label="Nota mínima da IA">
-        {% for valor, rotulo, query in ((none, "Todas", query_faixa_todas), ("media", "Média+", query_faixa_media), ("alta", "Alta", query_faixa_alta)) %}
+        {# Os cortes da IA (média 40, alta 70) em número, com a bolinha na cor da etiqueta do card. #}
+        {% for valor, rotulo, query in ((none, "Todas", query_faixa_todas), ("media", "40+", query_faixa_media), ("alta", "70+", query_faixa_alta)) %}
         {% set ativa = (faixa.value if faixa else none) == valor %}
-        <a class="botao{% if ativa %} botao-ativo{% endif %}"{% if ativa %} aria-current="page"{% endif %}
-           href="/tela{{ '?' ~ query if query }}" hx-get="/tela/vagas{{ '?' ~ query if query }}" hx-include="#detalhe-url" hx-target="#vagas" hx-swap="outerHTML">{{ rotulo }}</a>
+        <a class="botao{% if valor %} nota-{{ valor }}{% endif %}{% if ativa %} botao-ativo{% endif %}"{% if ativa %} aria-current="page"{% endif %}
+           href="/tela{{ '?' ~ query if query }}" hx-get="/tela/vagas{{ '?' ~ query if query }}" hx-include="#detalhe-url" hx-target="#vagas" hx-swap="outerHTML">{% if valor %}<span class="ponto-nota" aria-hidden="true"></span>{% endif %}{{ rotulo }}</a>
         {% endfor %}
       </nav>
     </div>

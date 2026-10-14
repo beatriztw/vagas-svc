@@ -14,6 +14,8 @@ from src.model.perfil import Perfil
 from src.model.vaga import Modalidade, Nivel
 
 MIGRATION = Path(__file__).resolve().parent.parent / "migrations" / "001_curriculo_perfil.sql"
+# A 011 acrescenta `salario_minimo` ao perfil_busca da 001.
+MIGRATION_SALARIO = MIGRATION.with_name("011_perfil_salario_minimo.sql")
 
 
 @unittest.skipUnless(os.environ.get("PGHOST"), "PGHOST não definido: integração com Postgres pulada")
@@ -37,6 +39,8 @@ class PostgresTest(unittest.TestCase):
         migration = MIGRATION.read_text(encoding="utf-8")
         self.conn.execute(migration)
         self.conn.execute(migration)  # idempotente: segunda aplicação não falha
+        for _ in range(2):  # idempotente também
+            self.conn.execute(MIGRATION_SALARIO.read_text(encoding="utf-8"))
         self.perfis = PerfilBuscaRepositoryPostgres(self.conn)
         self.curriculos = CurriculoRepositoryPostgres(self.conn)
 

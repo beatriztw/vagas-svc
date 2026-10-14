@@ -304,6 +304,8 @@ class PedidoIAService:
                 "descricao": getattr(vaga, "descricao", None),
                 "requisitos": requisitos,
                 "subtitulo": getattr(vaga, "subtitulo", None),
+                # "R$ 3.000 por mês"; None quando a vaga não informa (a IA compara com o salário mínimo do perfil).
+                "salario": (vaga.salario.texto() or None) if getattr(vaga, "salario", None) else None,
             },
             "curriculo_base": {"id": base.id, "titulo": base.titulo, "conteudo_md": base.conteudo_md},
             "perfil": None if perfil is None else self._perfil(perfil),
@@ -320,6 +322,7 @@ class PedidoIAService:
             "niveis": [n.value for n in perfil.niveis],
             "skills": list(perfil.skills),
             "publicada_desde_dias": perfil.publicada_desde_dias,
+            "salario_minimo": perfil.salario_minimo,
             "ocultar_candidatadas": perfil.ocultar_candidatadas,
         }
 

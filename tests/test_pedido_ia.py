@@ -15,6 +15,7 @@ from fastapi.testclient import TestClient
 
 from src.controller.api import criar_app
 from src.model.curriculo import Curriculo
+from src.model.detalhe_vaga import Salario
 from src.model.erros import DadoInvalido
 from src.model.pedido_ia import (
     MAX_ERRO,
@@ -322,8 +323,10 @@ class ProximoTest(ComToken):
         self.assertEqual((corpo["tipo"], corpo["tentativa"]), ("compatibilidade", 1))
         self.assertEqual(
             set(corpo["vaga"]),
-            {"url", "titulo", "empresa", "plataforma", "local", "remoto", "publicada_em", "descricao", "requisitos", "subtitulo"},
+            {"url", "titulo", "empresa", "plataforma", "local", "remoto", "publicada_em", "descricao", "requisitos", "subtitulo",
+             "salario"},
         )
+        self.assertIsNone(corpo["vaga"]["salario"])
         self.assertEqual(corpo["vaga"]["url"], URL_A)
         self.assertIsNone(corpo["vaga"]["descricao"])
         self.assertIsNone(corpo["vaga"]["subtitulo"])
@@ -344,6 +347,7 @@ class ProximoTest(ComToken):
             {
                 "termos": ["dados"], "excluir": [], "modalidades": ["Remoto"], "localidades": [], "plataformas": [],
                 "niveis": [], "skills": ["sql"], "publicada_desde_dias": None, "ocultar_candidatadas": True,
+                "salario_minimo": None,
             },
         )
 
@@ -365,6 +369,25 @@ class ProximoTest(ComToken):
             vaga_json["requisitos"],
             [{"texto": "SQL avançado", "obrigatorio": True}, {"texto": "Python", "obrigatorio": False}],
         )
+
+    def test_salario_da_vaga_vai_como_texto_e_o_minimo_do_perfil_junto(self):
+        # A IA compara os dois: vaga que paga o mínimo ou menos tem a nota limitada (compatibilidade-v3).
+        real = self.m.encontradas.obter(URL_A)
+        real.salario = Salario(minimo=300000, periodo="mês")
+        self.m.servico.pedir(URL_A, "compatibilidade")
+
+        with mock.patch.object(self.m.encontradas, "obter", return_value=real):
+            vaga_json = self.proximo().json()["vaga"]
+
+        self.assertEqual(vaga_json["salario"], Salario(minimo=300000, periodo="mês").texto())
+        self.assertIn("R$ 3.000", vaga_json["salario"])
+
+        m = Montagem(com_perfil=True)
+        perfil = m.perfis.obter()
+        perfil.salario_minimo = 3050
+        m.perfis.salvar(perfil)
+        m.servico.pedir(URL_A, "compatibilidade")
+        self.assertEqual(m.cliente.post("/pedidos-ia/proximo", json={}, headers=AUTH).json()["perfil"]["salario_minimo"], 3050)
 
     def test_fila_vazia_responde_204_sem_corpo(self):
         resposta = self.proximo()
