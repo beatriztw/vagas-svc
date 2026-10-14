@@ -216,6 +216,17 @@ class TelaTest(unittest.TestCase):
         ativa = next(a for a in pagina.tags("a") if a.texto.strip() == "Nota da IA")
         self.assertEqual(ativa.attrs.get("aria-current"), "page")
 
+    def test_filtro_de_nota_mostra_os_cortes_em_numero_com_a_cor_da_faixa(self):
+        self.avaliar(NOTAS)
+        pagina = Pagina(self.cliente.get("/tela?faixa=media").text)
+        links = {a.texto.strip(): a for a in pagina.tags("a") if a.texto.strip() in ("40+", "70+")}
+        self.assertEqual(parse_qs(urlsplit(links["40+"].attrs["href"]).query)["faixa"], ["media"])
+        self.assertEqual(parse_qs(urlsplit(links["70+"].attrs["href"]).query)["faixa"], ["alta"])
+        self.assertIn("nota-media", links["40+"].attrs["class"].split())
+        self.assertIn("nota-alta", links["70+"].attrs["class"].split())
+        self.assertEqual(links["40+"].attrs.get("aria-current"), "page")
+        self.assertNotIn("aria-current", links["70+"].attrs)
+
     def test_ordem_perfil_e_faixa_pela_url_e_pelo_partial(self):
         self.avaliar(NOTAS)
         self.assertEqual(self.cards("/tela?ordem=perfil"), ORDEM_MATCH)
