@@ -1,13 +1,22 @@
-{# IA em lote: quantas vagas da lista já têm nota e quantas estão na fila; o botão manda as que faltam. Alvo do POST /tela/ia/lote.
-   Com IA_LOTE_MAX_POR_DIA, mostra quanto ainda cabe em 24 h; teto cheio ou lote desligado desabilitam o botão. #}
+{# IA em lote: quantas vagas da lista já têm nota e quantas estão na fila; o botão manda as que faltam. Alvo do POST /tela/ia/lote
+   (e de /tela/ia/lote/pausar e /retomar). Com IA_LOTE_MAX_POR_DIA, mostra quanto ainda cabe em 24 h; teto cheio ou lote
+   desligado desabilitam o botão. Pausado: nem a coleta nem o botão enfileiram, e só aparece "Retomar avaliação". #}
 {%- set cheio = lote.restante is not none and lote.restante <= 0 %}
 <div id="lote-ia" class="lote-ia">
-  <span class="mono lote-ia-progresso">IA: {{ lote.avaliadas }} avaliadas · {{ lote.na_fila }} na fila</span>
+  <span class="mono lote-ia-progresso">IA: {{ lote.avaliadas }} avaliadas · {{ lote.na_fila }} na fila{% if lote.pausado %} · pausada{% endif %}</span>
   {% if lote.sem_base %}
   <span class="mono">Salve um currículo base para a IA avaliar as vagas</span>
+  {% elif lote.pausado %}
+  <button type="button" class="botao botao-ai" hx-post="/tela/ia/lote/retomar" hx-target="#lote-ia" hx-swap="outerHTML"
+          hx-disabled-elt="this">Retomar avaliação</button>
+  <span class="mono" role="status">{% if lote.removidos is defined %}{{ lote.removidos }} {{ "vaga saiu" if lote.removidos == 1 else "vagas saíram" }} da fila. {% endif %}As coletas não mandam vagas para a IA até você retomar; o botão "Compatibilidade" de cada vaga segue funcionando.</span>
   {% else %}
   <button type="button" class="botao botao-ai" hx-post="/tela/ia/lote" hx-target="#lote-ia" hx-swap="outerHTML"
           hx-disabled-elt="this"{% if cheio %} disabled{% endif %}>Avaliar vagas com IA</button>
+  {% if not lote.desligado %}
+  <button type="button" class="botao" hx-post="/tela/ia/lote/pausar" hx-target="#lote-ia" hx-swap="outerHTML"
+          hx-disabled-elt="this" title="Tira da fila as vagas que a IA ainda não começou e para a avaliação automática das coletas">Pausar avaliação</button>
+  {% endif %}
   {% if lote.desligado %}
   <span class="mono" role="status">Avaliação em lote da IA desligada (IA_LOTE_MAX_POR_DIA=0)</span>
   {% elif cheio %}
@@ -16,7 +25,7 @@
   <span class="mono lote-ia-restante">restam {{ lote.restante }} hoje</span>
   {% endif %}
   {% endif %}
-  {% if lote.criados is not none and not (cheio and lote.criados == 0) %}
+  {% if lote.criados is not none and not (cheio and lote.criados == 0) and not lote.pausado %}
   <span class="mono" role="status">{{ lote.criados }} {{ "vaga" if lote.criados == 1 else "vagas" }} na fila da IA</span>
   {% endif %}
 </div>

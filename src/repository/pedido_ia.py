@@ -110,6 +110,20 @@ class PedidoIARepository(ABC):
         """Pedidos do lote (prioridade 1) criados em `desde` ou depois."""
 
     @abstractmethod
+    def lote_pausado(self) -> bool:
+        """O lote da IA está pausado (o botão "Pausar avaliação")? Sem registro: não."""
+
+    @abstractmethod
+    def pausar_lote(self) -> int:
+        """Pausa o lote e apaga, numa transação, os pedidos de compatibilidade do lote ainda pendentes;
+        devolve quantos apagou. Não toca no que está rodando (termina), nos pedidos da pessoa
+        (prioridade 0), nos de currículo nem nos já terminados."""
+
+    @abstractmethod
+    def retomar_lote(self) -> None:
+        """Tira a pausa do lote."""
+
+    @abstractmethod
     def gravar_rotulo(self, vaga_url: str, faixa: Faixa | str | None) -> Faixa | None:
         """Grava ou troca o rótulo da vaga; `None` apaga. Vaga fora do histórico é `DadoInvalido`."""
 
@@ -161,6 +175,7 @@ class PedidoIARepositoryMemoria(PedidoIARepository):
         self._relogio = relogio or (lambda: datetime.now(timezone.utc))
         self._linhas: dict[int, PedidoIA] = {}
         self._rotulos: dict[str, Faixa] = {}
+        self._lote_pausado = False
         self._proximo_id = 1
         self._lock = threading.Lock()
 
@@ -346,6 +361,28 @@ class PedidoIARepositoryMemoria(PedidoIARepository):
     def contar_lote_desde(self, desde: datetime) -> int:
         with self._lock:
             return sum(1 for p in self._linhas.values() if p.prioridade == PRIORIDADE_LOTE and p.criado_em >= desde)
+
+    def lote_pausado(self) -> bool:
+        with self._lock:
+            return self._lote_pausado
+
+    def pausar_lote(self) -> int:
+        with self._lock:
+            self._lote_pausado = True
+            do_lote = [
+                id
+                for id, p in self._linhas.items()
+                if p.estado == EstadoPedidoIA.PENDENTE
+                and p.prioridade == PRIORIDADE_LOTE
+                and p.tipo == TipoPedidoIA.COMPATIBILIDADE
+            ]
+            for id in do_lote:
+                del self._linhas[id]
+            return len(do_lote)
+
+    def retomar_lote(self) -> None:
+        with self._lock:
+            self._lote_pausado = False
 
     def gravar_rotulo(self, vaga_url: str, faixa: Faixa | str | None) -> Faixa | None:
         vaga_url = validar_vaga_url(vaga_url)
