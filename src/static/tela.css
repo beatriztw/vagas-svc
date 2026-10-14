@@ -235,9 +235,9 @@ input[type="search"], input[type="text"], select {
   line-height: 18px;
   vertical-align: middle;
 }
-.lista-barra { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin: 0 0 12px; }
+.lista-barra { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin: 0 0 16px; }
 /* Filtros da IA (Ordenar, Nota): um rótulo e o grupo emendado por linha, os grupos alinhados. */
-.lista-ia { display: flex; flex-direction: column; gap: 8px; margin: 0 0 12px; }
+.lista-ia { display: flex; flex-direction: column; gap: 10px; margin: 0 0 16px; }
 .filtro-linha { display: flex; align-items: center; gap: 8px; }
 .filtro-rotulo { min-width: 56px; }
 /* Opções emendadas num grupo só (Todas|Não abertas|Salvas, Ordenar, Nota): mais baixas que o botão comum. */
@@ -246,7 +246,7 @@ input[type="search"], input[type="text"], select {
 .segmentado .botao + .botao { border-left: 1px solid var(--borda-campo); }
 .segmentado .botao-ativo { background: #E6F4F1; color: var(--accent); font-weight: 600; }
 /* Ações (vão aos sites ou à IA), separadas dos filtros por uma linha. */
-.acoes-lista { display: flex; flex-direction: column; gap: 8px; margin: 0 0 12px; padding-top: 12px; border-top: 1px solid var(--borda); }
+.acoes-lista { display: flex; flex-direction: column; gap: 12px; margin: 0 0 16px; padding: 16px 0; border-top: 1px solid var(--borda); border-bottom: 1px solid var(--borda); }
 .linha-coleta { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
 .lote-ia { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; font-size: 13px; }
 .lote-ia .mono { color: var(--sec); }

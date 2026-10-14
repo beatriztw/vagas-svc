@@ -1,6 +1,8 @@
 """Peças de segurança e renderização compartilhadas pelas rotas HTML de `/tela`."""
 
+import hashlib
 import re
+from functools import cache
 from pathlib import Path
 from urllib.parse import urlsplit
 
@@ -44,10 +46,23 @@ def plataforma_curta(valor: object) -> str:
     return re.sub(r"\s*\([^()]*\)\s*$", "", valor).strip()
 
 
+@cache
+def estatico(nome: str) -> str:
+    """`/static/<nome>?v=<hash do conteúdo>`: o servidor não manda cache-control, e o navegador seguia
+    usando o CSS antigo depois do deploy (HTML novo com o estilo velho). Com a versão na url, cada
+    arquivo alterado vira outra url. Lido uma vez por processo: a imagem não muda com a app no ar."""
+    try:
+        versao = hashlib.sha256((DIRETORIO_STATIC / nome).read_bytes()).hexdigest()[:10]
+    except OSError:
+        return f"/static/{nome}"  # sem o arquivo a página ainda abre; o 404 fica com o próprio estático
+    return f"/static/{nome}?v={versao}"
+
+
 # Autoescape ligado de forma explícita: dado de provider nunca é confiável.
 templates = Jinja2Templates(env=Environment(loader=FileSystemLoader(DIRETORIO_TEMPLATES), autoescape=True))
 templates.env.filters["url_segura"] = url_segura
 templates.env.filters["plataforma_curta"] = plataforma_curta
+templates.env.filters["estatico"] = estatico
 
 
 def caminho_da_tela(caminho: str) -> bool:
