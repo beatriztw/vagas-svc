@@ -14,10 +14,10 @@ from src.service.candidatura_service import CandidaturaService
 from src.service.coleta_service import ColetaService
 from src.service.detalhe_service import DetalheService, VagaAberta
 from src.service.historico_service import (
-    FaixaMinima,
+    FaixaFiltro,
     HistoricoService,
     Ordem,
-    validar_faixa_minima,
+    validar_faixa,
     validar_ordem,
 )
 from src.service.pedido_ia_service import PedidoIAService
@@ -155,7 +155,7 @@ def criar_router_tela(
         novas: bool,
         deslocamento: int,
         ordem: Ordem | None = None,
-        faixa: FaixaMinima | None = None,
+        faixa: FaixaFiltro | None = None,
         salvas: bool = False,
         apos: tuple[datetime, str] | None = None,
     ) -> dict:
@@ -175,7 +175,7 @@ def criar_router_tela(
                 deslocamento=deslocamento,
                 notas=notas,
                 ordem=ordem,
-                faixa_minima=faixa,
+                faixa=faixa,
             )
         vagas, total = lida.vagas, lida.total
         proximo = deslocamento + len(vagas)
@@ -217,8 +217,11 @@ def criar_router_tela(
             "query_ordem_ia": _query(**{**com_novas, "ordem": Ordem.IA}),
             "query_ordem_perfil": _query(**{**com_novas, "ordem": Ordem.PERFIL}),
             "query_faixa_todas": _query(**{**com_novas, "faixa": None}),
-            "query_faixa_media": _query(**{**com_novas, "faixa": FaixaMinima.MEDIA}),
-            "query_faixa_alta": _query(**{**com_novas, "faixa": FaixaMinima.ALTA}),
+            "query_faixa_media": _query(**{**com_novas, "faixa": FaixaFiltro.MEDIA}),
+            "query_faixa_alta": _query(**{**com_novas, "faixa": FaixaFiltro.ALTA}),
+            "query_faixa_baixa": _query(**{**com_novas, "faixa": FaixaFiltro.BAIXA}),
+            # O número de cada botão da "Nota" (None: sem contagem, os botões saem sem número).
+            "por_faixa": lida.por_faixa,
             "max_busca": MAX_TAMANHO_BUSCA,
             # Só no 1º bloco (a barra da lista); os blocos do "carregar mais" não têm barra.
             "lote": contexto_lote(notas=notas) if primeiro_bloco else None,
@@ -232,7 +235,7 @@ def criar_router_tela(
         aberta: VagaAberta | None,
         pedida: bool,
         ordem: Ordem | None = None,
-        faixa: FaixaMinima | None = None,
+        faixa: FaixaFiltro | None = None,
         salvas: bool = False,
     ):
         """A página inteira. `aberta` é a selecionada; `pedida` sem vaga é um link para o que não existe."""
@@ -284,7 +287,7 @@ def criar_router_tela(
     ):
         # A página inteira sempre, mesmo com HX-Request: as rotas de partial são as de baixo.
         busca, somente_novas, so_salvas = _busca(q), _novas(novas), _salvas(salvas)
-        ordem_, faixa_ = validar_ordem(ordem), validar_faixa_minima(faixa)
+        ordem_, faixa_ = validar_ordem(ordem), validar_faixa(faixa)
         return pagina(request, busca, somente_novas, obter(url), bool(url), ordem_, faixa_, so_salvas)
 
     @router.get("/vagas")
@@ -302,7 +305,7 @@ def criar_router_tela(
     ):
         q = _busca(q)
         somente_novas, so_salvas = _novas(novas), _salvas(salvas)
-        ordem_, faixa_ = validar_ordem(ordem), validar_faixa_minima(faixa)
+        ordem_, faixa_ = validar_ordem(ordem), validar_faixa(faixa)
         # Validado também na página inteira: um deslocamento ruim é 422, não é ignorado.
         inicio = validar_deslocamento(_deslocamento(deslocamento))
         apos = _apos(apos_em, apos_url)
@@ -334,7 +337,7 @@ def criar_router_tela(
         salvas: str | None = None,
     ):
         busca, somente_novas, so_salvas = _busca(q), _novas(novas), _salvas(salvas)  # validados antes do provider
-        ordem_, faixa_ = validar_ordem(ordem), validar_faixa_minima(faixa)
+        ordem_, faixa_ = validar_ordem(ordem), validar_faixa(faixa)
         aberta = obter(url)
         if not eh_htmx(request):
             return pagina(request, busca, somente_novas, aberta, True, ordem_, faixa_, so_salvas)
@@ -413,7 +416,7 @@ def criar_router_tela(
     ):
         """Roda a coleta (a trava de uma por vez é do ColetaService: 409 em HTML se já há uma) e devolve a lista."""
         busca, somente_novas, so_salvas = _busca(q), _novas(novas), _salvas(salvas)
-        ordem_, faixa_ = validar_ordem(ordem), validar_faixa_minima(faixa)
+        ordem_, faixa_ = validar_ordem(ordem), validar_faixa(faixa)
         resultado = coleta.coletar()
         contexto = contexto_lista(busca, somente_novas, 0, ordem_, faixa_, so_salvas)
         contexto["resumo"] = {

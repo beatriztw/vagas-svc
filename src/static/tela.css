@@ -245,13 +245,20 @@ input[type="search"], input[type="text"], select {
 .segmentado .botao { border: 0; border-radius: 0; min-height: 36px; padding: 0 12px; font-size: 14px; white-space: nowrap; }
 .segmentado .botao + .botao { border-left: 1px solid var(--borda-campo); }
 .segmentado .botao-ativo { background: #E6F4F1; color: var(--accent); font-weight: 600; }
-/* Filtro "Nota": 40+ e 70+ nas cores das etiquetas do card (média e alta); a ativa ganha o fundo da sua cor. */
-.segmentado .nota-media, .segmentado .nota-alta { gap: 6px; }
+/* Filtro "Nota": uma faixa por botão, nas cores das etiquetas do card; a ativa ganha o fundo da sua cor. */
+/* A "Nota" ocupa a largura do painel: rótulo em cima e quatro colunas iguais de duas linhas. */
+.filtro-nota { flex-direction: column; align-items: stretch; gap: 6px; }
+.alternancia.segmentado.nota-grupo { display: grid; grid-template-columns: repeat(4, 1fr); }
+.nota-grupo .botao { flex-direction: column; justify-content: center; gap: 0; min-height: 48px; padding: 4px 6px; line-height: 1.25; }
+.nota-nome { display: inline-flex; align-items: center; gap: 6px; }
+.nota-detalhe { font-size: 12px; font-weight: 400; opacity: 0.8; white-space: nowrap; }
 .ponto-nota { width: 8px; height: 8px; border-radius: 50%; background: currentColor; flex: none; }
 .nota-media .ponto-nota { background: #9A6700; }
 .nota-alta .ponto-nota { background: #0F766E; }
+.nota-baixa .ponto-nota { background: #9B2C2C; }
 .segmentado .nota-media.botao-ativo { background: #FBF3E0; color: #9A6700; }
 .segmentado .nota-alta.botao-ativo { background: #E6F4F1; color: #0F766E; }
+.segmentado .nota-baixa.botao-ativo { background: #FBEAEA; color: #9B2C2C; }
 /* Ações (vão aos sites ou à IA), separadas dos filtros por uma linha. */
 .acoes-lista { display: flex; flex-direction: column; gap: 12px; margin: 0 0 16px; padding: 16px 0; border-top: 1px solid var(--borda); border-bottom: 1px solid var(--borda); }
 .linha-coleta { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
