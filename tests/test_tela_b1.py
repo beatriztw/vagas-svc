@@ -118,7 +118,7 @@ class BarraDaBuscaTest(unittest.TestCase):
 
         self.assertIn("#detalhe-url", pagina.por_id("busca").attrs["hx-include"])
         self.assertEqual(pagina.por_id("detalhe-url").attrs["name"], "detalhe_url")
-        for link in (e for e in pagina.tags("a") if e.texto.strip() in ("Todas", "Novas")):
+        for link in (e for e in pagina.tags("a") if e.texto.strip() in ("Todas", "Não abertas")):
             self.assertEqual(link.attrs["hx-include"], "#detalhe-url")
             self.assertNotIn("hx-push-url", link.attrs)
 

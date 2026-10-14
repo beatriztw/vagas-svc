@@ -1,0 +1,39 @@
+<!-- FIXTURE ESCRITA À MÃO (não é resposta gravada do LinkedIn). Imita a estrutura de
+     GET https://www.linkedin.com/jobs-guest/jobs/api/jobPosting/{id} observada em 13/10/2026:
+     div.description__text--rich > section.show-more-less-html > div.show-more-less-html__markup.
+     Empresa, vaga e texto são inventados. -->
+<section class="core-section-container top-card-layout">
+  <h2 class="top-card-layout__title">Pessoa Analista de Dados Fictícia</h2>
+  <a class="topcard__org-name-link" href="https://www.linkedin.com/company/empresa-ficticia">Empresa Fictícia</a>
+  <script type="application/ld+json">{"@type": "JobPosting", "title": "não entra na descrição"}</script>
+</section>
+<section class="core-section-container description">
+  <div class="decorated-job-posting__details">
+    <section class="core-section-container my-3 description">
+      <div class="description__text description__text--rich">
+        <section class="show-more-less-html" data-max-lines="5">
+          <div class="show-more-less-html__markup show-more-less-html__markup--clamp-after-5
+              relative overflow-hidden">
+            <strong>Sobre a vaga</strong><br><br>A Empresa Fictícia procura alguém para cuidar de
+            dashboards &amp; relatórios.<br>
+            <div class="bloco-aninhado"><p>Parágrafo dentro de uma div aninhada.</p>
+              <div>Mais um nível: R&#36; 0,00 de exemplo e o texto &lt;b&gt; não é tag.</div>
+            </div>
+            <script>document.write("isto não pode aparecer")</script>
+            <strong>Requisitos</strong>
+            <ul>
+              <li>SQL intermediário</li>
+              <li>Python básico</li>
+            </ul>
+            Último parágrafo, depois das divs aninhadas.
+          </div>
+          <button class="show-more-less-html__button">Exibir mais</button>
+        </section>
+      </div>
+    </section>
+    <ul class="description__job-criteria-list">
+      <li><h3>Nível de experiência</h3><span>Pleno</span></li>
+    </ul>
+  </div>
+</section>
+<div class="fora-do-bloco">Texto depois do bloco, que não é da descrição.</div>

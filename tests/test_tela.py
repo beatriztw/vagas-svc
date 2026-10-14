@@ -9,7 +9,7 @@ from fastapi import Depends, Request
 from fastapi.testclient import TestClient
 
 from src.controller.api import criar_app
-from src.controller.tela_seguranca import exigir_mutacao_da_tela, renderizar, templates, url_segura
+from src.controller.tela_seguranca import estatico, exigir_mutacao_da_tela, renderizar, templates, url_segura
 from src.model.erros import DadoInvalido
 from src.model.vaga_externa import VagaExterna
 from src.repository.base import CurriculoRepositoryMemoria, PerfilBuscaRepositoryMemoria, VagaEncontradaRepositoryMemoria
@@ -44,9 +44,9 @@ class PaginaTest(unittest.TestCase):
         self.assertIn("<html", html)
         self.assertIn("Nenhuma vaga ainda; rode uma coleta", html)
         # O botão de coleta do estado vazio está habilitado e chama POST /tela/coletas (PR4).
-        self.assertRegex(html, r'<button[^>]*hx-post="/tela/coletas"[^>]*>\s*Coletar agora\s*</button>')
-        self.assertNotRegex(html, r"<button[^>]*(?<![-\w])disabled(?![-\w])[^>]*>\s*Coletar agora")
-        self.assertRegex(html, r"<button[^>]*\bdisabled\b[^>]*>\s*Meu perfil\s*</button>")
+        self.assertRegex(html, r'<button[^>]*hx-post="/tela/coletas"[^>]*>\s*Buscar vagas novas\s*</button>')
+        self.assertNotRegex(html, r"<button[^>]*(?<![-\w])disabled(?![-\w])[^>]*>\s*Buscar vagas novas")
+        self.assertRegex(html, r'<a[^>]*href="/tela/perfil"[^>]*>\s*Meu perfil\s*</a>')
         self.assertIn("Selecione uma vaga", html)
         self.assertIn("Nenhuma candidatura ainda", html)
         self.assertIn('id="lista-vagas"', html)
@@ -110,12 +110,24 @@ class PaginaTest(unittest.TestCase):
         self.assertNotRegex(html, r"<style")
         self.assertNotRegex(html, r"\sstyle=")
         self.assertNotRegex(html, r"\son\w+=")
-        self.assertIn('src="/static/htmx.min.js"', html)
-        self.assertIn('href="/static/tela.css"', html)
+        self.assertIn('src="/static/htmx.min.js?v=', html)
+        self.assertIn('href="/static/tela.css?v=', html)
         self.assertIn('"includeIndicatorStyles":false', html)
 
 
 class StaticTest(unittest.TestCase):
+    def test_url_do_estatico_leva_a_versao_do_conteudo(self):
+        # Sem a versão o navegador seguia com o CSS do deploy anterior (o servidor não manda cache-control).
+        css = RAIZ / "src" / "static" / "tela.css"
+        versao = hashlib.sha256(css.read_bytes()).hexdigest()[:10]
+        self.assertEqual(estatico("tela.css"), f"/static/tela.css?v={versao}")
+        self.assertIn(f'href="/static/tela.css?v={versao}"', criar_cliente()[0].get("/tela").text)
+        # A url com a versão é servida como o arquivo.
+        self.assertEqual(criar_cliente()[0].get(estatico("tela.css")).text, css.read_text())
+
+    def test_estatico_que_nao_existe_sai_sem_versao_e_a_pagina_abre(self):
+        self.assertEqual(estatico("nao-existe.css"), "/static/nao-existe.css")
+
     def test_htmx_e_css_servidos_mesmo_com_outro_cwd(self):
         cliente, _ = criar_cliente()
         antes = os.getcwd()

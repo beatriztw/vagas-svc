@@ -1,10 +1,13 @@
 """API HTTP do vagas-svc. Sem autenticação: só é exposta na rede interna do Swarm."""
 
+import logging
 import os
+import sys
 import threading
 from collections.abc import Callable
 from contextlib import asynccontextmanager
 from datetime import date, datetime
+from pathlib import Path
 from typing import Any
 
 from fastapi import Depends, FastAPI, HTTPException, Query, Request
@@ -15,10 +18,14 @@ from pydantic import BaseModel, ConfigDict, Field
 from src.client.armazenamento import Armazenamento
 from src.controller.candidaturas import criar_router_candidaturas
 from src.controller import tela_compat  # noqa: F401  (registra as funções de template da compatibilidade)
+from src.controller.ia_metricas import criar_router_ia_metricas
+from src.controller.pedidos_ia import criar_router_pedidos_ia
 from src.controller.seguranca_json import exigir_json_mesma_origem
 from src.controller.tela import criar_router_tela
 from src.controller.tela_candidaturas import criar_router_tela_candidaturas
+from src.controller.tela_ia import criar_router_tela_ia
 from src.controller.tela_curriculos import criar_router_tela_curriculos
+from src.controller.tela_perfil import criar_router_tela_perfil
 from src.controller.tela_seguranca import DIRETORIO_STATIC, caminho_da_tela, eh_htmx, templates
 from src.model.curriculo import Curriculo
 from src.model.erros import DadoInvalido
@@ -38,12 +45,15 @@ from src.repository.base import (
     validar_perfil,
 )
 from src.repository.candidatura import CandidaturaRepository, CandidaturaRepositoryMemoria, vaga_por_url_em
-from src.repository.trava import ColetaEmAndamento, TravaColeta, TravaColetaPostgres
+from src.repository.pedido_ia import PedidoIARepository, PedidoIARepositoryMemoria
+from src.repository.trava import CHAVE_TRAVA_LOTE_IA, ColetaEmAndamento, TravaColeta, TravaColetaPostgres
+from src.service.agendador_coleta import AgendadorColeta
 from src.service.busca_service import BuscaService
 from src.service.candidatura_service import CandidaturaService
 from src.service.coleta_service import ColetaService
 from src.service.detalhe_service import DetalheService
 from src.service.historico_service import HistoricoService
+from src.service.pedido_ia_service import PedidoIAService
 from src.service.recomendacao_service import RecomendacaoService
 
 
@@ -175,18 +185,30 @@ def criar_app(
     encontradas: VagaEncontradaRepository | None = None,
     candidaturas: CandidaturaRepository | None = None,
     trava: TravaColeta | None = None,
+    pedidos_ia: PedidoIARepository | None = None,
+    trava_lote_ia: TravaColeta | None = None,
     detalhe: DetalheService | None = None,
     ao_subir: Callable[[], object] | None = None,
+    agendador: Callable[[Callable[[], object]], "AgendadorColeta | None"] | None = None,
 ) -> FastAPI:
     """Sem `encontradas` e `candidaturas`, o histórico da coleta e as candidaturas ficam em memória (testes);
     a produção passa os do Postgres. Sem `detalhe`, a tela não busca o detalhe no provider (testes).
-    `ao_subir` roda no startup (lifespan); se levantar, a app não sobe."""
+    `ao_subir` roda no startup (lifespan); se levantar, a app não sobe. `agendador` recebe a coleta
+    (a mesma do POST /coletas) e devolve o agendador da coleta, que o lifespan inicia depois do
+    `ao_subir` e para no shutdown; sem ele (testes), nada é agendado."""
 
     @asynccontextmanager
-    async def ciclo_de_vida(_: FastAPI):
+    async def ciclo_de_vida(app_: FastAPI):
         if ao_subir is not None:
             ao_subir()
-        yield
+        agendado = app_.state.agendador
+        if agendado is not None:
+            agendado.iniciar()
+        try:
+            yield
+        finally:
+            if agendado is not None:
+                agendado.parar()
 
     # Dependência do app: rota mutável nova (JSON) já nasce protegida; /tela e /interno ficam de fora dentro dela.
     app = FastAPI(title="vagas-svc", lifespan=ciclo_de_vida, dependencies=[Depends(exigir_json_mesma_origem)])
@@ -195,16 +217,28 @@ def criar_app(
     app.state.perfis = perfis
     recomendacao = RecomendacaoService(busca)
     encontradas = encontradas if encontradas is not None else VagaEncontradaRepositoryMemoria()
-    coleta = ColetaService(recomendacao, perfis, encontradas, trava)
     # Lista do histórico (JSON e tela) com o perfil salvo aplicado na leitura.
     historico = HistoricoService(encontradas, perfis)
+    if pedidos_ia is None:
+        pedidos_ia = PedidoIARepositoryMemoria(vaga_por_url_em(encontradas))
+    # Um serviço só para as rotas do worker, as da tela e as métricas.
+    # Com `detalhe`, o pedido de currículo busca antes a descrição que faltar (LinkedIn sob demanda).
+    servico_ia = PedidoIAService(pedidos_ia, encontradas, perfis, curriculos, trava_lote=trava_lote_ia, detalhe=detalhe)
+    # Toda coleta (API, tela, CLI) termina mandando as vagas sem nota para a fila da IA em lote.
+    coleta = ColetaService(
+        recomendacao, perfis, encontradas, trava, ao_terminar=lambda _: servico_ia.enfileirar_lote(historico.visiveis())
+    )
+    app.state.agendador = agendador(coleta.coletar) if agendador is not None else None
     if candidaturas is None:
         candidaturas = CandidaturaRepositoryMemoria(vaga_por_url_em(encontradas))
     # Um serviço só, para as rotas JSON e as da tela (na produção, o repositório é o _PorChamada).
-    servico_candidaturas = CandidaturaService(candidaturas)
+    servico_candidaturas = CandidaturaService(candidaturas, encontradas)
     # Só para os testes alcançarem o serviço; as rotas recebem o serviço explicitamente.
     app.state.candidaturas = servico_candidaturas
     app.include_router(criar_router_candidaturas(servico_candidaturas))
+    app.state.pedido_ia_service = servico_ia
+    app.include_router(criar_router_pedidos_ia(app.state.pedido_ia_service))
+    app.include_router(criar_router_ia_metricas(pedidos_ia))
 
     def erro_da_tela(request: Request, mensagem: str, status: int):
         """A tela troca HTML: o erro volta como HTML, não como JSON."""
@@ -242,8 +276,10 @@ def criar_app(
         return resposta
 
     app.mount("/static", StaticFiles(directory=DIRETORIO_STATIC), name="static")
-    app.include_router(criar_router_tela(encontradas, historico, coleta, servico_candidaturas, detalhe))
+    app.include_router(criar_router_tela(encontradas, historico, coleta, servico_candidaturas, detalhe, servico_ia))
     app.include_router(criar_router_tela_candidaturas(servico_candidaturas))
+    app.include_router(criar_router_tela_ia(app.state.pedido_ia_service))
+    app.include_router(criar_router_tela_perfil(perfis))
     app.include_router(criar_router_tela_curriculos(curriculos))
 
     @app.get("/", include_in_schema=False)
@@ -387,8 +423,44 @@ class _PoolPreguicoso:
             return self._pool
 
 
+def configurar_log() -> None:
+    """Liga o log da app (logger `src`) em INFO, ou no nível de `LOG_NIVEL`, numa linha por evento no stderr.
+
+    Sem isso o root fica em WARNING e somem os `log.info` (migrations, coleta agendada, pedidos de IA). Só o
+    `src`, nunca o root: em INFO o httpx loga a URL de cada requisição, e a do Apify leva o token. `LOG_NIVEL`
+    inválido cai em INFO. Chamar de novo não duplica o handler."""
+    nivel = logging.getLevelName(os.environ.get("LOG_NIVEL", "INFO").strip().upper())
+    logger = logging.getLogger("src")
+    logger.setLevel(nivel if isinstance(nivel, int) else logging.INFO)
+    if not any(getattr(h, "_da_app", False) for h in logger.handlers):
+        handler = logging.StreamHandler(sys.stderr)
+        handler.setFormatter(logging.Formatter("%(levelname)s: %(name)s: %(message)s"))
+        handler._da_app = True
+        logger.addHandler(handler)
+    logger.propagate = False
+
+
 def _lista_env(nome: str) -> list[str]:
     return [p.strip() for p in os.environ.get(nome, "").split(",") if p.strip()]
+
+
+def _providers_latam() -> list:
+    """LATAM_PROVIDERS: ausente ou vazia = Himalayas e Remotive; `nenhum` = nenhum; senão a lista separada
+    por vírgula (`himalayas`, `remotive`, sem caixa nem acento). Nome desconhecido = valor inválido, que cai
+    no padrão (os dois) sem derrubar a app."""
+    from src.client.base import normalizar
+    from src.client.himalayas import HimalayasClient
+    from src.client.remotive import RemotiveClient
+
+    classes = {"himalayas": HimalayasClient, "remotive": RemotiveClient}
+    nomes = [normalizar(n) for n in _lista_env("LATAM_PROVIDERS")]
+    if nomes == ["nenhum"]:
+        return []
+    if not nomes or any(n not in classes for n in nomes):
+        if nomes:
+            logging.getLogger(__name__).warning("LATAM_PROVIDERS inválida (%s): usando Himalayas e Remotive", os.environ.get("LATAM_PROVIDERS"))
+        nomes = list(classes)
+    return [classes[n]() for n in dict.fromkeys(nomes)]
 
 
 APIFY_LIMITE_PADRAO = 50
@@ -403,28 +475,74 @@ def _limite_apify() -> int:
     return limite if limite > 0 else APIFY_LIMITE_PADRAO
 
 
+def _local_antigo_apify() -> list[str]:
+    """APIFY_LOCAL, anterior à APIFY_LOCAIS, era um local só e pode ter vírgula ("São Paulo, SP")."""
+    return [local] if (local := os.environ.get("APIFY_LOCAL", "").strip()) else []
+
+
+def _token_apify() -> str | None:
+    """APIFY_TOKEN ou o conteúdo do arquivo em APIFY_TOKEN_FILE (secret do Swarm). Arquivo ausente,
+    ilegível ou vazio = sem token: o LinkedIn fica desligado e a app sobe igual."""
+    if token := os.environ.get("APIFY_TOKEN", "").strip():
+        return token
+    arquivo = os.environ.get("APIFY_TOKEN_FILE", "").strip()
+    if not arquivo:
+        return None
+    try:
+        return Path(arquivo).read_text(encoding="utf-8").strip() or None
+    except (OSError, UnicodeDecodeError):
+        return None
+
+
+def _limite_posts_apify() -> int:
+    """APIFY_POSTS_LIMITE (posts por termo). Ausente, inválido ou não positivo = 0, desligado: o provider é
+    pago e só gasta com uma decisão explícita; valor torto não derruba a app."""
+    try:
+        limite = int(os.environ.get("APIFY_POSTS_LIMITE", "0"))
+    except ValueError:
+        return 0
+    return max(limite, 0)
+
+
 def providers_padrao() -> list:
-    """Remotar e Trampos sempre; Greenhouse, Lever e Ashby só com empresas em GREENHOUSE_EMPRESAS etc.;
-    o LinkedIn pelo Apify só com APIFY_TOKEN."""
+    """Remotar e Trampos sempre; Himalayas e Remotive (vagas remotas abertas ao Brasil/América Latina) por
+    padrão, com opt-out por LATAM_PROVIDERS; Greenhouse, Lever e Ashby só com empresas em
+    GREENHOUSE_EMPRESAS etc.; o LinkedIn pelo Apify só com APIFY_TOKEN ou APIFY_TOKEN_FILE; os posts do
+    LinkedIn só com o token e APIFY_POSTS_LIMITE >= 1."""
     from src.client.ashby import AshbyClient
     from src.client.greenhouse import GreenhouseClient
     from src.client.lever import LeverClient
+    from src.client.gupy import GupyClient
     from src.client.remotar import RemotarClient
     from src.client.trampos import TramposClient
 
-    providers = [RemotarClient(), TramposClient()]
+    # A vaga do Remotar que fechou no Gupy (onde a candidatura acontece) sai como expirada.
+    providers = [RemotarClient(gupy=GupyClient().encerramento), TramposClient()]
+    providers.extend(_providers_latam())
     for classe, env in ((GreenhouseClient, "GREENHOUSE_EMPRESAS"), (LeverClient, "LEVER_EMPRESAS"), (AshbyClient, "ASHBY_EMPRESAS")):
         if empresas := _lista_env(env):
             providers.append(classe(empresas))
-    if os.environ.get("APIFY_TOKEN"):
+    if token := _token_apify():
         from src.client.apify_linkedin import ApifyLinkedInClient
 
-        # Cada busca custa até APIFY_LIMITE vagas no Apify (US$ 0,001–0,002 cada em out/2026).
+        # Cada busca custa até APIFY_LIMITE vagas por local no Apify (US$ 0,002 cada em out/2026).
+        from src.client.apify_linkedin import LOCAIS_PADRAO
+
         providers.append(
-            # Vazio (APIFY_LOCAL=${APIFY_LOCAL} sem valor no compose) cai no padrão: sem país, a
-            # busca paga traria vagas do mundo todo.
-            ApifyLinkedInClient(local=os.environ.get("APIFY_LOCAL", "").strip() or "Brasil", limite=_limite_apify())
+            # APIFY_LOCAIS, ou a antiga APIFY_LOCAL (um local só, inteira: "São Paulo, SP"), vale como foi configurada;
+            # as duas vazias caem no padrão (Brasil e América Latina, em inglês, como o LinkedIn
+            # entende): sem local, a busca paga traria vagas do mundo todo.
+            ApifyLinkedInClient(
+                locais=_lista_env("APIFY_LOCAIS") or _local_antigo_apify() or LOCAIS_PADRAO,
+                limite=_limite_apify(),
+                token=token,
+            )
         )
+        if limite_posts := _limite_posts_apify():
+            from src.client.apify_linkedin_posts import ApifyLinkedInPostsClient
+
+            # Cada busca custa até APIFY_POSTS_LIMITE posts por termo (US$ 0,002 cada em out/2026).
+            providers.append(ApifyLinkedInPostsClient(limite=limite_posts, token=token))
     return providers
 
 
@@ -452,6 +570,18 @@ def _candidaturas_postgres() -> type:
     return CandidaturaRepositoryPostgres
 
 
+def _pedidos_ia_postgres() -> type:
+    from src.repository.pedido_ia_postgres import PedidoIARepositoryPostgres
+
+    return PedidoIARepositoryPostgres
+
+
+def _coleta_agendada_postgres() -> type:
+    from src.repository.coleta_agendada import RegistroColetaAgendadaPostgres
+
+    return RegistroColetaAgendadaPostgres
+
+
 def _migrar() -> list[str]:
     from src.repository.migracoes import aplicar_com_retry
 
@@ -459,7 +589,11 @@ def _migrar() -> list[str]:
 
 
 def criar_app_producao() -> FastAPI:
+    from src.client.gupy import GupyClient
+    from src.client.linkedin_detalhe import LinkedInDetalheClient
     from src.client.remotar import RemotarClient
+
+    configurar_log()
 
     pool = _PoolPreguicoso()
     encontradas = _PorChamada(pool, _encontradas_postgres)
@@ -471,9 +605,17 @@ def criar_app_producao() -> FastAPI:
         encontradas=encontradas,
         candidaturas=_PorChamada(pool, _candidaturas_postgres),
         trava=TravaColetaPostgres(),
-        detalhe=DetalheService(encontradas, RemotarClient()),
+        pedidos_ia=_PorChamada(pool, _pedidos_ia_postgres),
+        trava_lote_ia=TravaColetaPostgres(chave=CHAVE_TRAVA_LOTE_IA),
+        # LinkedIn: a coleta (Apify) não traz a descrição; a página pública da vaga dá, uma requisição
+        # por vaga aberta sem descrição.
+        detalhe=DetalheService(
+            encontradas, RemotarClient(gupy=GupyClient().encerramento), linkedin=LinkedInDetalheClient()
+        ),
         # Aplica migrations/*.sql pendentes antes de atender; banco fora além do teto ou migration com erro = não sobe.
         ao_subir=_migrar,
+        # Coleta às 08:00 e 18:00 de Brasília (COLETA_HORARIOS; vazia ou inválida desliga).
+        agendador=lambda coletar: AgendadorColeta.da_config(coletar, _PorChamada(pool, _coleta_agendada_postgres)),
     )
 
 

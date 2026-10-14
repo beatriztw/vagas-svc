@@ -1,0 +1,27 @@
+/* "Meu perfil" (/tela/perfil). Usa os tokens de tela.css. */
+a.botao { display: inline-flex; align-items: center; text-decoration: none; }
+.painel-perfil { max-width: 720px; }
+.perfil-form { display: flex; flex-direction: column; gap: 16px; }
+.perfil-form .campo { display: flex; flex-direction: column; gap: 6px; margin: 0; padding: 0; border: 0; min-width: 0; }
+.perfil-form label, .perfil-form legend { font-size: 13px; font-weight: 500; color: #34413F; padding: 0; }
+.perfil-form textarea {
+  min-height: 44px;
+  padding: 8px 12px;
+  border: 1px solid var(--borda-campo);
+  border-radius: var(--raio-sm);
+  font: inherit;
+  resize: vertical;
+}
+.perfil-form input[type="number"] {
+  min-height: 44px;
+  max-width: 160px;
+  padding: 0 12px;
+  border: 1px solid var(--borda-campo);
+  border-radius: var(--raio-sm);
+  font: inherit;
+}
+.perfil-form .dica { margin: 0; font-size: 13px; color: var(--sec); }
+.perfil-form .opcao { display: inline-flex; align-items: center; gap: 8px; min-height: 44px; margin-right: 16px; font-size: 14px; font-weight: 400; color: var(--texto); }
+.perfil-form .opcao input { width: 18px; height: 18px; }
+.perfil-form .acoes-form { display: flex; flex-wrap: wrap; align-items: center; gap: 16px; }
+.perfil-form .botao.htmx-request { opacity: 0.6; cursor: progress; }

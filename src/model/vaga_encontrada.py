@@ -28,3 +28,5 @@ class VagaEncontrada:
     # Preenchida = o provider disse que a vaga expirou: some da lista, mas o link direto ainda abre.
     expirada_em: datetime | None = None
     detalhada_em: datetime | None = None
+    # Quando a pessoa salvou a vaga para ver depois (a bandeirinha); None = não salva.
+    salva_em: datetime | None = None

@@ -9,7 +9,9 @@
     "workRemoteAllowed": false,
     "workplaceTypes": ["Híbrido"],
     "seniorityLevel": "Pleno-sênior",
-    "employmentType": "Tempo integral"
+    "employmentType": "Tempo integral",
+    "descriptionHtml": "<p>Vaga <strong>inventada</strong> para teste.</p><script>alert(1)</script><ul><li>Power BI</li><li>SQL</li></ul>",
+    "descriptionText": "Vaga inventada para teste. Power BI SQL"
   },
   {
     "id": "4310441207",
@@ -18,7 +20,9 @@
     "companyName": "Outra Empresa",
     "location": "Brasil",
     "postedAt": "2026-10-10",
-    "workplaceTypes": ["Remote"]
+    "workplaceTypes": ["Remote"],
+    "descriptionHtml": "",
+    "descriptionText": "Texto inventado: apuração de impostos\ncom SQL."
   },
   {
     "id": "4310555500",

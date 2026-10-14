@@ -1,0 +1,16 @@
+{# A bandeirinha de salvar a vaga para ver depois. `variante`: "c" no card, "d" no detalhe; os ids batem com as trocas OOB de _salvar_oob.html. #}
+{% macro botao_salvar(vaga_url, salva, variante, oob=false) -%}
+<form id="salvar-{{ variante }}-{{ vaga_url | id_salvar }}" class="salvar salvar-{{ variante }}"
+      hx-post="/tela/vagas/salva" hx-swap="none" hx-disabled-elt="find button"{% if oob %} hx-swap-oob="outerHTML"{% endif %}>
+  <input type="hidden" name="url" value="{{ vaga_url }}">
+  <input type="hidden" name="salvar" value="{{ '0' if salva else '1' }}">
+  <button type="submit" class="botao-salvar{% if salva %} salva{% endif %}" aria-pressed="{{ 'true' if salva else 'false' }}"
+          aria-label="{{ 'Remover dos salvos' if salva else 'Salvar vaga para ver depois' }}"
+          title="{{ 'Remover dos salvos' if salva else 'Salvar para ver depois' }}">
+    <svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true" focusable="false"
+         fill="{{ 'currentColor' if salva else 'none' }}" stroke="currentColor" stroke-width="2" stroke-linejoin="round">
+      <path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"></path>
+    </svg>
+  </button>
+</form>
+{%- endmacro %}

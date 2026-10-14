@@ -1,0 +1,2 @@
+{# Painel de IA do detalhe: carrega sozinho (hx-trigger=load) e se troca pelo painel. `vaga` é a vaga aberta. #}
+<div id="ia" class="ia" hx-get="/tela/vagas/ia?vaga_url={{ vaga.url | urlencode }}" hx-trigger="load" hx-swap="outerHTML"></div>

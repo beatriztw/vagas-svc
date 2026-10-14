@@ -1,8 +1,9 @@
-{# Cards de uma página + o sentinela da próxima (o "carregar mais" troca o sentinela anterior por isto). #}
+{# Cards de uma página + o sentinela da próxima (o "carregar mais" troca o sentinela anterior por isto).
+   `intersect`, não `revealed`: o `revealed` do htmx só olha a rolagem da janela, e a lista rola dentro do painel. #}
 {% from "tela/_card.html" import card %}
 {% for vaga in vagas %}
-{{ card(vaga, selecionada is defined and selecionada is not none and selecionada.url == vaga.url, filtro) }}
+{{ card(vaga, selecionada is defined and selecionada is not none and selecionada.url == vaga.url, filtro, notas.get(vaga.url) if notas is defined else none, na_fila is defined and vaga.url in na_fila, encerradas is defined and vaga.url in encerradas) }}
 {% endfor %}
 {% if query_proximo %}
-<li class="mais" hx-get="/tela/vagas?{{ query_proximo }}" hx-trigger="revealed" hx-target="this" hx-swap="outerHTML">Carregando mais vagas…</li>
+<li class="mais" hx-get="/tela/vagas?{{ query_proximo }}" hx-trigger="intersect once" hx-target="this" hx-swap="outerHTML">Carregando mais vagas…</li>
 {% endif %}

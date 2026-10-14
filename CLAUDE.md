@@ -30,7 +30,8 @@ escreve código e para o review automático.
 - Fixture que não é resposta gravada de verdade é marcada como escrita à mão.
 
 ## Não são bugs (já conferido; não reportar de novo)
-- Input do actor `curious_coder/linkedin-jobs-scraper` (Apify) é `keywords`/`location`/`limitPerSource`, sem `count`. Conferido no schema gravado em `tests/fixtures/apify_linkedin_input_schema.json`.
+- Input do actor `curious_coder/linkedin-jobs-scraper` (Apify) é `urls`/`limitPerSource` (o schema também tem `keywords`/`location`, mas só a URL leva o filtro de remoto `f_WT=2`), sem `count`. Conferido no schema gravado em `tests/fixtures/apify_linkedin_input_schema.json`.
+- Local do LinkedIn em inglês (`Brazil`, `Latin America`) é de propósito: com `Brasil` a busca sai sem local (conferido em 12/10/2026).
 
 ## Dados pessoais
 - O repositório é público: currículo, telefone, e-mail e qualquer dado da Beatriz nunca entram em código, fixture, commit ou PR.

@@ -221,7 +221,7 @@ class ApiETelaComPerfilTest(unittest.TestCase):
 
         novas = Pagina(self.cliente.get("/tela/vagas?novas=1", headers=HX).text)
         self.assertEqual([c.attrs["data-url"] for c in novas.cards()], ["a-py", "a-estagio", "d-assist"])
-        self.assertIn("3 novas", novas.por_id("vagas").texto)
+        self.assertIn("3 não abertas", novas.por_id("vagas").texto)
 
         busca = Pagina(self.cliente.get("/tela/vagas?q=django", headers=HX).text)
         self.assertEqual([c.attrs["data-url"] for c in busca.cards()], ["a-django"])

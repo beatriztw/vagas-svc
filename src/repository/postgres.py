@@ -1,3 +1,5 @@
+from datetime import datetime
+
 import psycopg
 from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
@@ -38,7 +40,7 @@ _COLUNAS_CURRICULO = "id, tipo, titulo, conteudo_md, base_id, vaga_url, arquivo_
 # A lista não lê o detalhe (descrição de até 20 mil caracteres vezes milhares de linhas); só `obter` lê.
 _COLUNAS_VAGA = (
     "url, titulo, empresa, plataforma, local, remoto, publicada_em, termos, primeira_vez_em, ultima_vez_em, "
-    "vista_em, expirada_em, detalhada_em"
+    "vista_em, expirada_em, detalhada_em, salva_em"
 )
 _COLUNAS_VAGA_DETALHE = f"{_COLUNAS_VAGA}, descricao, requisitos, salario, beneficios, subtitulo"
 
@@ -319,6 +321,38 @@ class VagaEncontradaRepositoryPostgres(VagaEncontradaRepository):
                 (url,),
             )
             return cur.rowcount > 0
+
+    def marcar_salva(self, url: str, salva: bool) -> bool:
+        if not isinstance(url, str) or "\x00" in url:
+            return False
+        # Já salva fica com a data da primeira vez; tirar dos salvos volta a NULL.
+        valor = "COALESCE(salva_em, now())" if salva else "NULL"
+        with self._conn.transaction(), self._conn.cursor() as cur:
+            cur.execute(f"UPDATE vaga_encontrada SET salva_em = {valor} WHERE url = %s", (url,))
+            return cur.rowcount > 0
+
+    def listar_salvas(self, teto: int, q: str | None = None) -> list[VagaEncontrada]:
+        teto = validar_teto(teto)
+        exigidas = exigidas_da_busca(q)
+        # Sem o filtro `no_ar`: a salva que expirou continua na aba, marcada como encerrada.
+        sql = (
+            f"SELECT {_COLUNAS_VAGA} FROM vaga_encontrada WHERE salva_em IS NOT NULL "
+            'ORDER BY salva_em DESC, url COLLATE "C" LIMIT %s'
+        )
+        with self._conn.cursor(row_factory=dict_row) as cur:
+            cur.execute(sql, (teto,))
+            vagas = [VagaEncontrada(**{**linha, "termos": list(linha["termos"])}) for linha in cur.fetchall()]
+        return [v for v in vagas if casa_busca(v, exigidas)]
+
+    def contar_salvas(self) -> int:
+        with self._conn.cursor(row_factory=dict_row) as cur:
+            cur.execute("SELECT count(*) AS n FROM vaga_encontrada WHERE salva_em IS NOT NULL")
+            return cur.fetchone()["n"]
+
+    def ultima_coleta(self) -> datetime | None:
+        with self._conn.cursor(row_factory=dict_row) as cur:
+            cur.execute("SELECT max(ultima_vez_em) AS em FROM vaga_encontrada")
+            return cur.fetchone()["em"]
 
     @staticmethod
     def _filtro(somente_novas: bool) -> str:

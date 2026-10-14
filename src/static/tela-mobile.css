@@ -1,0 +1,72 @@
+/* Celular (<= 640 px): o detalhe da vaga abre por cima da lista, em tela cheia, com botão "Voltar".
+   Quem abre e fecha é o tela-mobile.js (atributos em #detalhe); aqui só aparência.
+   Acima de 640 px nada muda: o botão fica escondido e as colunas seguem como no tela.css. */
+.voltar { display: none; }
+
+@media (max-width: 640px) {
+  /* Fechado: a coluna do detalhe some (o "Selecione uma vaga" ficaria embaixo de 50 cards). */
+  .col-detalhe { display: none; }
+
+  /* Aberto: o JS põe data-aberto quando a pessoa pediu a vaga (card ou link com ?url=). Sem isso a vaga
+     que o servidor já deixa selecionada na 1ª visita abriria sozinha. data-fechado = fechou sem sair da página. */
+  .col-detalhe:has(#detalhe[data-aberto]:not([data-fechado])) {
+    display: flex;
+    position: fixed;
+    inset: 0;
+    z-index: 100;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    border: 0;
+    border-radius: 0;
+    padding: 0 16px 24px;
+  }
+
+  /* Com o detalhe aberto (camada fixed, z-index 100) o #aviso, no fluxo da página logo depois do header,
+     ficaria por baixo: o erro de uma ação feita no detalhe ("Marcar como aplicada" com 5xx, 422 ou sem rede)
+     não aparecia. Mesma condição da camada; embaixo para não cobrir o "Voltar" grudado no topo. */
+  body:has(.col-detalhe #detalhe[data-aberto]:not([data-fechado])) #aviso {
+    position: fixed;
+    left: 16px;
+    right: 16px;
+    bottom: 16px;
+    z-index: 101;
+    max-height: 40vh;
+    overflow-y: auto;
+    box-shadow: 0 4px 16px rgba(22, 32, 31, 0.25);
+  }
+
+  /* Com o aviso visível, a camada reserva embaixo a altura máxima dele (max-height 40vh + bottom 16px + folga):
+     rolando até o fim, o rodapé do detalhe ("Marcar como aplicada") fica acima do aviso e dá para tentar de novo. */
+  body:has(#aviso:not([hidden])) .col-detalhe:has(#detalhe[data-aberto]:not([data-fechado])) {
+    padding-bottom: calc(40vh + 32px);
+  }
+
+  .col-detalhe .voltar {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    align-self: stretch;
+    min-height: 48px;
+    margin: 0 -16px;
+    padding: 0 16px;
+    border: 0;
+    border-bottom: 1px solid var(--borda);
+    background: #FFFFFF;
+    color: #0F5F58;
+    font: inherit;
+    font-weight: 600;
+    text-align: left;
+    cursor: pointer;
+  }
+  .col-detalhe .voltar:focus-visible,
+  .col-detalhe .detalhe:focus-visible { outline: 3px solid #0F5F58; outline-offset: -3px; }
+  .col-detalhe .detalhe:focus { outline: none; }
+  .col-detalhe .detalhe { padding-top: 16px; }
+
+  /* A tabela "Vagas aplicadas" já rola dentro de .tabela-rolavel, mas o texto "Ações" (.visualmente-oculto, position:absolute)
+     não tinha ancestral posicionado: escapava do overflow e alargava a página inteira (scroll horizontal). */
+  .tabela-rolavel { position: relative; }
+}

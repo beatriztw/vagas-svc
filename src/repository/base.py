@@ -113,6 +113,26 @@ class VagaEncontradaRepository(ABC):
         """O provider disse que saiu do ar: `expirada_em` = agora, salvo se já expirou antes (essa data
         fica). Um prazo futuro vira agora. False se a URL não existe."""
 
+    @abstractmethod
+    def marcar_salva(self, url: str, salva: bool) -> bool:
+        """Salva (`salva_em` = agora; já salva fica com a data da primeira vez) ou tira dos salvos.
+        False se a URL não existe."""
+
+    @abstractmethod
+    def listar_salvas(self, teto: int, q: str | None = None) -> list[VagaEncontrada]:
+        """As salvas, da salva mais recente para a mais antiga (a URL desempata), inclusive as
+        expiradas: a pessoa salvou de propósito, e a tela mostra "encerrada" em vez de sumir com ela.
+        Até `teto` salvas; `q` filtra por palavra, como em `listar`."""
+
+    @abstractmethod
+    def contar_salvas(self) -> int:
+        """Quantas vagas estão salvas, expiradas inclusive (o número da aba "Salvas")."""
+
+    @abstractmethod
+    def ultima_coleta(self) -> datetime | None:
+        """Quando uma coleta (manual ou agendada) registrou vaga pela última vez: o maior `ultima_vez_em`.
+        None sem histórico. Coleta que não trouxe nenhuma vaga não conta."""
+
 
 def validar_termo(termo: str) -> str:
     """Termo da coleta sem espaços nas pontas; vazio é recusado antes de gravar."""
@@ -148,14 +168,15 @@ def exigidas_da_busca(q: str | None) -> list[str]:
 
 
 def casa_busca(vaga: VagaEncontrada, exigidas: list[str]) -> bool:
-    """Toda palavra de `q` casa com uma palavra de título, empresa ou local (E entre elas).
+    """Toda palavra de `q` casa com uma palavra de título, empresa, local ou plataforma (E entre elas).
 
     Mesma comparação da relevância da recomendação: palavra inteira por radical, nunca por
     pedaço (`java` não casa com JavaScript, `sql` não casa com NoSQL), sem acento, caixa,
     hífen, gênero e plural; "front end" = "front-end" = "frontend". Sem palavras, não filtra.
     """
     formas: set[str] = set()
-    for campo in (vaga.titulo, vaga.empresa, vaga.local):
+    # A plataforma entra para "linkedin" filtrar as vagas que vieram do LinkedIn.
+    for campo in (vaga.titulo, vaga.empresa, vaga.local, vaga.plataforma):
         # Por campo: o par vizinho não atravessa do fim do título para o começo da empresa.
         formas.update(_formas_do_titulo(campo or ""))
     i = 0
@@ -330,8 +351,28 @@ def normalizar_perfil(perfil: Perfil) -> Perfil:
 MAX_PUBLICADA_DESDE_DIAS = 3650
 
 
+# Teto de cada lista de texto do perfil, o mesmo no `PUT /perfil` (JSON) e no `PUT /tela/perfil` (formulário):
+# um textarea ou corpo colado sem querer não vira gravação gigante, e o que uma rota grava a outra aceita de volta.
+MAX_ITENS_POR_LISTA = 200
+MAX_TAMANHO_ITEM = 200
+_LISTAS_DE_TEXTO = ("termos", "excluir", "localidades", "plataformas", "skills")
+
+
+def _validar_tamanho_das_listas(perfil: Perfil) -> None:
+    for campo in _LISTAS_DE_TEXTO:
+        itens = getattr(perfil, campo)
+        if len(itens) > MAX_ITENS_POR_LISTA or any(isinstance(i, str) and len(i) > MAX_TAMANHO_ITEM for i in itens):
+            raise DadoInvalido(
+                f"{campo}: cada lista aceita até {MAX_ITENS_POR_LISTA} itens de até {MAX_TAMANHO_ITEM} caracteres"
+            )
+
+
 def validar_perfil(perfil: Perfil) -> Perfil:
-    """Perfil normalizado e conferido antes de gravar; inválido levanta ValueError."""
+    """Perfil normalizado e conferido antes de gravar; inválido levanta `DadoInvalido`.
+
+    É a única fonte das regras: a rota JSON e a da tela chamam esta função (e os repositórios também).
+    """
+    _validar_tamanho_das_listas(perfil)
     dias = perfil.publicada_desde_dias
     if dias is not None and not 0 < dias <= MAX_PUBLICADA_DESDE_DIAS:
         raise DadoInvalido(f"publicada_desde_dias tem que estar entre 1 e {MAX_PUBLICADA_DESDE_DIAS}")
@@ -492,6 +533,29 @@ class VagaEncontradaRepositoryMemoria(VagaEncontradaRepository):
         if atual.expirada_em is None or atual.expirada_em > agora:
             self._linhas[url] = replace(atual, expirada_em=agora)
         return True
+
+    def marcar_salva(self, url: str, salva: bool) -> bool:
+        atual = self._linhas.get(url) if isinstance(url, str) else None
+        if atual is None:
+            return False
+        if not salva:
+            self._linhas[url] = replace(atual, salva_em=None)
+        elif atual.salva_em is None:
+            self._linhas[url] = replace(atual, salva_em=self._agora())
+        return True
+
+    def listar_salvas(self, teto: int, q: str | None = None) -> list[VagaEncontrada]:
+        teto = validar_teto(teto)
+        exigidas = exigidas_da_busca(q)
+        salvas = sorted((v for v in self._linhas.values() if v.salva_em is not None), key=lambda v: v.url)
+        salvas = sorted(salvas, key=lambda v: v.salva_em, reverse=True)[:teto]
+        return [replace(v, termos=list(v.termos)) for v in salvas if casa_busca(v, exigidas)]
+
+    def contar_salvas(self) -> int:
+        return sum(1 for v in self._linhas.values() if v.salva_em is not None)
+
+    def ultima_coleta(self) -> datetime | None:
+        return max((v.ultima_vez_em for v in self._linhas.values() if v.ultima_vez_em is not None), default=None)
 
     def marcar_vistas(self, urls: list[str]) -> int:
         urls = validar_urls(urls)

@@ -111,7 +111,8 @@ class ListaTest(unittest.TestCase):
         urls = [c.attrs["data-url"] for c in pagina.cards()]
         sentinelas = [e for e in pagina.tags("li") if "mais" in (e.attrs.get("class") or "")]
         self.assertEqual(len(sentinelas), 1)
-        self.assertEqual(sentinelas[0].attrs["hx-trigger"], "revealed")
+        # `revealed` só dispara com a rolagem da janela; a lista rola dentro do painel.
+        self.assertEqual(sentinelas[0].attrs["hx-trigger"], "intersect once")
         proximo = sentinelas[0].attrs["hx-get"]
         self.assertIn("deslocamento=50", proximo)
 
@@ -200,9 +201,28 @@ class ListaTest(unittest.TestCase):
 
         textos = {c.attrs["data-url"]: re.sub(r"\s+", " ", c.texto).strip() for c in Pagina(cliente.get("/tela").text).cards()}
 
-        self.assertEqual(textos["https://exemplo.test/vaga/1"], "Analista 1 nova Empresa Teste não informado")
-        self.assertEqual(textos["https://exemplo.test/vaga/2"], "Analista 2 nova Empresa Teste - Rio de Janeiro remoto")
-        self.assertEqual(textos["https://exemplo.test/vaga/3"], "Analista 3 nova Empresa Teste - Rio de Janeiro presencial")
+        self.assertEqual(textos["https://exemplo.test/vaga/1"], "Analista 1 nova Empresa Teste não informado · Remotar")
+        self.assertEqual(textos["https://exemplo.test/vaga/2"], "Analista 2 nova Empresa Teste - Rio de Janeiro remoto · Remotar")
+        self.assertEqual(textos["https://exemplo.test/vaga/3"], "Analista 3 nova Empresa Teste - Rio de Janeiro presencial · Remotar")
+
+    def test_card_mostra_a_plataforma_curta_junto_da_modalidade(self):
+        cliente, _ = criar([
+            VagaExterna("Analista de BI", "Empresa Teste", "LinkedIn (Apify)", "https://exemplo.test/vaga/li", remoto=True),
+            vaga(2, remoto=False),
+        ])
+
+        textos = {c.attrs["data-url"]: re.sub(r"\s+", " ", c.texto).strip() for c in Pagina(cliente.get("/tela").text).cards()}
+
+        self.assertEqual(textos["https://exemplo.test/vaga/li"], "Analista de BI nova Empresa Teste remoto · LinkedIn")
+        self.assertTrue(textos["https://exemplo.test/vaga/2"].endswith("presencial · Remotar"))
+
+    def test_plataforma_curta(self):
+        from src.controller.tela_seguranca import plataforma_curta
+
+        self.assertEqual(plataforma_curta("LinkedIn (Apify)"), "LinkedIn")
+        self.assertEqual(plataforma_curta("Remotar"), "Remotar")
+        self.assertEqual(plataforma_curta("  Trampos  "), "Trampos")
+        self.assertEqual(plataforma_curta(None), "")
 
     def test_deslocamento_invalido_e_422_html(self):
         cliente, _ = criar([vaga(1)])
@@ -289,7 +309,7 @@ class DetalheTest(unittest.TestCase):
 
         self.assertIsNone(repo.obter("https://exemplo.test/vaga/1").vista_em)
 
-    def test_detalhe_tem_chips_link_seguro_e_botao_gerar_desabilitado(self):
+    def test_detalhe_tem_chips_link_seguro_e_painel_de_ia(self):
         cliente, _ = criar([vaga(1, remoto=True)])
 
         pagina = Pagina(cliente.get("/tela/vagas/detalhe", params={"url": "https://exemplo.test/vaga/1"}, headers=HX).text)
@@ -302,9 +322,9 @@ class DetalheTest(unittest.TestCase):
         self.assertEqual(link.attrs["target"], "_blank")
         self.assertEqual(link.attrs["rel"], "noopener noreferrer")
         botoes = {b.texto.strip(): b.attrs for b in pagina.tags("button")}
-        # "Gerar" segue desabilitado (D6); "Marcar como aplicada" é o formulário de candidatura.
-        self.assertIn("disabled", botoes["Gerar"])
-        self.assertEqual(botoes["Gerar"]["title"], "em breve")
+        # O "Gerar" desabilitado virou o painel de IA (carrega por hx-get); "Marcar como aplicada" é o formulário de candidatura.
+        self.assertNotIn("Gerar", botoes)
+        self.assertEqual(pagina.por_id("ia").attrs["hx-trigger"], "load")
         self.assertNotIn("disabled", botoes["Marcar como aplicada"])
         self.assertNotIn("Descrição", detalhe.texto)
         self.assertNotIn("Requisitos", detalhe.texto)

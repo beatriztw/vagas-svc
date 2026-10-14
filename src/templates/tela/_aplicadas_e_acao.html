@@ -4,4 +4,9 @@
 {% set vaga_url = oob_vaga_url %}
 {% set oob = true %}
 {% include "tela/_acao_aplicar.html" %}
+{# Marcar como aplicada tira a vaga das salvas: a bandeirinha e o número da aba acompanham. #}
+{% if candidatura and total_salvas is defined and total_salvas is not none %}
+{% set salva = false %}
+{% include "tela/_salvar_oob.html" %}
+{% endif %}
 {% endif %}

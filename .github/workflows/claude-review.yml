@@ -2,9 +2,15 @@ name: Claude review
 
 # Review automático de PR com a assinatura do Claude (estilo Bugbot): procura
 # bugs no diff e comenta no PR. Não faz push nem aprova.
+# Não roda a cada push: cada review do Opus gasta o equivalente a 10–15 avaliações de vaga da cota
+# do Pro (a mesma do worker da IA e do celular). Roda quando o PR abre, sai de rascunho ou reabre;
+# para revisar de novo depois de um push, ponha o label `review` no PR (tire e ponha para repetir).
+# PR que só mexe em markdown não roda.
 on:
   pull_request:
-    types: [opened, synchronize, ready_for_review, reopened]
+    types: [opened, ready_for_review, reopened, labeled]
+    paths-ignore:
+      - "**/*.md"
 
 concurrency:
   group: claude-review-${{ github.event.pull_request.number }}
@@ -16,7 +22,8 @@ jobs:
     # os secrets, então o job falharia de qualquer jeito.
     if: >-
       github.event.pull_request.draft == false &&
-      github.event.pull_request.head.repo.full_name == github.repository
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      (github.event.action != 'labeled' || github.event.label.name == 'review')
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
@@ -29,6 +36,35 @@ jobs:
         with:
           fetch-depth: 1
 
+      # O bot precisa ver o que já foi comentado e respondido nas threads inline
+      # (`gh pr view --comments` só traz os comentários gerais): sem isso ele repete
+      # achados e reabre o que o autor já corrigiu. Só leitura, fora do diff do PR.
+      - name: Threads do PR para o review
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          mkdir -p .review
+          gh api graphql -F dono="${REPO%%/*}" -F nome="${REPO##*/}" -F pr="$PR" -f query='
+            query($dono: String!, $nome: String!, $pr: Int!) {
+              repository(owner: $dono, name: $nome) {
+                pullRequest(number: $pr) {
+                  reviewThreads(first: 100) {
+                    nodes {
+                      isResolved isOutdated path line
+                      comments(first: 50) { nodes { author { login } createdAt body } }
+                    }
+                  }
+                }
+              }
+            }' --jq '
+            .data.repository.pullRequest.reviewThreads.nodes[]
+            | "## \(.path):\(.line // "?") — \(if .isResolved then "RESOLVIDA" else "aberta" end)\(if .isOutdated then " (outdated)" else "" end)\n"
+              + ([.comments.nodes[] | "- \(.author.login // "?") em \(.createdAt):\n\(.body | gsub("\n"; "\n  ") | "  " + .)"] | join("\n"))
+              + "\n"' > .review/threads.md
+          echo "threads: $(grep -c '^## ' .review/threads.md || true)"
+
       - uses: anthropics/claude-code-action@v1
         with:
           # Gerado com `claude setup-token`. Usa a cota do plano Pro.
@@ -37,20 +73,41 @@ jobs:
             REPO: ${{ github.repository }}
             PR NUMBER: ${{ github.event.pull_request.number }}
 
-            Revise só o diff deste PR procurando BUGS: lógica errada, caso de
-            borda quebrado, erro não tratado, regressão, falha de segurança,
-            teste que não testa o que diz. Não comente estilo, nomes ou
-            preferências.
+            Você revisa este PR e só reporta BUG REAL.
 
-            Antes de comentar, leia os comentários que já existem no PR
-            (`gh pr view --comments`) e não repita um achado já feito.
-
-            Para cada bug, um comentário inline na linha, em português,
-            dizendo o que quebra e em qual cenário. Se não achar nada, um
-            único comentário curto no PR dizendo que não encontrou bugs.
-          # Opus: o Sonnet errava demais nos achados. Gasta mais da cota do Pro,
+            1. Contexto, antes de tudo: o diff (`gh pr diff`), os comentários gerais
+               (`gh pr view --comments`), TODAS as threads inline com as respostas em
+               `.review/threads.md` e o `CLAUDE.md` da raiz, se existir.
+            2. Só o que quebra comportamento: resultado errado, exceção não tratada
+               (500), perda ou corrupção de dado, concorrência, custo de provider pago
+               sem teto, segurança, teste que passa sem a mudança que diz cobrir.
+               PROIBIDO: estilo, nomes, documentação ou README, refatoração, "poderia",
+               configuração hipotética que ninguém usa.
+            3. Evidência obrigatória: `arquivo:linha`, a ENTRADA concreta que quebra e o
+               resultado observado contra o esperado. Sem entrada concreta, não reporte.
+               Antes de comentar, siga o caminho no código e confirme que nada trata o caso.
+            4. Não repita: nada que já está em `.review/threads.md` (aberta ou RESOLVIDA),
+               nos comentários gerais ou em "Não são bugs" do `CLAUDE.md` volta, nem com
+               outras palavras. Thread resolvida com "Corrigido em …" está encerrada. Sobre
+               uma correção já feita, só comente se ela QUEBROU algo, nunca porque deixou
+               de cobrir mais uma variação rara do mesmo caso.
+            5. Severidade no começo do comentário: [ALTA] perde dado, 500 em caminho comum,
+               custo ou segurança; [MÉDIA] errado num caso plausível. Concorrência entre dois
+               gatilhos que já existem (timer, botão, duas abas, reentrega), timeout, soma de
+               tempos contra um limite, processo que sobra depois de kill, falha passageira de
+               rede ou de provider: NÃO é caso raro, reporte. Só não reporte combinação de
+               entrada que nenhum caminho do código produz.
+            6. No máximo 5 achados por rodada, os mais graves. Um comentário inline por
+               achado, em português, em até 8 linhas.
+            7. Antes de concluir que não há bugs, liste para você mesmo os caminhos de erro,
+               de tempo e de concorrência que o diff toca, e confira cada um.
+            8. Se nada passar por esses filtros: um único comentário curto no PR, "Não
+               encontrei bugs.", e mais nada.
+          # Opus: o Sonnet errava demais nos achados (13/10, com este prompt, em 5 bugs reais
+          # antigos: Sonnet 0 de 5, Opus 5 de 5). Gasta mais da cota do Pro,
           # a mesma das sessões do celular. As ferramentas ficam limitadas a ler
-          # o PR e comentar.
+          # o PR e comentar; as threads inline chegam pelo arquivo do passo acima.
           claude_args: |
             --model claude-opus-5-5
+            --max-turns 30
             --allowedTools "mcp__github_inline_comment__create_inline_comment,Bash(gh pr comment:*),Bash(gh pr diff:*),Bash(gh pr view:*)"
