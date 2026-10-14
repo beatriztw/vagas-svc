@@ -1,5 +1,8 @@
-{# Chip de status da candidatura; as cores estão em static/tela.css (.st-*). #}
-{% macro status_chip(status) %}
-{%- set classes = {"enviada": "st-enviada", "em_analise": "st-analise", "entrevista": "st-entrevista", "recusada": "st-recusada", "oferta": "st-oferta"} -%}
-<span class="chip {{ classes[status.value] }}">{{ status.rotulo }}</span>
+{# Classe de cor do status da candidatura (static/tela.css, .st-*): azul em andamento, laranja na entrevista,
+   verde nas propostas, vermelho na recusa e cinza no que encerrou sem resposta ou sem vaga. #}
+{% macro classe_status(status) -%}
+{%- set classes = {"enviada": "st-enviada", "em_analise": "st-analise", "teste": "st-analise", "entrevista": "st-entrevista",
+                   "oferta": "st-oferta", "vaga_encerrada": "st-cinza", "recusada": "st-recusada", "sem_resposta": "st-cinza",
+                   "proposta_aceita": "st-oferta"} -%}
+{{ classes[status.value] }}
 {%- endmacro %}

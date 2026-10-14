@@ -26,10 +26,26 @@ def data_curta(valor: datetime | None) -> str:
 templates.env.filters["data_curta"] = data_curta
 
 
+def contexto_linha() -> dict:
+    """O que `tela/_linha_candidatura.html` precisa além da candidatura: as opções do menu (em dois grupos)
+    e o agora (a vaga que saiu do ar ganha o aviso)."""
+    return {
+        "status_andamento": [s for s in StatusCandidatura if not s.encerrada],
+        "status_encerradas": [s for s in StatusCandidatura if s.encerrada],
+        "agora": datetime.now(timezone.utc),
+    }
+
+
 def contexto_aplicadas(servico: CandidaturaService) -> dict:
-    """Variáveis de `tela/_aplicadas.html`; `GET /tela` e as rotas daqui usam a mesma."""
-    lista = servico.listar()
-    return {"candidaturas": lista, "total_candidaturas": len(lista), "status_opcoes": list(StatusCandidatura)}
+    """Variáveis de `tela/_aplicadas.html`; `GET /tela` e as rotas daqui usam a mesma. As encerradas vão
+    para o fim (`sorted` é estável: dentro de cada grupo fica a ordem do repositório, a mais recente primeiro)."""
+    lista = sorted(servico.listar(), key=lambda c: c.status.encerrada)
+    return {
+        "candidaturas": lista,
+        "total_candidaturas": len(lista),
+        "total_encerradas": sum(1 for c in lista if c.status.encerrada),
+        **contexto_linha(),
+    }
 
 
 def id_da_rota(valor: str) -> int:
@@ -77,7 +93,7 @@ def criar_router_tela_candidaturas(servico: CandidaturaService) -> APIRouter:
         return templates.TemplateResponse(
             request,
             "tela/_linha_candidatura.html",
-            {"c": candidatura, "status_opcoes": list(StatusCandidatura)},
+            {"c": candidatura, **contexto_linha()},
         )
 
     @router.delete("/{id}", dependencies=[Depends(exigir_mutacao_da_tela)])

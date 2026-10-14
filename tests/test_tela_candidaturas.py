@@ -33,6 +33,53 @@ def cliente(*vagas):
     return TestClient(app), app.state.candidaturas
 
 
+class AjustesDaTabelaTest(unittest.TestCase):
+    """Encerradas no fim, "Ocultar encerradas", "desde" e o aviso da vaga que saiu do ar."""
+
+    def linhas(self, html):
+        return re.findall(r'<tr id="candidatura-(\d+)"( class="encerrada")?>', html)
+
+    def test_encerradas_vao_para_o_fim_e_ganham_a_opcao_de_ocultar(self):
+        api, servico = cliente()
+        a, _ = servico.marcar_aplicada(URL_A)
+        b, _ = servico.marcar_aplicada(URL_B)  # a mais recente: sem encerrar, vem primeiro
+        html = api.get("/tela/candidaturas", headers=HX).text
+        self.assertEqual(self.linhas(html), [(str(b.id), ""), (str(a.id), "")])
+        self.assertNotIn("ocultar-encerradas", html)
+
+        servico.mudar_status(b.id, "vaga_encerrada")
+        html = api.get("/tela/candidaturas", headers=HX).text
+
+        self.assertEqual(self.linhas(html), [(str(a.id), ""), (str(b.id), ' class="encerrada"')])
+        self.assertIn("Ocultar encerradas (1)", html)
+        self.assertRegex(html, r'<label id="ocultar-encerradas-rotulo"[^>]*hx-preserve="true"')
+        self.assertIn('<input type="checkbox" id="ocultar-encerradas">', html)
+        css = api.get("/static/tela.css").text
+        self.assertIn("#aplicadas:has(#ocultar-encerradas:checked) tr.encerrada { display: none; }", css)
+
+    def test_mostra_desde_quando_esta_no_status(self):
+        api, servico = cliente()
+        c, _ = servico.marcar_aplicada(URL_A)
+        c = servico.mudar_status(c.id, "entrevista")
+        html = api.get("/tela/candidaturas", headers=HX).text
+        self.assertIn(f'desde <time datetime="{c.atualizada_em.isoformat()}">{data_curta(c.atualizada_em)}</time>', html)
+
+    def test_vaga_que_saiu_do_ar_avisa_e_oferece_encerrar_sem_mudar_sozinha(self):
+        api, servico = cliente()
+        c, _ = servico.marcar_aplicada(URL_A)
+        servico.vagas.marcar_expirada(URL_A)
+
+        html = api.get("/tela/candidaturas", headers=HX).text
+
+        self.assertIn("A vaga saiu do ar.", html)
+        self.assertRegex(html, rf'hx-patch="/tela/candidaturas/{c.id}" hx-vals=\'{{"status": "vaga_encerrada"}}\'')
+        self.assertEqual(servico.obter(c.id).status, StatusCandidatura.ENVIADA)  # só avisa
+        # O botão do aviso usa o mesmo PATCH do menu: encerrada, o aviso some.
+        linha = api.patch(f"/tela/candidaturas/{c.id}", data={"status": "vaga_encerrada"}, headers=HX).text
+        self.assertIn('class="encerrada"', linha)
+        self.assertNotIn("saiu do ar", linha)
+
+
 class ListagemTest(unittest.TestCase):
     def test_pagina_mostra_as_candidaturas_e_o_contador(self):
         api, servico = cliente()
@@ -74,7 +121,14 @@ class ListagemTest(unittest.TestCase):
 
         self.assertEqual((resposta.status_code, resposta.headers["location"]), (303, "/tela"))
 
-    def test_select_com_as_cinco_opcoes_e_a_atual_marcada(self):
+    def test_tabela_sem_a_coluna_de_compatibilidade(self):
+        api, servico = cliente()
+        servico.marcar_aplicada(URL_A)
+        html = api.get("/tela/candidaturas", headers=HX).text
+        self.assertIn("<th>Aplicada em</th><th>Status</th>", html)
+        self.assertNotIn("Compat", html)
+
+    def test_select_com_os_status_em_dois_grupos_e_a_atual_marcada(self):
         api, servico = cliente()
         c, _ = servico.marcar_aplicada(URL_A)
         servico.mudar_status(c.id, "entrevista")
@@ -89,7 +143,14 @@ class ListagemTest(unittest.TestCase):
         opcoes = re.findall(r'<option value="([^"]+)"( selected)?>([^<]+)</option>', html)
         self.assertEqual([(v, r) for v, _, r in opcoes], [(s.value, s.rotulo) for s in StatusCandidatura])
         self.assertEqual([v for v, sel, _ in opcoes if sel], ["entrevista"])
-        self.assertIn('class="chip st-entrevista"', html)
+        # O menu leva a cor do status; o chip que repetia o mesmo texto ao lado saiu.
+        self.assertIn('class="status-menu st-entrevista"', html)
+        self.assertNotIn('class="chip st-', html)
+        andamento, encerradas = re.findall(r'<optgroup label="([^"]+)">(.*?)</optgroup>', html, re.S)
+        self.assertEqual(andamento[0], "Em andamento")
+        self.assertEqual(re.findall(r'value="([^"]+)"', andamento[1]), ["enviada", "em_analise", "teste", "entrevista", "oferta"])
+        self.assertEqual(encerradas[0], "Encerradas")
+        self.assertEqual(re.findall(r'value="([^"]+)"', encerradas[1]), ["vaga_encerrada", "recusada", "sem_resposta", "proposta_aceita"])
         self.assertIn(f'hx-delete="/tela/candidaturas/{c.id}"', html)
 
     def test_get_nao_muda_nada(self):
