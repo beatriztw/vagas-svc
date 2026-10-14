@@ -257,6 +257,33 @@ class PedidoIARepositoryPostgres(PedidoIARepository):
             )
             return cur.fetchone()[0]
 
+    def lote_pausado(self) -> bool:
+        with self._conn.cursor() as cur:
+            cur.execute("SELECT pausado FROM ia_lote_pausa WHERE id = 1")
+            linha = cur.fetchone()
+        return bool(linha and linha[0])
+
+    def pausar_lote(self) -> int:
+        with self._conn.transaction(), self._conn.cursor() as cur:
+            cur.execute(
+                "INSERT INTO ia_lote_pausa (id, pausado) VALUES (1, true) "
+                "ON CONFLICT (id) DO UPDATE SET pausado = true, atualizado_em = now()"
+            )
+            # O pedido que o worker reivindica ao mesmo tempo fica travado (FOR UPDATE do `proximo`): o
+            # DELETE espera, relê a linha já `rodando` e não a apaga. O que está rodando termina.
+            cur.execute(
+                "DELETE FROM pedido_ia WHERE estado = 'pendente' AND prioridade = %s AND tipo = %s",
+                (PRIORIDADE_LOTE, TipoPedidoIA.COMPATIBILIDADE.value),
+            )
+            return cur.rowcount
+
+    def retomar_lote(self) -> None:
+        with self._conn.transaction(), self._conn.cursor() as cur:
+            cur.execute(
+                "INSERT INTO ia_lote_pausa (id, pausado) VALUES (1, false) "
+                "ON CONFLICT (id) DO UPDATE SET pausado = false, atualizado_em = now()"
+            )
+
     def gravar_rotulo(self, vaga_url: str, faixa: Faixa | str | None) -> Faixa | None:
         vaga_url = validar_vaga_url(vaga_url)
         faixa = validar_faixa(faixa)

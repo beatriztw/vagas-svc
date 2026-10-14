@@ -129,6 +129,7 @@ def criar_router_tela(
             "teto": ia.max_lote_por_dia,
             "restante": ia.restante_lote(),
             "desligado": ia.max_lote_por_dia == 0,
+            "pausado": ia.lote_pausado(),
         }
 
     def candidatura_da(vaga):
@@ -364,6 +365,25 @@ def criar_router_tela(
         if ia is None:
             return Response(status_code=404)
         criados = ia.enfileirar_lote(historico.visiveis())
+        return templates.TemplateResponse(request, "tela/_lote_ia.html", {"lote": contexto_lote(criados)})
+
+    @router.post("/ia/lote/pausar", dependencies=[Depends(exigir_mutacao_da_tela)])
+    def pausar_lote_ia(request: Request):
+        """Tira da fila o lote que ainda não começou e para o lote automático da coleta. O clique numa
+        vaga ("Compatibilidade") e o currículo seguem funcionando."""
+        if ia is None:
+            return Response(status_code=404)
+        removidos = ia.pausar_lote()
+        contexto = contexto_lote()
+        contexto["removidos"] = removidos
+        return templates.TemplateResponse(request, "tela/_lote_ia.html", {"lote": contexto})
+
+    @router.post("/ia/lote/retomar", dependencies=[Depends(exigir_mutacao_da_tela)])
+    def retomar_lote_ia(request: Request):
+        """Tira a pausa e já manda para a fila as vagas da lista sem nota."""
+        if ia is None:
+            return Response(status_code=404)
+        criados = ia.retomar_lote(historico.visiveis())
         return templates.TemplateResponse(request, "tela/_lote_ia.html", {"lote": contexto_lote(criados)})
 
     @router.post("/coletas", dependencies=[Depends(exigir_mutacao_da_tela)])

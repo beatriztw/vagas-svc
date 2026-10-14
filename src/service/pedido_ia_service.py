@@ -176,8 +176,10 @@ class PedidoIAService:
         pulando as que já têm pedido ativo ou nota válida. Devolve quantos criou.
 
         Respeita o teto diário, se houver (`max_lote_por_dia` pedidos do lote criados nas últimas 24 h),
-        e, se informado, `limite`. Sem currículo base não enfileira nada.
+        e, se informado, `limite`. Sem currículo base, ou com o lote pausado, não enfileira nada.
         """
+        if self.pedidos.lote_pausado():
+            return 0
         base = self.curriculos.obter_base()
         if base is None:
             return 0
@@ -207,6 +209,27 @@ class PedidoIAService:
                 _log(pedido)
         log.info("pedido_ia lote criados=%s", criados)
         return criados
+
+    def lote_pausado(self) -> bool:
+        return self.pedidos.lote_pausado()
+
+    def pausar_lote(self) -> int:
+        """O botão "Pausar avaliação": tira da fila o lote pendente e para o lote automático da coleta.
+        Sob a mesma trava do enfileiramento: uma coleta enfileirando agora termina antes, e nada que
+        ela criar fica para trás na fila. Devolve quantos pedidos saíram da fila."""
+        try:
+            with self.trava_lote.segurar(esperar_s=ESPERA_TRAVA_LOTE_S):
+                removidos = self.pedidos.pausar_lote()
+        except ColetaEmAndamento:
+            raise DadoInvalido("A fila da IA está sendo montada agora. Tente pausar de novo em instantes.") from None
+        log.info("pedido_ia lote pausado removidos=%s", removidos)
+        return removidos
+
+    def retomar_lote(self, candidatas: Iterable) -> int:
+        """O botão "Retomar avaliação": tira a pausa e já manda para a fila as vagas sem nota."""
+        self.pedidos.retomar_lote()
+        log.info("pedido_ia lote retomado")
+        return self.enfileirar_lote(candidatas)
 
     def restante_lote(self) -> int | None:
         """Quantos pedidos do lote ainda cabem nas próximas 24 h (mínimo 0); None = sem teto."""
