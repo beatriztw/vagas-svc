@@ -349,6 +349,8 @@ def normalizar_perfil(perfil: Perfil) -> Perfil:
 # Dez anos: acima disso o filtro não serve para nada, e um valor enorme estoura o
 # `hoje - timedelta(days=...)` da recomendação e o INT da coluna.
 MAX_PUBLICADA_DESDE_DIAS = 3650
+# Teto do salário mínimo do perfil, em reais por mês (o mesmo CHECK da migration 011).
+MAX_SALARIO_MINIMO = 1_000_000
 
 
 # Teto de cada lista de texto do perfil, o mesmo no `PUT /perfil` (JSON) e no `PUT /tela/perfil` (formulário):
@@ -376,6 +378,9 @@ def validar_perfil(perfil: Perfil) -> Perfil:
     dias = perfil.publicada_desde_dias
     if dias is not None and not 0 < dias <= MAX_PUBLICADA_DESDE_DIAS:
         raise DadoInvalido(f"publicada_desde_dias tem que estar entre 1 e {MAX_PUBLICADA_DESDE_DIAS}")
+    salario = perfil.salario_minimo
+    if salario is not None and (isinstance(salario, bool) or not 0 < salario <= MAX_SALARIO_MINIMO):
+        raise DadoInvalido(f"salario_minimo tem que estar entre 1 e {MAX_SALARIO_MINIMO}")
     try:
         return normalizar_perfil(perfil)
     except ValueError as erro:

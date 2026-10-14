@@ -43,6 +43,7 @@ COMPLETO = {
     "niveis": ["Júnior", "Pleno"],
     "publicada_desde_dias": "14",
     "ocultar_candidatadas": "1",
+    "salario_minimo": "3500",
 }
 
 
@@ -144,6 +145,7 @@ class SalvarTest(unittest.TestCase):
         self.assertEqual(salvo.niveis, [Nivel.JUNIOR, Nivel.PLENO])
         self.assertEqual(salvo.publicada_desde_dias, 14)
         self.assertTrue(salvo.ocultar_candidatadas)
+        self.assertEqual(salvo.salario_minimo, 3500)
 
     def test_o_mesmo_perfil_da_rota_json(self):
         api, _ = cliente()
@@ -155,6 +157,7 @@ class SalvarTest(unittest.TestCase):
         self.assertEqual(json["modalidades"], ["Remoto"])
         self.assertEqual(json["niveis"], ["Júnior", "Pleno"])
         self.assertEqual(json["publicada_desde_dias"], 14)
+        self.assertEqual(json["salario_minimo"], 3500)
 
     def test_ida_e_volta_com_acento_virgula_e_comercial_e_aspas(self):
         api, perfis = cliente()
@@ -248,6 +251,12 @@ class InvalidoTest(unittest.TestCase):
     def test_dias_fora_do_intervalo(self):
         for dias in ("0", "3651"):
             self.assertInvalido(self.api, self.perfis, self.anterior, {**COMPLETO, "publicada_desde_dias": dias}, "entre 1 e 3650")
+
+    def test_salario_fora_do_intervalo_ou_com_ponto_de_milhar(self):
+        for salario, aviso in (("0", "entre 1 e 1000000"), ("1000001", "entre 1 e 1000000"), ("9" * 5000, "entre 1 e 1000000"),
+                               ("3.050", "número inteiro"), ("3050,00", "número inteiro")):
+            with self.subTest(salario=salario[:10]):
+                self.assertInvalido(self.api, self.perfis, self.anterior, {**COMPLETO, "salario_minimo": salario}, aviso)
 
     def test_dias_com_muitos_digitos_e_422_e_nao_500(self):
         # `int()` levanta ValueError acima de 4300 dígitos; aqui tem de ser o aviso de intervalo.

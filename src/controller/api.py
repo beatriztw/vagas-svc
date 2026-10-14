@@ -36,6 +36,7 @@ from src.repository.base import (
     MAX_DESLOCAMENTO_VAGAS,
     MAX_LIMITE_VAGAS,
     MAX_PUBLICADA_DESDE_DIAS,
+    MAX_SALARIO_MINIMO,
     MAX_TAMANHO_BUSCA,
     CurriculoRepository,
     PerfilBuscaRepository,
@@ -68,6 +69,7 @@ class PerfilJson(BaseModel):
     skills: list[str] = []
     publicada_desde_dias: int | None = Field(default=None, gt=0, le=MAX_PUBLICADA_DESDE_DIAS)
     ocultar_candidatadas: bool = True
+    salario_minimo: int | None = Field(default=None, gt=0, le=MAX_SALARIO_MINIMO)
 
     @classmethod
     def de(cls, perfil: Perfil) -> "PerfilJson":

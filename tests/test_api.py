@@ -14,6 +14,8 @@ from src.service.busca_service import BuscaService
 from tests.test_busca_service import ClientFixo, ClientQuebrado
 
 MIGRATION = Path(__file__).resolve().parent.parent / "migrations" / "001_curriculo_perfil.sql"
+# A 011 acrescenta `salario_minimo` ao perfil_busca da 001.
+MIGRATION_SALARIO = MIGRATION.with_name("011_perfil_salario_minimo.sql")
 
 PERFIL = {
     "termos": ["python"],
@@ -25,6 +27,7 @@ PERFIL = {
     "skills": ["django"],
     "publicada_desde_dias": 30,
     "ocultar_candidatadas": False,
+    "salario_minimo": 3500,
 }
 
 
@@ -225,6 +228,7 @@ class ApiPostgresTest(unittest.TestCase):
         self.addCleanup(conn.execute, sql.SQL("DROP SCHEMA {} CASCADE").format(sql.Identifier(schema)))
         conn.execute(sql.SQL("SET search_path TO {}").format(sql.Identifier(schema)))
         conn.execute(MIGRATION.read_text(encoding="utf-8"))
+        conn.execute(MIGRATION_SALARIO.read_text(encoding="utf-8"))
         self.api = TestClient(
             criar_app(PerfilBuscaRepositoryPostgres(conn), CurriculoRepositoryPostgres(conn), BuscaService([]))
         )
@@ -267,6 +271,7 @@ class PoolPostgresConcorrenciaTest(unittest.TestCase):
         self.addCleanup(admin.execute, sql.SQL("DROP SCHEMA {} CASCADE").format(sql.Identifier(schema)))
         admin.execute(sql.SQL("SET search_path TO {}").format(sql.Identifier(schema)))
         admin.execute(MIGRATION.read_text(encoding="utf-8"))
+        admin.execute(MIGRATION_SALARIO.read_text(encoding="utf-8"))
 
         pool = ConnectionPool(
             kwargs={**parametros(), "autocommit": True, "options": f"-c search_path={schema}"},
