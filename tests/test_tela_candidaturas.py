@@ -5,7 +5,6 @@ Vagas e títulos escritos à mão (não são respostas gravadas de provider).
 
 import re
 import unittest
-from unittest import mock
 from dataclasses import replace
 from datetime import datetime, timezone
 
@@ -35,7 +34,7 @@ def cliente(*vagas):
 
 
 class AjustesDaTabelaTest(unittest.TestCase):
-    """Encerradas no fim, "Ocultar encerradas", nota da IA, "desde" e o aviso da vaga que saiu do ar."""
+    """Encerradas no fim, "Ocultar encerradas", "desde" e o aviso da vaga que saiu do ar."""
 
     def linhas(self, html):
         return re.findall(r'<tr id="candidatura-(\d+)"( class="encerrada")?>', html)
@@ -81,22 +80,6 @@ class AjustesDaTabelaTest(unittest.TestCase):
         self.assertNotIn("saiu do ar", linha)
 
 
-class CompatDaIaTest(unittest.TestCase):
-    def test_coluna_compat_mostra_a_nota_da_ia(self):
-        from src.model.pedido_ia import Faixa, NotaIA
-
-        api, servico = cliente()
-        c, _ = servico.marcar_aplicada(URL_A)
-        servico.marcar_aplicada(URL_B)
-        ia = api.app.state.pedido_ia_service
-        with mock.patch.object(ia, "notas_validas", return_value={URL_A: NotaIA(82, Faixa.ALTA)}):
-            html = api.get("/tela/candidaturas", headers=HX).text
-        linha_a = html[html.index(f'id="candidatura-{c.id}"') :]
-        linha_a = linha_a[: linha_a.index("</tr>")]
-        self.assertIn('<span class="chip-ia chip-ia-alta">82 · alta</span>', linha_a)
-        self.assertEqual(html.count('class="chip-ia '), 1)  # a vaga sem nota fica com a célula vazia
-
-
 class ListagemTest(unittest.TestCase):
     def test_pagina_mostra_as_candidaturas_e_o_contador(self):
         api, servico = cliente()
@@ -137,6 +120,13 @@ class ListagemTest(unittest.TestCase):
         resposta = api.get("/tela/candidaturas", follow_redirects=False)
 
         self.assertEqual((resposta.status_code, resposta.headers["location"]), (303, "/tela"))
+
+    def test_tabela_sem_a_coluna_de_compatibilidade(self):
+        api, servico = cliente()
+        servico.marcar_aplicada(URL_A)
+        html = api.get("/tela/candidaturas", headers=HX).text
+        self.assertIn("<th>Aplicada em</th><th>Status</th>", html)
+        self.assertNotIn("Compat", html)
 
     def test_select_com_os_status_em_dois_grupos_e_a_atual_marcada(self):
         api, servico = cliente()

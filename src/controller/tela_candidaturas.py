@@ -10,7 +10,6 @@ from src.controller.tela_seguranca import PREFIXO_TELA, eh_htmx, exigir_mutacao_
 from src.model.candidatura import StatusCandidatura
 from src.model.erros import DadoInvalido
 from src.service.candidatura_service import CandidaturaService
-from src.service.pedido_ia_service import PedidoIAService
 
 FUSO = ZoneInfo("America/Sao_Paulo")
 
@@ -27,21 +26,17 @@ def data_curta(valor: datetime | None) -> str:
 templates.env.filters["data_curta"] = data_curta
 
 
-def contexto_linha(ia: PedidoIAService | None = None, notas: dict | None = None) -> dict:
-    """O que `tela/_linha_candidatura.html` precisa além da candidatura: as opções do menu (em dois grupos),
-    a nota da IA de cada vaga (coluna "Compat.") e o agora (a vaga que saiu do ar ganha o aviso)."""
+def contexto_linha() -> dict:
+    """O que `tela/_linha_candidatura.html` precisa além da candidatura: as opções do menu (em dois grupos)
+    e o agora (a vaga que saiu do ar ganha o aviso)."""
     return {
         "status_andamento": [s for s in StatusCandidatura if not s.encerrada],
         "status_encerradas": [s for s in StatusCandidatura if s.encerrada],
-        # `notas` já lidas (a página inteira lê uma vez para a lista e para esta tabela).
-        "notas": notas if notas is not None else ia.notas_validas() if ia is not None else {},
         "agora": datetime.now(timezone.utc),
     }
 
 
-def contexto_aplicadas(
-    servico: CandidaturaService, ia: PedidoIAService | None = None, notas: dict | None = None
-) -> dict:
+def contexto_aplicadas(servico: CandidaturaService) -> dict:
     """Variáveis de `tela/_aplicadas.html`; `GET /tela` e as rotas daqui usam a mesma. As encerradas vão
     para o fim (`sorted` é estável: dentro de cada grupo fica a ordem do repositório, a mais recente primeiro)."""
     lista = sorted(servico.listar(), key=lambda c: c.status.encerrada)
@@ -49,7 +44,7 @@ def contexto_aplicadas(
         "candidaturas": lista,
         "total_candidaturas": len(lista),
         "total_encerradas": sum(1 for c in lista if c.status.encerrada),
-        **contexto_linha(ia, notas),
+        **contexto_linha(),
     }
 
 
@@ -60,12 +55,12 @@ def id_da_rota(valor: str) -> int:
     return int(valor)
 
 
-def criar_router_tela_candidaturas(servico: CandidaturaService, ia: PedidoIAService | None = None) -> APIRouter:
+def criar_router_tela_candidaturas(servico: CandidaturaService) -> APIRouter:
     router = APIRouter(prefix=PREFIXO_TELA + "/candidaturas", include_in_schema=False)
 
     def bloco(request: Request, status_code: int = 200):
         return templates.TemplateResponse(
-            request, "tela/_aplicadas.html", contexto_aplicadas(servico, ia), status_code=status_code
+            request, "tela/_aplicadas.html", contexto_aplicadas(servico), status_code=status_code
         )
 
     @router.get("")
@@ -77,7 +72,7 @@ def criar_router_tela_candidaturas(servico: CandidaturaService, ia: PedidoIAServ
 
     def bloco_com_acao(request: Request, vaga_url: str, candidatura):
         """O bloco #aplicadas e, por OOB, a área do botão no detalhe (que já aberto é desta vaga)."""
-        contexto = {**contexto_aplicadas(servico, ia), "oob_vaga_url": vaga_url, "candidatura": candidatura}
+        contexto = {**contexto_aplicadas(servico), "oob_vaga_url": vaga_url, "candidatura": candidatura}
         if candidatura is not None:
             # A vaga aplicada saiu das salvas: a resposta leva a bandeirinha e o número da aba (OOB).
             contexto["total_salvas"] = servico.contar_salvas()
@@ -98,7 +93,7 @@ def criar_router_tela_candidaturas(servico: CandidaturaService, ia: PedidoIAServ
         return templates.TemplateResponse(
             request,
             "tela/_linha_candidatura.html",
-            {"c": candidatura, **contexto_linha(ia)},
+            {"c": candidatura, **contexto_linha()},
         )
 
     @router.delete("/{id}", dependencies=[Depends(exigir_mutacao_da_tela)])

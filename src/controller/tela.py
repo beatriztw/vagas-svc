@@ -248,7 +248,7 @@ def criar_router_tela(
             candidatura=candidatura_da(vaga),
         )
         # "Vagas aplicadas" entra na página inteira com o mesmo contexto das rotas de /tela/candidaturas.
-        contexto.update(contexto_aplicadas(candidaturas, ia, contexto["notas"]))
+        contexto.update(contexto_aplicadas(candidaturas))
         # 404 também na página inteira: o recurso pedido não existe, e o aviso aparece no detalhe
         # junto com a lista (o link de um favorito antigo continua útil).
         return templates.TemplateResponse(
