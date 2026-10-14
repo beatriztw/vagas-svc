@@ -6,7 +6,7 @@ from urllib.parse import quote, urlencode
 
 from fastapi import APIRouter, Depends, Form, Request, Response
 
-from src.controller.tela_candidaturas import contexto_aplicadas
+from src.controller.tela_candidaturas import FUSO, contexto_aplicadas
 from src.controller.tela_seguranca import PREFIXO_TELA, eh_htmx, exigir_mutacao_da_tela, resposta_de_erro, templates
 from src.model.erros import DadoInvalido
 from src.repository.base import MAX_DESLOCAMENTO_VAGAS, MAX_TAMANHO_BUSCA, VagaEncontradaRepository, validar_deslocamento
@@ -85,6 +85,18 @@ def _apos(em: str | None, url: str | None) -> tuple[datetime, str] | None:
     return instante, url
 
 
+def quando(valor: datetime | None, agora: datetime | None = None) -> str | None:
+    """"hoje 18:02", "ontem 08:01" ou "12/10 08:01", no fuso de São Paulo; None sem data."""
+    if valor is None:
+        return None
+    if valor.tzinfo is None:
+        valor = valor.replace(tzinfo=timezone.utc)
+    local = valor.astimezone(FUSO)
+    dias = ((agora or datetime.now(timezone.utc)).astimezone(FUSO).date() - local.date()).days
+    dia = "hoje" if dias == 0 else "ontem" if dias == 1 else local.strftime("%d/%m")
+    return f"{dia} {local:%H:%M}"
+
+
 def id_salvar(url: str) -> str:
     """Pedaço de id HTML estável para a bandeirinha da vaga: a URL inteira não serve de id."""
     return hashlib.sha256(url.encode("utf-8", "surrogatepass")).hexdigest()[:16]
@@ -119,10 +131,12 @@ def criar_router_tela(
         """O indicador da IA em lote (avaliadas / na fila, entre as vagas da lista); sem o serviço, nada."""
         if ia is None:
             return None
-        avaliadas, na_fila = ia.progresso_lote(historico.visiveis(), notas)
+        avaliadas, na_fila, sem_nota = ia.progresso_lote(historico.visiveis(), notas)
         return {
             "avaliadas": avaliadas,
             "na_fila": na_fila,
+            # O botão "Avaliar N sem nota" só aparece com N > 0 (ex.: depois de trocar o currículo base).
+            "sem_nota": sem_nota,
             "criados": criados,
             "sem_base": ia.curriculos.obter_base() is None,
             # Teto em 24 h (None = sem teto; 0 = lote desligado) e quanto ainda cabe nele.
@@ -178,6 +192,7 @@ def criar_router_tela(
             query_proximo = _query(deslocamento=proximo, novas=novas, **escolha)
         com_novas = {**escolha, "novas": novas, "salvas": salvas}
         agora = datetime.now(timezone.utc)
+        primeiro_bloco = deslocamento == 0 and apos is None
         return {
             "vagas": vagas,
             "total": total,
@@ -206,7 +221,8 @@ def criar_router_tela(
             "query_faixa_alta": _query(**{**com_novas, "faixa": FaixaMinima.ALTA}),
             "max_busca": MAX_TAMANHO_BUSCA,
             # Só no 1º bloco (a barra da lista); os blocos do "carregar mais" não têm barra.
-            "lote": contexto_lote(notas=notas) if deslocamento == 0 and apos is None else None,
+            "lote": contexto_lote(notas=notas) if primeiro_bloco else None,
+            "ultima_coleta": quando(encontradas.ultima_coleta(), agora) if primeiro_bloco else None,
         }
 
     def pagina(

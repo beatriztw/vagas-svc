@@ -167,8 +167,8 @@ class BotaoDaTelaTest(unittest.TestCase):
     def test_indicador_e_botao_na_barra_da_lista(self):
         pagina = Pagina(self.m.cliente.get("/tela").text)
         lote = pagina.por_id("lote-ia")
-        self.assertIn("IA: 0 avaliadas · 0 na fila", lote.texto)
-        botao = next(b for b in pagina.tags("button") if b.texto.strip() == "Avaliar vagas com IA")
+        self.assertIn("IA ligada · 0 avaliadas · 0 na fila", lote.texto)
+        botao = next(b for b in pagina.tags("button") if b.texto.strip() == "Avaliar 3 sem nota")
         self.assertEqual(botao.attrs["hx-post"], "/tela/ia/lote")
         # O "carregar mais" não repete a barra.
         self.assertNotIn("lote-ia", self.m.cliente.get("/tela/vagas", params={"deslocamento": "1"}, headers=HX).text)
@@ -180,6 +180,8 @@ class BotaoDaTelaTest(unittest.TestCase):
         texto = Pagina(resposta.text).por_id("lote-ia").texto
         self.assertIn("3 vagas na fila da IA", texto)
         self.assertIn("0 avaliadas · 3 na fila", texto)
+        # Todas na fila: o "Avaliar" some, porque não teria o que mandar.
+        self.assertNotIn("sem nota", texto)
         self.assertEqual(len(self.m.lote()), 3)
         # De novo: nada novo, sem duplicar.
         self.assertIn("0 vagas na fila da IA", self.m.cliente.post("/tela/ia/lote", headers=MUTACAO).text)
@@ -207,7 +209,7 @@ class BotaoDaTelaTest(unittest.TestCase):
         m.encontradas.registrar([vaga("u1"), vaga("u2"), vaga("u3")], "python")
         pagina = Pagina(m.cliente.get("/tela").text)
         self.assertIn("restam 5 hoje", pagina.por_id("lote-ia").texto)
-        botao = next(b for b in pagina.tags("button") if "Avaliar vagas" in b.texto)
+        botao = next(b for b in pagina.tags("button") if "sem nota" in b.texto)
         self.assertNotIn("disabled", botao.attrs)
 
         resposta = Pagina(m.cliente.post("/tela/ia/lote", headers=MUTACAO).text).por_id("lote-ia").texto
@@ -228,12 +230,12 @@ class BotaoDaTelaTest(unittest.TestCase):
         self.assertNotIn("0 vagas na fila da IA", lote.texto)
         [status] = [e for e in segunda.elementos if e.attrs.get("role") == "status"]
         self.assertEqual(status.texto.strip(), "Limite de 2 avaliações da IA em 24 h atingido. Tente mais tarde.")
-        botao = next(b for b in segunda.tags("button") if "Avaliar vagas" in b.texto)
+        botao = next(b for b in segunda.tags("button") if "sem nota" in b.texto)
         self.assertIn("disabled", botao.attrs)
         # A página inteira também já abre com o aviso e o botão desabilitado.
         pagina = Pagina(m.cliente.get("/tela").text)
         self.assertIn("Limite de 2 avaliações", pagina.por_id("lote-ia").texto)
-        self.assertIn("disabled", next(b for b in pagina.tags("button") if "Avaliar vagas" in b.texto).attrs)
+        self.assertIn("disabled", next(b for b in pagina.tags("button") if "sem nota" in b.texto).attrs)
 
     def test_mensagem_usa_o_teto_configurado(self):
         m = Montagem(teto="1")
@@ -243,7 +245,7 @@ class BotaoDaTelaTest(unittest.TestCase):
         self.assertIn("Limite de 1 avaliação da IA em 24 h atingido", texto)
         self.assertNotIn("Limite de 40", texto)
 
-    def test_lote_desligado_diz_isso_e_desabilita_o_botao(self):
+    def test_lote_desligado_diz_isso_e_nao_mostra_os_botoes(self):
         m = Montagem(teto="0")
         m.encontradas.registrar([vaga("u1")], "python")
         pagina = Pagina(m.cliente.post("/tela/ia/lote", headers=MUTACAO).text)
@@ -251,7 +253,7 @@ class BotaoDaTelaTest(unittest.TestCase):
         self.assertIn("Avaliação em lote da IA desligada", lote.texto)
         self.assertNotIn("Limite de", lote.texto)
         self.assertNotIn("0 vagas na fila", lote.texto)
-        self.assertIn("disabled", next(b for b in pagina.tags("button") if "Avaliar vagas" in b.texto).attrs)
+        self.assertFalse([b for b in pagina.tags("button") if "Avaliar" in b.texto or "Pausar" in b.texto])
         self.assertEqual(m.lote(), set())
 
     def test_sem_base_mostra_o_aviso_e_nao_o_botao(self):
@@ -259,7 +261,7 @@ class BotaoDaTelaTest(unittest.TestCase):
         m.encontradas.registrar([vaga("u1")], "python")
         pagina = Pagina(m.cliente.get("/tela").text)
         self.assertIn("Salve um currículo base", pagina.por_id("lote-ia").texto)
-        self.assertFalse([b for b in pagina.tags("button") if "Avaliar vagas" in b.texto])
+        self.assertFalse([b for b in pagina.tags("button") if "sem nota" in b.texto])
 
 
 

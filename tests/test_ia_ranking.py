@@ -197,7 +197,7 @@ class TelaTest(unittest.TestCase):
         pagina = self.cliente.get("/tela").text
         self.assertEqual([c.attrs["data-url"] for c in Pagina(pagina).cards()], ORDEM_MATCH)
         self.assertNotIn("chip-ia", pagina)
-        ativa = next(a for a in Pagina(pagina).tags("a") if a.texto.strip() == "Perfil")
+        ativa = next(a for a in Pagina(pagina).tags("a") if a.texto.strip() == "Meus termos")
         self.assertEqual(ativa.attrs.get("aria-current"), "page")
 
     def test_com_nota_a_lista_vem_pela_ia_com_chip_e_na_fila(self):
@@ -213,7 +213,7 @@ class TelaTest(unittest.TestCase):
         self.assertIn("chip-ia-media", chips["m2"][0].attrs["class"])
         self.assertIn("chip-ia-baixa", chips["m3"][0].attrs["class"])
         self.assertEqual(chips["m1"][0].texto.strip(), "IA na fila")
-        ativa = next(a for a in pagina.tags("a") if a.texto.strip() == "Compatibilidade (IA)")
+        ativa = next(a for a in pagina.tags("a") if a.texto.strip() == "Nota da IA")
         self.assertEqual(ativa.attrs.get("aria-current"), "page")
 
     def test_ordem_perfil_e_faixa_pela_url_e_pelo_partial(self):
@@ -222,7 +222,7 @@ class TelaTest(unittest.TestCase):
         self.assertEqual(self.cards("/tela?faixa=alta"), ["m4"])
         self.assertEqual(self.cards("/tela/vagas?faixa=media&ordem=perfil", headers=HX), ["m2", "m4", "m5"])
         vazio = Pagina(self.cliente.get("/tela?faixa=alta&q=recepcionista").text)
-        self.assertIn("Nenhuma vaga avaliada pela IA nessa faixa", vazio.por_id("vagas").texto)
+        self.assertIn("Nenhuma vaga com essa nota da IA", vazio.por_id("vagas").texto)
 
     def test_valor_invalido_e_422(self):
         for caminho in ("/tela?ordem=nota", "/tela?faixa=baixa", "/tela/vagas?faixa=x", "/tela/vagas/detalhe?url=m1&ordem=x"):

@@ -1,3 +1,5 @@
+from datetime import datetime
+
 import psycopg
 from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
@@ -346,6 +348,11 @@ class VagaEncontradaRepositoryPostgres(VagaEncontradaRepository):
         with self._conn.cursor(row_factory=dict_row) as cur:
             cur.execute("SELECT count(*) AS n FROM vaga_encontrada WHERE salva_em IS NOT NULL")
             return cur.fetchone()["n"]
+
+    def ultima_coleta(self) -> datetime | None:
+        with self._conn.cursor(row_factory=dict_row) as cur:
+            cur.execute("SELECT max(ultima_vez_em) AS em FROM vaga_encontrada")
+            return cur.fetchone()["em"]
 
     @staticmethod
     def _filtro(somente_novas: bool) -> str:

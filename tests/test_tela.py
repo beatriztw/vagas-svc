@@ -44,8 +44,8 @@ class PaginaTest(unittest.TestCase):
         self.assertIn("<html", html)
         self.assertIn("Nenhuma vaga ainda; rode uma coleta", html)
         # O botão de coleta do estado vazio está habilitado e chama POST /tela/coletas (PR4).
-        self.assertRegex(html, r'<button[^>]*hx-post="/tela/coletas"[^>]*>\s*Coletar agora\s*</button>')
-        self.assertNotRegex(html, r"<button[^>]*(?<![-\w])disabled(?![-\w])[^>]*>\s*Coletar agora")
+        self.assertRegex(html, r'<button[^>]*hx-post="/tela/coletas"[^>]*>\s*Buscar vagas novas\s*</button>')
+        self.assertNotRegex(html, r"<button[^>]*(?<![-\w])disabled(?![-\w])[^>]*>\s*Buscar vagas novas")
         self.assertRegex(html, r'<a[^>]*href="/tela/perfil"[^>]*>\s*Meu perfil\s*</a>')
         self.assertIn("Selecione uma vaga", html)
         self.assertIn("Nenhuma candidatura ainda", html)

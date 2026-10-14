@@ -1,4 +1,4 @@
-"""Tela: selo "nova", alternância novas/todas, vista pelo POST e "Coletar agora" (PR4).
+"""Tela: selo "nova", alternância novas/todas, vista pelo POST e "Buscar vagas novas" (PR4).
 
 As vagas e os providers daqui são escritos à mão (não são respostas gravadas de provider).
 """
@@ -50,7 +50,7 @@ class SeloENovasTest(unittest.TestCase):
         novas = Pagina(cliente.get("/tela", params={"novas": "1"}).text)
 
         self.assertIn("60 encontradas", todas.por_id("vagas").texto)
-        self.assertIn("50 novas", novas.por_id("vagas").texto)
+        self.assertIn("50 não abertas", novas.por_id("vagas").texto)
         self.assertEqual(len(novas.cards()), 50)
         vistas = {f"https://exemplo.test/vaga/{i}" for i in range(10)}
         self.assertFalse(vistas & {c.attrs["data-url"] for c in novas.cards()})
@@ -80,8 +80,12 @@ class SeloENovasTest(unittest.TestCase):
 
         pagina = Pagina(cliente.get("/tela", params={"q": q, "novas": "1"}).text)
 
-        links = {e.texto.strip(): e for e in pagina.tags("a") if e.texto.strip() in ("Todas", "Novas")}
-        self.assertEqual(links["Novas"].attrs.get("aria-current"), "page")
+        # O 1º "Todas" é o da lista; o do filtro "Nota" da IA vem depois e não entra.
+        links = {}
+        for e in pagina.tags("a"):
+            if e.texto.strip() in ("Todas", "Não abertas"):
+                links.setdefault(e.texto.strip(), e)
+        self.assertEqual(links["Não abertas"].attrs.get("aria-current"), "page")
         self.assertNotIn("aria-current", links["Todas"].attrs)
         todas = urlsplit(links["Todas"].attrs["hx-get"])
         self.assertEqual(todas.path, "/tela/vagas")
@@ -89,7 +93,7 @@ class SeloENovasTest(unittest.TestCase):
         self.assertNotIn("hx-push-url", links["Todas"].attrs)  # a barra vem do HX-Push-Url do servidor
         self.assertEqual(links["Todas"].attrs["hx-include"], "#detalhe-url")
         self.assertEqual(links["Todas"].attrs["href"], "/tela?" + todas.query)
-        novas = urlsplit(links["Novas"].attrs["hx-get"])
+        novas = urlsplit(links["Não abertas"].attrs["hx-get"])
         self.assertEqual(parse_qs(novas.query), {"q": [q], "novas": ["1"]})
         for e in links.values():
             for atributo in ("hx-get", "href"):
@@ -144,7 +148,7 @@ class SeloENovasTest(unittest.TestCase):
 
         texto = cliente.get("/tela", params={"novas": "1"}).text
 
-        self.assertIn("Nenhuma vaga nova", texto)
+        self.assertIn("Você já abriu todas as vagas", texto)
         self.assertNotIn("Nenhuma vaga ainda", texto)
 
 
@@ -182,7 +186,7 @@ class BuscaComNovasTest(unittest.TestCase):
         self.assertEqual(parse_qs(urlsplit(pedido).query), {"q": [self.Q], "novas": ["1"]})
         resposta = cliente.get(pedido, headers=HX)
         pagina = Pagina(resposta.text)
-        self.assertIn("60 novas", pagina.por_id("vagas").texto)  # a vista não entra
+        self.assertIn("60 não abertas", pagina.por_id("vagas").texto)  # a vista não entra
         self.assertNotIn("https://exemplo.test/c/vista", [c.attrs["data-url"] for c in pagina.cards()])
         # O novo bloco continua em Novas e o sentinela leva os dois.
         sentinela = next(e for e in pagina.tags("li") if "mais" in (e.attrs.get("class") or ""))
@@ -192,7 +196,7 @@ class BuscaComNovasTest(unittest.TestCase):
         )
         # A barra recebe `/tela?...` (HX-Push-Url): abri-la (F5) mostra a mesma lista.
         inteira = Pagina(cliente.get(pedido).text)
-        self.assertIn("60 novas", inteira.por_id("vagas").texto)
+        self.assertIn("60 não abertas", inteira.por_id("vagas").texto)
         self.assertEqual(inteira.por_id("busca").attrs["value"], self.Q)
         self.assertEqual([c.attrs["data-url"] for c in inteira.cards()], [c.attrs["data-url"] for c in pagina.cards()])
         # O estado do novo bloco ainda tem novas, para a próxima digitação.
@@ -209,7 +213,7 @@ class BuscaComNovasTest(unittest.TestCase):
 
     def test_coleta_leva_o_q_do_campo_e_o_novas(self):
         cliente = self.montar()
-        botao = next(b for b in Pagina(cliente.get("/tela", params={"novas": "1"}).text).tags("button") if "Coletar" in b.texto)
+        botao = next(b for b in Pagina(cliente.get("/tela", params={"novas": "1"}).text).tags("button") if "Buscar vagas novas" in b.texto)
 
         self.assertEqual(botao.attrs["hx-include"], "#busca, #estado-lista")
 
@@ -358,7 +362,7 @@ class ColetaPelaTelaTest(unittest.TestCase):
     def test_botoes_de_coleta_postam_com_indicador_e_desabilitam_o_proprio(self):
         cliente, _ = criar([])
 
-        botoes = [b for b in Pagina(cliente.get("/tela").text).tags("button") if "Coletar agora" in b.texto]
+        botoes = [b for b in Pagina(cliente.get("/tela").text).tags("button") if "Buscar vagas novas" in b.texto]
 
         self.assertEqual(len(botoes), 2)  # barra da lista e estado vazio
         for botao in botoes:
@@ -408,7 +412,7 @@ class ColetaPelaTelaTest(unittest.TestCase):
         resposta = mutacao(cliente, "/tela/coletas", q="java", novas="1")
 
         self.assertEqual([c.attrs["data-url"] for c in Pagina(resposta.text).cards()], ["https://exemplo.test/c/2"])
-        self.assertIn("1 novas", Pagina(resposta.text).por_id("vagas").texto)
+        self.assertIn("1 não abertas", Pagina(resposta.text).por_id("vagas").texto)
 
     def test_todos_os_providers_com_erro_aparece_no_resumo(self):
         app, _ = app_de_coleta(ProviderQuebrado())

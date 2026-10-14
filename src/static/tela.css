@@ -236,11 +236,27 @@ input[type="search"], input[type="text"], select {
   vertical-align: middle;
 }
 .lista-barra { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin: 0 0 12px; }
-.lote-ia { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; margin: 0 0 12px; font-size: 13px; }
+/* Filtros da IA (Ordenar, Nota): um rótulo e o grupo emendado por linha, os grupos alinhados. */
+.lista-ia { display: flex; flex-direction: column; gap: 8px; margin: 0 0 12px; }
+.filtro-linha { display: flex; align-items: center; gap: 8px; }
+.filtro-rotulo { min-width: 56px; }
+/* Opções emendadas num grupo só (Todas|Não abertas|Salvas, Ordenar, Nota): mais baixas que o botão comum. */
+.alternancia.segmentado { display: inline-flex; gap: 0; border: 1px solid var(--borda-campo); border-radius: var(--raio-sm); overflow: hidden; }
+.segmentado .botao { border: 0; border-radius: 0; min-height: 36px; padding: 0 12px; font-size: 14px; white-space: nowrap; }
+.segmentado .botao + .botao { border-left: 1px solid var(--borda-campo); }
+.segmentado .botao-ativo { background: #E6F4F1; color: var(--accent); font-weight: 600; }
+/* Ações (vão aos sites ou à IA), separadas dos filtros por uma linha. */
+.acoes-lista { display: flex; flex-direction: column; gap: 8px; margin: 0 0 12px; padding-top: 12px; border-top: 1px solid var(--borda); }
+.linha-coleta { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
+.lote-ia { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; font-size: 13px; }
 .lote-ia .mono { color: var(--sec); }
-.lista-ia .mono { color: var(--sec); font-size: 12px; }
-.lista-ia .botao { white-space: nowrap; padding: 4px 10px; font-size: 13px; }
-.lista-ia .alternancia { flex-wrap: wrap; align-items: center; }
+.lote-ia .botao { min-height: 36px; }
+.lote-ia-progresso { display: inline-flex; align-items: center; gap: 6px; }
+.lote-ia-botoes { display: inline-flex; flex-wrap: wrap; gap: 8px; }
+.ponto-ia { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); flex: none; }
+.ponto-ia-parada { background: transparent; border: 1px solid var(--sec); }
+/* Pausar/Retomar: mesma família da IA (roxo), mas sem competir com a ação principal. */
+.botao-ai-contorno { background: #FFFFFF; border-color: var(--ai); color: var(--ai); }
 .chip-ia { align-self: flex-start; font-size: 12px; font-weight: 600; padding: 1px 8px; border-radius: 999px; border: 1px solid currentColor; }
 .chip-ia-alta { color: #0F766E; background: #E6F4F1; }
 .chip-ia-media { color: #9A6700; background: #FBF3E0; }
