@@ -17,7 +17,6 @@
     {% if (vaga.local or "").strip() %}<span class="chip-info">{{ vaga.local }}</span>{% endif %}
     <span class="chip-info">{{ "remoto" if vaga.remoto is true else "presencial" if vaga.remoto is false else "não informado" }}</span>
   </div>
-  {% include "tela/_compatibilidade.html" %}
   {% include "tela/_detalhe_conteudo.html" %}
   {% include "tela/_curriculo_adaptado.html" %}
   <div class="detalhe-rodape">

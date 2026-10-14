@@ -79,6 +79,42 @@ class DetalheTest(unittest.TestCase):
         self.assertNotIn("<script>", secao)
 
 
+class DetalheSobDemandaTest(unittest.TestCase):
+    """Vaga do Remotar coletada sem detalhe: os requisitos só chegam pelo GET /tela/vagas/secoes."""
+
+    def setUp(self):
+        from src.service.detalhe_service import DetalheService
+        from tests.test_detalhe import ProviderFalso, vaga_remotar
+
+        self.url = "https://remotar.com.br/job/123"
+        encontradas = VagaEncontradaRepositoryMemoria()
+        encontradas.registrar([vaga_remotar(123, titulo="Analista de Dados Pleno")], "dados")
+        perfis = PerfilBuscaRepositoryMemoria()
+        perfis.salvar(PERFIL)
+        provider = ProviderFalso(DetalheVaga(requisitos=[Requisito("Power BI", True), Requisito("Python", True)]))
+        app = criar_app(
+            perfis, CurriculoRepositoryMemoria(), BuscaService([]), encontradas=encontradas,
+            detalhe=DetalheService(encontradas, provider),
+        )
+        self.api = TestClient(app)
+
+    def test_compatibilidade_sai_com_os_requisitos_carregados_e_nao_parcial_antes(self):
+        aberto = self.api.get("/tela/vagas/detalhe", params={"url": self.url}, headers=HX).text
+        # Enquanto as seções carregam, nada de "parcial (sem requisitos)" que ficaria lá depois da carga.
+        self.assertIn("Carregando a descrição", aberto)
+        self.assertNotIn('class="compat"', aberto)
+
+        secoes = self.api.get("/tela/vagas/secoes", params={"url": self.url}, headers=HX).text
+
+        self.assertEqual(secoes.count('class="compat"'), 1)
+        self.assertNotIn("parcial", secoes)
+        self.assertIn("<li>Power BI</li>", secoes)
+        self.assertIn("<li>Python (obrigatório)</li>", secoes)
+        # Reaberta, a vaga já tem detalhe: a compatibilidade vem direto, com os mesmos requisitos.
+        reaberto = self.api.get("/tela/vagas/detalhe", params={"url": self.url}, headers=HX).text
+        self.assertIn("<li>Python (obrigatório)</li>", reaberto)
+
+
 class AplicadasTest(unittest.TestCase):
     def test_coluna_compat_mostra_o_percentual(self):
         api, app = cliente(PERFIL)

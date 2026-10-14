@@ -9,6 +9,9 @@
 {% elif aberta and aberta.carregar and recarregar is not false %}
 <p class="aviso-detalhe" role="status">Carregando a descrição…</p>
 {% else %}
+{# A compatibilidade mora aqui, e não no _detalhe.html: quando os requisitos chegam pelo /tela/vagas/secoes, este
+   bloco é o único que se redesenha. Durante o "Carregando…" ela não aparece, para não mostrar "parcial" sem requisitos. #}
+{% include "tela/_compatibilidade.html" %}
 {% if aberta and aberta.expirada %}
 <p class="aviso-expirada" role="status">Vaga expirada: o anunciante tirou a vaga do ar.</p>
 {% endif %}
