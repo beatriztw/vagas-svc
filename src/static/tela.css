@@ -245,6 +245,13 @@ input[type="search"], input[type="text"], select {
 .segmentado .botao { border: 0; border-radius: 0; min-height: 36px; padding: 0 12px; font-size: 14px; white-space: nowrap; }
 .segmentado .botao + .botao { border-left: 1px solid var(--borda-campo); }
 .segmentado .botao-ativo { background: #E6F4F1; color: var(--accent); font-weight: 600; }
+/* Filtro "Nota": 40+ e 70+ nas cores das etiquetas do card (média e alta); a ativa ganha o fundo da sua cor. */
+.segmentado .nota-media, .segmentado .nota-alta { gap: 6px; }
+.ponto-nota { width: 8px; height: 8px; border-radius: 50%; background: currentColor; flex: none; }
+.nota-media .ponto-nota { background: #9A6700; }
+.nota-alta .ponto-nota { background: #0F766E; }
+.segmentado .nota-media.botao-ativo { background: #FBF3E0; color: #9A6700; }
+.segmentado .nota-alta.botao-ativo { background: #E6F4F1; color: #0F766E; }
 /* Ações (vão aos sites ou à IA), separadas dos filtros por uma linha. */
 .acoes-lista { display: flex; flex-direction: column; gap: 12px; margin: 0 0 16px; padding: 16px 0; border-top: 1px solid var(--borda); border-bottom: 1px solid var(--borda); }
 .linha-coleta { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
