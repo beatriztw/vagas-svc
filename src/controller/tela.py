@@ -220,8 +220,6 @@ def criar_router_tela(
             "query_faixa_media": _query(**{**com_novas, "faixa": FaixaFiltro.MEDIA}),
             "query_faixa_alta": _query(**{**com_novas, "faixa": FaixaFiltro.ALTA}),
             "query_faixa_baixa": _query(**{**com_novas, "faixa": FaixaFiltro.BAIXA}),
-            # O número de cada botão da "Nota" (None: sem contagem, os botões saem sem número).
-            "por_faixa": lida.por_faixa,
             "max_busca": MAX_TAMANHO_BUSCA,
             # Só no 1º bloco (a barra da lista); os blocos do "carregar mais" não têm barra.
             "lote": contexto_lote(notas=notas) if primeiro_bloco else None,
