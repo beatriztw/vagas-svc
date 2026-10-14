@@ -80,9 +80,6 @@ class PaginaHistorico:
     total: int
     # A ordem aplicada (a pedida, ou a padrão: IA quando há alguma nota).
     ordem: Ordem = Ordem.PERFIL
-    # Quantas de cada faixa ("alta", "media", "baixa") e "todas", com o mesmo perfil, filtro e busca, ANTES do
-    # filtro de faixa: o número de cada botão. None no caminho sem perfil e sem IA (a contagem fica no SQL).
-    por_faixa: dict[str, int] | None = None
 
 
 def ordenar_por_match(vagas: list[VagaEncontrada], perfil: Perfil) -> list[VagaEncontrada]:
@@ -152,19 +149,11 @@ class HistoricoService:
             visiveis = janela  # mais recentes primeiro, como o repositório lista
         else:
             visiveis = ordenar_por_match(filtrar_pelo_perfil(janela, perfil, hoje or date.today()), perfil)
-        por_faixa = {"todas": len(visiveis), **{f.value: 0 for f in FaixaFiltro}}
-        for v in visiveis:
-            nota = notas.get(v.url)
-            for filtro, da_ia in _FAIXA_DO_FILTRO.items():
-                if nota is not None and nota.faixa == da_ia:
-                    por_faixa[filtro.value] += 1
         if faixa is not None:
             visiveis = [v for v in visiveis if v.url in notas and notas[v.url].faixa == _FAIXA_DO_FILTRO[faixa]]
         if ordem == Ordem.IA:
             visiveis = ordenar_por_nota(visiveis, notas)
-        return PaginaHistorico(
-            vagas=visiveis[deslocamento : deslocamento + limite], total=len(visiveis), ordem=ordem, por_faixa=por_faixa
-        )
+        return PaginaHistorico(vagas=visiveis[deslocamento : deslocamento + limite], total=len(visiveis), ordem=ordem)
 
     def salvas(
         self, limite: int, q: str | None = None, apos: tuple[datetime, str] | None = None

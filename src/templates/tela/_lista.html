@@ -35,14 +35,13 @@
       <span class="mono filtro-rotulo">Nota</span>
       <nav class="alternancia segmentado nota-grupo" aria-label="Faixa da nota da IA">
         {# Uma faixa por botão (não acumula), em duas linhas para caber no painel: o nome com a bolinha na cor da
-           etiqueta do card; embaixo, o intervalo e quantas há. #}
+           etiqueta do card; embaixo, o intervalo. #}
         {% for valor, nome, intervalo, query in ((none, "Todas", "", query_faixa_todas), ("alta", "Alta", "70–100", query_faixa_alta), ("media", "Média", "40–69", query_faixa_media), ("baixa", "Baixa", "0–39", query_faixa_baixa)) %}
         {% set ativa = (faixa.value if faixa else none) == valor %}
-        {% set quantas = por_faixa[valor or "todas"] if por_faixa else none %}
         <a class="botao{% if valor %} nota-{{ valor }}{% endif %}{% if ativa %} botao-ativo{% endif %}"{% if ativa %} aria-current="page"{% endif %}
            href="/tela{{ '?' ~ query if query }}" hx-get="/tela/vagas{{ '?' ~ query if query }}" hx-include="#detalhe-url" hx-target="#vagas" hx-swap="outerHTML">
           <span class="nota-nome">{% if valor %}<span class="ponto-nota" aria-hidden="true"></span>{% endif %}{{ nome }}</span>
-          <span class="nota-detalhe">{{ intervalo }}{% if intervalo and quantas is not none %} · {% endif %}{% if quantas is not none %}{{ quantas }}{% endif %}</span>
+          {% if intervalo %}<span class="nota-detalhe">{{ intervalo }}</span>{% endif %}
         </a>
         {% endfor %}
       </nav>

@@ -117,11 +117,6 @@ class OrdenarTest(unittest.TestCase):
         # Com a ordem do perfil, o filtro vale igual.
         self.assertEqual(urls(self.pagina(notas=NOTAS, ordem=Ordem.PERFIL, faixa=FaixaFiltro.MEDIA).vagas), ["m2", "m5"])
 
-    def test_contagem_por_faixa_e_antes_do_filtro(self):
-        esperado = {"todas": 5, "alta": 1, "media": 2, "baixa": 1}  # m1 sem nota só conta em "todas"
-        self.assertEqual(self.pagina(notas=NOTAS).por_faixa, esperado)
-        self.assertEqual(self.pagina(notas=NOTAS, faixa=FaixaFiltro.ALTA).por_faixa, esperado)
-
     def test_paginacao_pela_nota_sem_repetir_nem_pular(self):
         lidas = []
         for inicio in range(0, 5, 2):
@@ -225,19 +220,19 @@ class TelaTest(unittest.TestCase):
         ativa = next(a for a in pagina.tags("a") if a.texto.strip() == "Nota da IA")
         self.assertEqual(ativa.attrs.get("aria-current"), "page")
 
-    def test_filtro_de_nota_uma_faixa_por_botao_com_intervalo_cor_e_contagem(self):
+    def test_filtro_de_nota_uma_faixa_por_botao_com_intervalo_e_cor(self):
         self.avaliar(NOTAS)
         pagina = Pagina(self.cliente.get("/tela?faixa=media").text)
         self.assertTrue([e for e in pagina.tags("nav") if e.attrs.get("aria-label") == "Faixa da nota da IA"])
-        # O texto do botão é "Média" e, na linha de baixo, "40–69 · 2".
+        # O texto do botão é "Média" e, na linha de baixo, só o intervalo "40–69" (sem quantas há).
         links = {" ".join(a.texto.split()): a for a in pagina.tags("a")}
-        for rotulo, faixa in (("Alta 70–100 · 1", "alta"), ("Média 40–69 · 2", "media"), ("Baixa 0–39 · 1", "baixa")):
+        for rotulo, faixa in (("Alta 70–100", "alta"), ("Média 40–69", "media"), ("Baixa 0–39", "baixa")):
             with self.subTest(rotulo=rotulo):
                 self.assertEqual(parse_qs(urlsplit(links[rotulo].attrs["href"]).query)["faixa"], [faixa])
                 self.assertIn(f"nota-{faixa}", links[rotulo].attrs["class"].split())
-        self.assertIn("Todas 5", links)
-        self.assertEqual(links["Média 40–69 · 2"].attrs.get("aria-current"), "page")
-        self.assertNotIn("aria-current", links["Alta 70–100 · 1"].attrs)
+        self.assertIn("Todas", links)
+        self.assertEqual(links["Média 40–69"].attrs.get("aria-current"), "page")
+        self.assertNotIn("aria-current", links["Alta 70–100"].attrs)
 
     def test_ordem_perfil_e_faixa_pela_url_e_pelo_partial(self):
         self.avaliar(NOTAS)
