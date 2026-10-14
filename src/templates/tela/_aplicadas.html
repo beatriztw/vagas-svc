@@ -1,7 +1,16 @@
 <div id="aplicadas">
   <div class="painel-cabecalho">
     <h2 id="t-aplicadas">Vagas aplicadas</h2>
-    <span class="mono">{{ total_candidaturas|default(0) }} candidaturas</span>
+    <div class="aplicadas-resumo">
+      {% if total_encerradas %}
+      {# Só CSS (tela.css, :has): sem estado no servidor. `hx-preserve` mantém a escolha quando o bloco é trocado
+         (marcar, desfazer). As encerradas já vêm no fim da tabela. #}
+      <label id="ocultar-encerradas-rotulo" class="opcao-pequena" hx-preserve="true">
+        <input type="checkbox" id="ocultar-encerradas"> Ocultar encerradas ({{ total_encerradas }})
+      </label>
+      {% endif %}
+      <span class="mono">{{ total_candidaturas|default(0) }} candidaturas</span>
+    </div>
   </div>
   {% if candidaturas %}
   <div class="tabela-rolavel">

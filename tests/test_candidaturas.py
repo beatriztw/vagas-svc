@@ -126,6 +126,18 @@ class ContratoCandidatura:
         self.assertEqual(b.aplicada_em, criada.aplicada_em)
         self.assertEqual(self.repo.obter(criada.id).status, StatusCandidatura.RECUSADA)
 
+    def test_status_novos_gravam_e_a_leitura_traz_quando_a_vaga_saiu_do_ar(self):
+        criada, _ = self.repo.criar(URL_A)
+        self.assertIsNone(criada.expirada_em)
+        for status in ("teste", "vaga_encerrada", "sem_resposta", "proposta_aceita"):
+            with self.subTest(status=status):
+                self.assertEqual(self.repo.atualizar_status(criada.id, status).status, StatusCandidatura(status))
+
+        self.assertTrue(self.vagas.marcar_expirada(URL_A))
+
+        self.assertIsNotNone(self.repo.obter(criada.id).expirada_em)
+        self.assertIsNotNone(self.repo.listar()[0].expirada_em)
+
     def test_status_fora_do_enum_e_dado_invalido_e_nao_grava(self):
         criada, _ = self.repo.criar(URL_A)
         for status in ("aprovada", "Entrevista", "", None, 3, "enviada\x00"):
@@ -433,17 +445,22 @@ class StatusCandidaturaTest(unittest.TestCase):
             {
                 "enviada": "Enviada",
                 "em_analise": "Em análise",
+                "teste": "Teste / case",
                 "entrevista": "Entrevista",
+                "oferta": "Proposta recebida",
+                "vaga_encerrada": "Vaga encerrada",
                 "recusada": "Recusada",
-                "oferta": "Oferta",
+                "sem_resposta": "Sem resposta",
+                "proposta_aceita": "Proposta aceita",
             },
         )
 
     def test_migration_e_enum_tem_os_mesmos_status(self):
-        texto = (MIGRATIONS / "003_candidatura.sql").read_text(encoding="utf-8")
+        # O CHECK que vale é o da 012, que troca o da 003; o DEFAULT segue o da 003.
+        texto = (MIGRATIONS / "012_candidatura_status_novos.sql").read_text(encoding="utf-8")
         check = re.search(r"CHECK \(status IN \(([^)]*)\)\)", texto).group(1)
         self.assertEqual(re.findall(r"'([^']*)'", check), [s.value for s in StatusCandidatura])
-        self.assertIn(f"DEFAULT '{STATUS_PADRAO.value}'", texto)
+        self.assertIn(f"DEFAULT '{STATUS_PADRAO.value}'", (MIGRATIONS / "003_candidatura.sql").read_text(encoding="utf-8"))
 
 
 @unittest.skipUnless(os.environ.get("PGHOST"), "PGHOST não definido: integração com Postgres pulada")

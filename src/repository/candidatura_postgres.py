@@ -13,7 +13,7 @@ from src.repository.candidatura import (
 )
 
 _SELECT = (
-    "SELECT c.id, c.vaga_url, c.status, c.aplicada_em, c.atualizada_em, v.titulo, v.empresa "
+    "SELECT c.id, c.vaga_url, c.status, c.aplicada_em, c.atualizada_em, v.titulo, v.empresa, v.expirada_em "
     "FROM candidatura c JOIN vaga_encontrada v ON v.url = c.vaga_url "
 )
 

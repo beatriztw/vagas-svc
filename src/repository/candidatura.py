@@ -92,7 +92,7 @@ class CandidaturaRepositoryMemoria(CandidaturaRepository):
         vaga = self._vaga_por_url(linha.vaga_url)
         if vaga is None:
             return replace(linha)
-        return replace(linha, titulo=vaga.titulo, empresa=vaga.empresa)
+        return replace(linha, titulo=vaga.titulo, empresa=vaga.empresa, expirada_em=vaga.expirada_em)
 
     def criar(self, vaga_url: str) -> tuple[CandidaturaComVaga, bool]:
         vaga_url = validar_vaga_url(vaga_url)

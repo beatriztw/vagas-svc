@@ -276,7 +276,7 @@ def criar_app(
 
     app.mount("/static", StaticFiles(directory=DIRETORIO_STATIC), name="static")
     app.include_router(criar_router_tela(encontradas, historico, coleta, servico_candidaturas, detalhe, servico_ia))
-    app.include_router(criar_router_tela_candidaturas(servico_candidaturas))
+    app.include_router(criar_router_tela_candidaturas(servico_candidaturas, servico_ia))
     app.include_router(criar_router_tela_ia(app.state.pedido_ia_service))
     app.include_router(criar_router_tela_perfil(perfis))
     app.include_router(criar_router_tela_curriculos(curriculos))

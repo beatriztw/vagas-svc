@@ -1,17 +1,33 @@
-{% from "tela/_macros.html" import status_chip %}
-<tr id="candidatura-{{ c.id }}">
+{# Uma candidatura. O status é só o menu, na cor do status (sem chip repetindo o mesmo texto); embaixo, desde quando.
+   Contexto: `c` e o de `contexto_linha` (status_andamento, status_encerradas, notas, agora). #}
+{% from "tela/_macros.html" import classe_status %}
+{%- set nota = notas.get(c.vaga_url) %}
+{%- set saiu_do_ar = c.expirada_em is not none and c.expirada_em <= agora and not c.status.encerrada %}
+<tr id="candidatura-{{ c.id }}"{% if c.status.encerrada %} class="encerrada"{% endif %}>
   <td>{{ c.titulo }}</td>
   <td>{{ c.empresa }}</td>
   <td><time datetime="{{ c.aplicada_em.isoformat() }}">{{ c.aplicada_em|data_curta }}</time></td>
-  <td></td>
+  <td>{% if nota %}{% set classe = "media" if nota.faixa.value == "média" else nota.faixa.value %}<span class="chip-ia chip-ia-{{ classe }}">{{ nota.nota }} · {{ nota.faixa.value }}</span>{% endif %}</td>
   <td>
-    {{ status_chip(c.status) }}
-    <select name="status" aria-label="Alterar o status de {{ c.titulo }}"
-            hx-patch="/tela/candidaturas/{{ c.id }}" hx-trigger="change" hx-target="closest tr" hx-swap="outerHTML">
-      {% for s in status_opcoes %}
-      <option value="{{ s.value }}"{% if s == c.status %} selected{% endif %}>{{ s.rotulo }}</option>
-      {% endfor %}
-    </select>
+    <div class="status-candidatura">
+      <select name="status" class="status-menu {{ classe_status(c.status) }}" aria-label="Status de {{ c.titulo }}"
+              hx-patch="/tela/candidaturas/{{ c.id }}" hx-trigger="change" hx-target="closest tr" hx-swap="outerHTML">
+        <optgroup label="Em andamento">
+          {% for s in status_andamento %}<option value="{{ s.value }}"{% if s == c.status %} selected{% endif %}>{{ s.rotulo }}</option>{% endfor %}
+        </optgroup>
+        <optgroup label="Encerradas">
+          {% for s in status_encerradas %}<option value="{{ s.value }}"{% if s == c.status %} selected{% endif %}>{{ s.rotulo }}</option>{% endfor %}
+        </optgroup>
+      </select>
+      <span class="mono status-desde">desde <time datetime="{{ c.atualizada_em.isoformat() }}">{{ c.atualizada_em|data_curta }}</time></span>
+      {% if saiu_do_ar %}
+      {# Só avisa: quem marca é a pessoa. #}
+      <span class="aviso-saiu" role="status">A vaga saiu do ar.
+        <button type="button" class="botao-link" hx-patch="/tela/candidaturas/{{ c.id }}" hx-vals='{"status": "vaga_encerrada"}'
+                hx-target="closest tr" hx-swap="outerHTML">Marcar como encerrada</button>
+      </span>
+      {% endif %}
+    </div>
   </td>
   <td>
     <button type="button" class="botao" hx-delete="/tela/candidaturas/{{ c.id }}" hx-include="#detalhe-url" hx-target="#aplicadas" hx-swap="outerHTML"

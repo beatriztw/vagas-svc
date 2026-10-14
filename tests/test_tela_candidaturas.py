@@ -5,6 +5,7 @@ Vagas e títulos escritos à mão (não são respostas gravadas de provider).
 
 import re
 import unittest
+from unittest import mock
 from dataclasses import replace
 from datetime import datetime, timezone
 
@@ -31,6 +32,69 @@ def cliente(*vagas):
     encontradas.registrar(list(vagas) or [vaga(URL_A), vaga(URL_B, "Engenheira", "Beta")], "dados")
     app = criar_app(PerfilBuscaRepositoryMemoria(), CurriculoRepositoryMemoria(), BuscaService([]), encontradas=encontradas)
     return TestClient(app), app.state.candidaturas
+
+
+class AjustesDaTabelaTest(unittest.TestCase):
+    """Encerradas no fim, "Ocultar encerradas", nota da IA, "desde" e o aviso da vaga que saiu do ar."""
+
+    def linhas(self, html):
+        return re.findall(r'<tr id="candidatura-(\d+)"( class="encerrada")?>', html)
+
+    def test_encerradas_vao_para_o_fim_e_ganham_a_opcao_de_ocultar(self):
+        api, servico = cliente()
+        a, _ = servico.marcar_aplicada(URL_A)
+        b, _ = servico.marcar_aplicada(URL_B)  # a mais recente: sem encerrar, vem primeiro
+        html = api.get("/tela/candidaturas", headers=HX).text
+        self.assertEqual(self.linhas(html), [(str(b.id), ""), (str(a.id), "")])
+        self.assertNotIn("ocultar-encerradas", html)
+
+        servico.mudar_status(b.id, "vaga_encerrada")
+        html = api.get("/tela/candidaturas", headers=HX).text
+
+        self.assertEqual(self.linhas(html), [(str(a.id), ""), (str(b.id), ' class="encerrada"')])
+        self.assertIn("Ocultar encerradas (1)", html)
+        self.assertRegex(html, r'<label id="ocultar-encerradas-rotulo"[^>]*hx-preserve="true"')
+        self.assertIn('<input type="checkbox" id="ocultar-encerradas">', html)
+        css = api.get("/static/tela.css").text
+        self.assertIn("#aplicadas:has(#ocultar-encerradas:checked) tr.encerrada { display: none; }", css)
+
+    def test_mostra_desde_quando_esta_no_status(self):
+        api, servico = cliente()
+        c, _ = servico.marcar_aplicada(URL_A)
+        c = servico.mudar_status(c.id, "entrevista")
+        html = api.get("/tela/candidaturas", headers=HX).text
+        self.assertIn(f'desde <time datetime="{c.atualizada_em.isoformat()}">{data_curta(c.atualizada_em)}</time>', html)
+
+    def test_vaga_que_saiu_do_ar_avisa_e_oferece_encerrar_sem_mudar_sozinha(self):
+        api, servico = cliente()
+        c, _ = servico.marcar_aplicada(URL_A)
+        servico.vagas.marcar_expirada(URL_A)
+
+        html = api.get("/tela/candidaturas", headers=HX).text
+
+        self.assertIn("A vaga saiu do ar.", html)
+        self.assertRegex(html, rf'hx-patch="/tela/candidaturas/{c.id}" hx-vals=\'{{"status": "vaga_encerrada"}}\'')
+        self.assertEqual(servico.obter(c.id).status, StatusCandidatura.ENVIADA)  # só avisa
+        # O botão do aviso usa o mesmo PATCH do menu: encerrada, o aviso some.
+        linha = api.patch(f"/tela/candidaturas/{c.id}", data={"status": "vaga_encerrada"}, headers=HX).text
+        self.assertIn('class="encerrada"', linha)
+        self.assertNotIn("saiu do ar", linha)
+
+
+class CompatDaIaTest(unittest.TestCase):
+    def test_coluna_compat_mostra_a_nota_da_ia(self):
+        from src.model.pedido_ia import Faixa, NotaIA
+
+        api, servico = cliente()
+        c, _ = servico.marcar_aplicada(URL_A)
+        servico.marcar_aplicada(URL_B)
+        ia = api.app.state.pedido_ia_service
+        with mock.patch.object(ia, "notas_validas", return_value={URL_A: NotaIA(82, Faixa.ALTA)}):
+            html = api.get("/tela/candidaturas", headers=HX).text
+        linha_a = html[html.index(f'id="candidatura-{c.id}"') :]
+        linha_a = linha_a[: linha_a.index("</tr>")]
+        self.assertIn('<span class="chip-ia chip-ia-alta">82 · alta</span>', linha_a)
+        self.assertEqual(html.count('class="chip-ia '), 1)  # a vaga sem nota fica com a célula vazia
 
 
 class ListagemTest(unittest.TestCase):
@@ -74,7 +138,7 @@ class ListagemTest(unittest.TestCase):
 
         self.assertEqual((resposta.status_code, resposta.headers["location"]), (303, "/tela"))
 
-    def test_select_com_as_cinco_opcoes_e_a_atual_marcada(self):
+    def test_select_com_os_status_em_dois_grupos_e_a_atual_marcada(self):
         api, servico = cliente()
         c, _ = servico.marcar_aplicada(URL_A)
         servico.mudar_status(c.id, "entrevista")
@@ -89,7 +153,14 @@ class ListagemTest(unittest.TestCase):
         opcoes = re.findall(r'<option value="([^"]+)"( selected)?>([^<]+)</option>', html)
         self.assertEqual([(v, r) for v, _, r in opcoes], [(s.value, s.rotulo) for s in StatusCandidatura])
         self.assertEqual([v for v, sel, _ in opcoes if sel], ["entrevista"])
-        self.assertIn('class="chip st-entrevista"', html)
+        # O menu leva a cor do status; o chip que repetia o mesmo texto ao lado saiu.
+        self.assertIn('class="status-menu st-entrevista"', html)
+        self.assertNotIn('class="chip st-', html)
+        andamento, encerradas = re.findall(r'<optgroup label="([^"]+)">(.*?)</optgroup>', html, re.S)
+        self.assertEqual(andamento[0], "Em andamento")
+        self.assertEqual(re.findall(r'value="([^"]+)"', andamento[1]), ["enviada", "em_analise", "teste", "entrevista", "oferta"])
+        self.assertEqual(encerradas[0], "Encerradas")
+        self.assertEqual(re.findall(r'value="([^"]+)"', encerradas[1]), ["vaga_encerrada", "recusada", "sem_resposta", "proposta_aceita"])
         self.assertIn(f'hx-delete="/tela/candidaturas/{c.id}"', html)
 
     def test_get_nao_muda_nada(self):
