@@ -51,6 +51,11 @@
     <input id="p-dias" type="number" name="publicada_desde_dias" min="1" max="{{ max_dias }}" step="1" value="{{ dias }}">
     <p class="dica">Vazio não limita pela data.</p>
   </div>
+  <div class="campo">
+    <label for="p-salario">Salário mínimo (R$ por mês)</label>
+    <input id="p-salario" type="number" name="salario_minimo" min="1" max="{{ max_salario }}" step="1" value="{{ salario }}">
+    <p class="dica">Só números, sem ponto (ex.: 3050). A IA dá nota baixa à vaga que informa salário igual ou menor. Vazio não limita.</p>
+  </div>
   <label class="opcao"><input type="checkbox" name="ocultar_candidatadas" value="1"{% if perfil.ocultar_candidatadas %} checked{% endif %}> Ocultar vagas em que já me candidatei</label>
 
   <div class="acoes-form">
