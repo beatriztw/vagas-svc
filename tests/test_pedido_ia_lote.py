@@ -225,6 +225,20 @@ class LoteTest(unittest.TestCase):
         self.assertEqual(m.servico.progresso_lote(m.vagas(0, 1, 2, 3)), (1, 2, 1))
         self.assertEqual(m.servico.progresso_lote(m.vagas(3)), (0, 0, 1))
 
+    def test_sem_nota_nao_conta_a_vaga_que_o_lote_pula_por_erro_recente(self):
+        # Senão a tela mostra "Avaliar 1 sem nota", o clique enfileira 0 e o botão fica lá por 7 dias.
+        m = Montagem()
+        m.servico.enfileirar_lote(m.vagas(0))
+        p = m.pedidos.proximo()
+        m.pedidos.falhar(p.id, p.tentativas, "tempo esgotado (420 s)")
+        m.relogio.agora += timedelta(days=1)
+
+        self.assertEqual(m.servico.progresso_lote(m.vagas(0)), (0, 0, 0))
+        self.assertEqual(m.servico.enfileirar_lote(m.vagas(0)), 0)
+
+        m.relogio.agora += timedelta(days=7)  # passou a espera: o lote mandaria de novo, e a conta acompanha
+        self.assertEqual(m.servico.progresso_lote(m.vagas(0)), (0, 0, 1))
+
     def test_pedir_grava_a_base_vigente(self):
         m = Montagem()
         pedido, _ = m.servico.pedir(URLS[0], "compatibilidade")
