@@ -602,7 +602,7 @@ class TelaSecoesTest(unittest.TestCase):
 
     def test_descricao_usa_pre_line_e_o_css_proprio_esta_no_base(self):
         cliente, _, _ = montar_tela(ProviderFalso())
-        self.assertIn('href="/static/tela-detalhe.css"', cliente.get("/tela").text)
+        self.assertIn('href="/static/tela-detalhe.css?v=', cliente.get("/tela").text)
         css = cliente.get("/static/tela-detalhe.css")
         self.assertEqual(css.status_code, 200)
         self.assertIn("white-space: pre-line", css.text)
@@ -683,7 +683,7 @@ class TelaSegurancaTest(unittest.TestCase):
         # Nenhum script inline e os da página continuam lá (sem fixar a lista inteira: outras frentes acrescentam).
         scripts = Pagina(html).tags("script")
         self.assertTrue(all(e.attrs.get("src") for e in scripts), "script inline na página")
-        self.assertTrue(set(scripts_da_pagina) <= {e.attrs["src"] for e in scripts})
+        self.assertTrue(set(scripts_da_pagina) <= {e.attrs["src"].split("?")[0] for e in scripts})
         for perigo in ("onerror", "javascript:", "<img", "alert("):
             self.assertNotIn(perigo, html.lower(), perigo)
         self.assertIn("Oi", html)

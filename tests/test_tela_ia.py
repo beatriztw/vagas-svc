@@ -71,7 +71,7 @@ class DetalheTest(unittest.TestCase):
     def test_css_proprio_carregado_pelo_base(self):
         api, *_ = montar()
 
-        self.assertIn('href="/static/tela-ia.css"', api.get("/tela").text)
+        self.assertIn('href="/static/tela-ia.css?v=', api.get("/tela").text)
         css = api.get("/static/tela-ia.css")
         self.assertEqual(css.status_code, 200)
         self.assertIn("pre-line", css.text)

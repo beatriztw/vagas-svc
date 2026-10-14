@@ -28,8 +28,8 @@ class TelaMobileTest(unittest.TestCase):
     def test_base_carrega_o_css_e_o_js_novos_depois_dos_antigos(self):
         html = cliente().get("/tela").text
 
-        self.assertIn('<link rel="stylesheet" href="/static/tela-mobile.css">', html)
-        self.assertIn('<script src="/static/tela-mobile.js" defer></script>', html)
+        self.assertRegex(html, r'<link rel="stylesheet" href="/static/tela-mobile\.css\?v=[0-9a-f]{10}">')
+        self.assertRegex(html, r'<script src="/static/tela-mobile\.js\?v=[0-9a-f]{10}" defer></script>')
         self.assertLess(html.index("/static/tela.css"), html.index("/static/tela-mobile.css"))
         self.assertNotRegex(html, r"<script(?![^>]*\bsrc=)")
         self.assertNotRegex(html, r"<style")
