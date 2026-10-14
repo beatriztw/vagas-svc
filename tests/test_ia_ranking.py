@@ -26,11 +26,11 @@ from src.repository.candidatura import vaga_por_url_em
 from src.repository.pedido_ia import PedidoIARepositoryMemoria
 from src.service.busca_service import BuscaService
 from src.service.historico_service import (
-    FaixaMinima,
+    FaixaFiltro,
     HistoricoService,
     Ordem,
     ordenar_por_nota,
-    validar_faixa_minima,
+    validar_faixa,
     validar_ordem,
 )
 from tests.test_tela_lista import HX, URLS_DIFICEIS, Pagina
@@ -106,13 +106,21 @@ class OrdenarTest(unittest.TestCase):
         forcada = self.pagina(notas=NOTAS, ordem=Ordem.PERFIL)
         self.assertEqual((urls(forcada.vagas), forcada.ordem), (ORDEM_MATCH, Ordem.PERFIL))
 
-    def test_faixa_minima_corta_e_tira_as_sem_nota_e_o_total_acompanha(self):
-        alta = self.pagina(notas=NOTAS, faixa_minima=FaixaMinima.ALTA)
+    def test_faixa_mostra_so_aquela_faixa_sem_as_sem_nota_e_o_total_acompanha(self):
+        alta = self.pagina(notas=NOTAS, faixa=FaixaFiltro.ALTA)
         self.assertEqual((urls(alta.vagas), alta.total), (["m4"], 1))
-        media = self.pagina(notas=NOTAS, faixa_minima=FaixaMinima.MEDIA)
-        self.assertEqual((urls(media.vagas), media.total), (["m4", "m2", "m5"], 3))
-        # Com a ordem do perfil, o corte vale igual.
-        self.assertEqual(urls(self.pagina(notas=NOTAS, ordem=Ordem.PERFIL, faixa_minima=FaixaMinima.MEDIA).vagas), ["m2", "m4", "m5"])
+        # Só as médias: a alta (m4) não entra, senão "Média" abriria com as altas no topo.
+        media = self.pagina(notas=NOTAS, faixa=FaixaFiltro.MEDIA)
+        self.assertEqual((urls(media.vagas), media.total), (["m2", "m5"], 2))
+        baixa = self.pagina(notas=NOTAS, faixa=FaixaFiltro.BAIXA)
+        self.assertEqual((urls(baixa.vagas), baixa.total), (["m3"], 1))
+        # Com a ordem do perfil, o filtro vale igual.
+        self.assertEqual(urls(self.pagina(notas=NOTAS, ordem=Ordem.PERFIL, faixa=FaixaFiltro.MEDIA).vagas), ["m2", "m5"])
+
+    def test_contagem_por_faixa_e_antes_do_filtro(self):
+        esperado = {"todas": 5, "alta": 1, "media": 2, "baixa": 1}  # m1 sem nota só conta em "todas"
+        self.assertEqual(self.pagina(notas=NOTAS).por_faixa, esperado)
+        self.assertEqual(self.pagina(notas=NOTAS, faixa=FaixaFiltro.ALTA).por_faixa, esperado)
 
     def test_paginacao_pela_nota_sem_repetir_nem_pular(self):
         lidas = []
@@ -128,7 +136,7 @@ class OrdenarTest(unittest.TestCase):
         ranqueadas = urls(servico.pagina(False, 500, hoje=HOJE, notas=NOTAS, ordem=Ordem.IA).vagas)
         self.assertEqual(ranqueadas[:4], ["m4"] + [u for u in recentes if u in ("m2", "m5")] + ["m3"])
         self.assertEqual(ranqueadas[4:], ["m1"])
-        self.assertEqual(urls(servico.pagina(False, 500, hoje=HOJE, notas=NOTAS, faixa_minima=FaixaMinima.ALTA).vagas), ["m4"])
+        self.assertEqual(urls(servico.pagina(False, 500, hoje=HOJE, notas=NOTAS, faixa=FaixaFiltro.ALTA).vagas), ["m4"])
 
     def test_sem_perfil_uma_nota_nao_corta_o_historico_na_janela_de_varredura(self):
         from unittest import mock
@@ -143,13 +151,14 @@ class OrdenarTest(unittest.TestCase):
     def test_validar_ordem_e_faixa(self):
         self.assertEqual((validar_ordem(None), validar_ordem(""), validar_ordem("IA")), (None, None, Ordem.IA))
         self.assertEqual(validar_ordem("perfil"), Ordem.PERFIL)
-        self.assertEqual((validar_faixa_minima("todas"), validar_faixa_minima("media")), (None, FaixaMinima.MEDIA))
+        self.assertEqual((validar_faixa("todas"), validar_faixa("media")), (None, FaixaFiltro.MEDIA))
+        self.assertEqual(validar_faixa("Baixa"), FaixaFiltro.BAIXA)
         for ruim in ("nota", "1"):
             with self.subTest(ruim=ruim), self.assertRaises(DadoInvalido):
                 validar_ordem(ruim)
-        for ruim in ("média", "baixa", "x"):
+        for ruim in ("média", "x"):
             with self.subTest(ruim=ruim), self.assertRaises(DadoInvalido):
-                validar_faixa_minima(ruim)
+                validar_faixa(ruim)
 
 
 @unittest.skipUnless(os.environ.get("PGHOST"), "PGHOST não definido: integração com Postgres pulada")
@@ -216,27 +225,31 @@ class TelaTest(unittest.TestCase):
         ativa = next(a for a in pagina.tags("a") if a.texto.strip() == "Nota da IA")
         self.assertEqual(ativa.attrs.get("aria-current"), "page")
 
-    def test_filtro_de_nota_mostra_os_cortes_em_numero_com_a_cor_da_faixa(self):
+    def test_filtro_de_nota_uma_faixa_por_botao_com_intervalo_cor_e_contagem(self):
         self.avaliar(NOTAS)
         pagina = Pagina(self.cliente.get("/tela?faixa=media").text)
-        links = {a.texto.strip(): a for a in pagina.tags("a") if a.texto.strip() in ("40+", "70+")}
-        self.assertEqual(parse_qs(urlsplit(links["40+"].attrs["href"]).query)["faixa"], ["media"])
-        self.assertEqual(parse_qs(urlsplit(links["70+"].attrs["href"]).query)["faixa"], ["alta"])
-        self.assertIn("nota-media", links["40+"].attrs["class"].split())
-        self.assertIn("nota-alta", links["70+"].attrs["class"].split())
-        self.assertEqual(links["40+"].attrs.get("aria-current"), "page")
-        self.assertNotIn("aria-current", links["70+"].attrs)
+        self.assertTrue([e for e in pagina.tags("nav") if e.attrs.get("aria-label") == "Faixa da nota da IA"])
+        # O texto do botão é "Média" e, na linha de baixo, "40–69 · 2".
+        links = {" ".join(a.texto.split()): a for a in pagina.tags("a")}
+        for rotulo, faixa in (("Alta 70–100 · 1", "alta"), ("Média 40–69 · 2", "media"), ("Baixa 0–39 · 1", "baixa")):
+            with self.subTest(rotulo=rotulo):
+                self.assertEqual(parse_qs(urlsplit(links[rotulo].attrs["href"]).query)["faixa"], [faixa])
+                self.assertIn(f"nota-{faixa}", links[rotulo].attrs["class"].split())
+        self.assertIn("Todas 5", links)
+        self.assertEqual(links["Média 40–69 · 2"].attrs.get("aria-current"), "page")
+        self.assertNotIn("aria-current", links["Alta 70–100 · 1"].attrs)
 
     def test_ordem_perfil_e_faixa_pela_url_e_pelo_partial(self):
         self.avaliar(NOTAS)
         self.assertEqual(self.cards("/tela?ordem=perfil"), ORDEM_MATCH)
         self.assertEqual(self.cards("/tela?faixa=alta"), ["m4"])
-        self.assertEqual(self.cards("/tela/vagas?faixa=media&ordem=perfil", headers=HX), ["m2", "m4", "m5"])
+        self.assertEqual(self.cards("/tela/vagas?faixa=media&ordem=perfil", headers=HX), ["m2", "m5"])
+        self.assertEqual(self.cards("/tela?faixa=baixa"), ["m3"])
         vazio = Pagina(self.cliente.get("/tela?faixa=alta&q=recepcionista").text)
         self.assertIn("Nenhuma vaga com essa nota da IA", vazio.por_id("vagas").texto)
 
     def test_valor_invalido_e_422(self):
-        for caminho in ("/tela?ordem=nota", "/tela?faixa=baixa", "/tela/vagas?faixa=x", "/tela/vagas/detalhe?url=m1&ordem=x"):
+        for caminho in ("/tela?ordem=nota", "/tela?faixa=média", "/tela/vagas?faixa=x", "/tela/vagas/detalhe?url=m1&ordem=x"):
             with self.subTest(caminho=caminho):
                 self.assertEqual(self.cliente.get(caminho, headers=HX).status_code, 422)
 

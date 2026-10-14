@@ -32,17 +32,17 @@ class Ordem(str, Enum):
     PERFIL = "perfil"
 
 
-class FaixaMinima(str, Enum):
-    """Corte pela faixa da IA: só `alta`, ou `média` e `alta`. Vaga sem nota não passa no corte."""
+class FaixaFiltro(str, Enum):
+    """Filtro pela faixa da IA: só as vagas DAQUELA faixa (alta 70-100, média 40-69, baixa 0-39), não
+    "aquela ou acima" (com o corte acumulado, "média" abria com as altas no topo e parecia não filtrar).
+    Vaga sem nota não entra em nenhuma."""
 
     ALTA = "alta"
     MEDIA = "media"
+    BAIXA = "baixa"
 
 
-_FAIXAS_DO_CORTE = {
-    FaixaMinima.ALTA: {Faixa.ALTA},
-    FaixaMinima.MEDIA: {Faixa.ALTA, Faixa.MEDIA},
-}
+_FAIXA_DO_FILTRO = {FaixaFiltro.ALTA: Faixa.ALTA, FaixaFiltro.MEDIA: Faixa.MEDIA, FaixaFiltro.BAIXA: Faixa.BAIXA}
 
 
 def validar_ordem(valor: str | None) -> Ordem | None:
@@ -54,13 +54,13 @@ def validar_ordem(valor: str | None) -> Ordem | None:
         raise DadoInvalido("ordem tem que ser ia ou perfil") from None
 
 
-def validar_faixa_minima(valor: str | None) -> FaixaMinima | None:
+def validar_faixa(valor: str | None) -> FaixaFiltro | None:
     if valor is None or not valor.strip() or valor.strip().lower() == "todas":
         return None
     try:
-        return FaixaMinima(valor.strip().lower())
+        return FaixaFiltro(valor.strip().lower())
     except ValueError:
-        raise DadoInvalido("faixa tem que ser alta, media ou todas") from None
+        raise DadoInvalido("faixa tem que ser alta, media, baixa ou todas") from None
 
 
 def ordenar_por_nota(vagas: list[VagaEncontrada], notas: Mapping[str, NotaIA]) -> list[VagaEncontrada]:
@@ -80,6 +80,9 @@ class PaginaHistorico:
     total: int
     # A ordem aplicada (a pedida, ou a padrão: IA quando há alguma nota).
     ordem: Ordem = Ordem.PERFIL
+    # Quantas de cada faixa ("alta", "media", "baixa") e "todas", com o mesmo perfil, filtro e busca, ANTES do
+    # filtro de faixa: o número de cada botão. None no caminho sem perfil e sem IA (a contagem fica no SQL).
+    por_faixa: dict[str, int] | None = None
 
 
 def ordenar_por_match(vagas: list[VagaEncontrada], perfil: Perfil) -> list[VagaEncontrada]:
@@ -127,11 +130,11 @@ class HistoricoService:
         hoje: date | None = None,
         notas: Mapping[str, NotaIA] | None = None,
         ordem: Ordem | None = None,
-        faixa_minima: FaixaMinima | None = None,
+        faixa: FaixaFiltro | None = None,
     ) -> PaginaHistorico:
         """`notas` (vaga_url -> nota válida da IA) liga a ordem por IA, que vira a padrão quando há
-        alguma nota E perfil salvo; `ordem` força uma das duas. `faixa_minima` deixa só as avaliadas
-        na faixa ou acima. Sem perfil, o padrão continua a paginação no SQL: uma nota avaliada não pode
+        alguma nota E perfil salvo; `ordem` força uma das duas. `faixa` deixa só as avaliadas
+        naquela faixa. Sem perfil, o padrão continua a paginação no SQL: uma nota avaliada não pode
         cortar o histórico e o contador na janela de varredura."""
         limite = validar_limite(limite)
         deslocamento = validar_deslocamento(deslocamento)
@@ -139,7 +142,7 @@ class HistoricoService:
         # Um perfil lido uma vez por leitura: a página e o total saem do mesmo perfil.
         perfil = self.perfis.obter()
         ordem = ordem or (Ordem.IA if notas and perfil is not None else Ordem.PERFIL)
-        if perfil is None and ordem == Ordem.PERFIL and faixa_minima is None:
+        if perfil is None and ordem == Ordem.PERFIL and faixa is None:
             return PaginaHistorico(
                 vagas=self.vagas.listar(somente_novas=somente_novas, limite=limite, q=q, deslocamento=deslocamento),
                 total=self.vagas.contar(somente_novas=somente_novas, q=q),
@@ -149,12 +152,19 @@ class HistoricoService:
             visiveis = janela  # mais recentes primeiro, como o repositório lista
         else:
             visiveis = ordenar_por_match(filtrar_pelo_perfil(janela, perfil, hoje or date.today()), perfil)
-        if faixa_minima is not None:
-            aceitas = _FAIXAS_DO_CORTE[faixa_minima]
-            visiveis = [v for v in visiveis if v.url in notas and notas[v.url].faixa in aceitas]
+        por_faixa = {"todas": len(visiveis), **{f.value: 0 for f in FaixaFiltro}}
+        for v in visiveis:
+            nota = notas.get(v.url)
+            for filtro, da_ia in _FAIXA_DO_FILTRO.items():
+                if nota is not None and nota.faixa == da_ia:
+                    por_faixa[filtro.value] += 1
+        if faixa is not None:
+            visiveis = [v for v in visiveis if v.url in notas and notas[v.url].faixa == _FAIXA_DO_FILTRO[faixa]]
         if ordem == Ordem.IA:
             visiveis = ordenar_por_nota(visiveis, notas)
-        return PaginaHistorico(vagas=visiveis[deslocamento : deslocamento + limite], total=len(visiveis), ordem=ordem)
+        return PaginaHistorico(
+            vagas=visiveis[deslocamento : deslocamento + limite], total=len(visiveis), ordem=ordem, por_faixa=por_faixa
+        )
 
     def salvas(
         self, limite: int, q: str | None = None, apos: tuple[datetime, str] | None = None
