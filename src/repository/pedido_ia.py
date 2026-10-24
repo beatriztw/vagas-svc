@@ -27,7 +27,7 @@ class PedidoIARepository(ABC):
 
     Tudo é da pessoa do repositório (criar, ler, lote, pausa, notas, rótulos), menos a fila do worker:
     `proximo`, `obter_da_fila`, `concluir`, `falhar` e `marcar_base` leem e gravam os pedidos de todas as
-    pessoas, e o pedido devolvido traz o `pessoa_id` dele.
+    pessoas, e o pedido devolvido traz o `pessoa_id` dele; e `contar_lote_desde`, que conta o lote de todas.
     """
 
     @abstractmethod
@@ -63,7 +63,9 @@ class PedidoIARepository(ABC):
 
         1. pedido rodando há mais de PRAZO_RODANDO que já gastou MAX_TENTATIVAS vira erro;
         2. escolhe um pendente ou preso (pendente primeiro; entre eles a menor prioridade, a da
-           pessoa antes da do lote; depois o mais antigo);
+           pessoa antes da do lote). Entre os pendentes do lote há rodízio de pessoas: vai na frente a
+           pessoa cujo último pedido de lote foi reivindicado há mais tempo (ou que nunca teve um); dentro
+           dela, e com uma pessoa só, o mais antigo. O clique e os presos não entram no rodízio;
         3. marca rodando, soma 1 em tentativas e grava reivindicado_em.
 
         None com a fila vazia. `agora` é o relógio (testes).
@@ -117,7 +119,8 @@ class PedidoIARepository(ABC):
 
     @abstractmethod
     def contar_lote_desde(self, desde: datetime) -> int:
-        """Pedidos do lote (prioridade 1) criados em `desde` ou depois."""
+        """Pedidos do lote (prioridade 1) criados em `desde` ou depois, de TODAS as pessoas: o teto diário é a
+        cota do worker, que as pessoas dividem."""
 
     @abstractmethod
     def lote_pausado(self) -> bool:
@@ -281,8 +284,22 @@ class PedidoIARepositoryMemoria(PedidoIARepository):
             ]
             if not candidatos:
                 return None
+            # Rodízio do lote: a pessoa cujo último pedido de lote foi reivindicado há mais tempo (ou nunca)
+            # vai na frente; clique e presos não entram (chave igual para todos).
+            ultima: dict[int, datetime] = {}
+            for p in self._linhas.values():
+                if p.prioridade == PRIORIDADE_LOTE and p.reivindicado_em is not None:
+                    ultima[p.pessoa_id] = max(ultima.get(p.pessoa_id, p.reivindicado_em), p.reivindicado_em)
+            nunca = datetime.min.replace(tzinfo=timezone.utc)
+
+            def rodizio(p: PedidoIA) -> datetime:
+                if p.estado == EstadoPedidoIA.PENDENTE and p.prioridade == PRIORIDADE_LOTE:
+                    return ultima.get(p.pessoa_id, nunca)
+                return nunca
+
             escolhido = min(
-                candidatos, key=lambda p: (p.estado == EstadoPedidoIA.RODANDO, p.prioridade, p.criado_em, p.id)
+                candidatos,
+                key=lambda p: (p.estado == EstadoPedidoIA.RODANDO, p.prioridade, rodizio(p), p.criado_em, p.id),
             )
             escolhido.estado = EstadoPedidoIA.RODANDO
             escolhido.tentativas += 1
@@ -395,7 +412,8 @@ class PedidoIARepositoryMemoria(PedidoIARepository):
 
     def contar_lote_desde(self, desde: datetime) -> int:
         with self._lock:
-            return sum(1 for p in self._meus() if p.prioridade == PRIORIDADE_LOTE and p.criado_em >= desde)
+            # Global: o teto é a cota do worker, que as pessoas dividem.
+            return sum(1 for p in self._linhas.values() if p.prioridade == PRIORIDADE_LOTE and p.criado_em >= desde)
 
     def lote_pausado(self) -> bool:
         with self._lock:

@@ -7,6 +7,7 @@ import json
 import logging
 import os
 from collections.abc import Callable, Iterable, Mapping
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
@@ -16,6 +17,7 @@ from src.model.pedido_ia import (
     MAX_ERRO,
     MAX_RESULTADO_BYTES,
     PRIORIDADE_LOTE,
+    EstadoPedidoIA,
     Faixa,
     NotaIA,
     PedidoEmConflito,
@@ -62,6 +64,19 @@ _ESPERA_ERRO_LOTE = timedelta(days=7)
 ESPERA_TRAVA_LOTE_S = 30
 
 
+@dataclass(frozen=True)
+class FabricasPorPessoa:
+    """Como o serviço chega aos repositórios da pessoa de um pedido da fila (que é de todas as pessoas).
+
+    Cada fábrica recebe o `pessoa_id` e devolve o repositório DELA. Em produção são `_PorChamada`, que pega
+    uma conexão do pool a cada chamada: criar o repositório não segura conexão nenhuma.
+    """
+
+    perfis: Callable[[int], PerfilBuscaRepository]
+    curriculos: Callable[[int], CurriculoRepository]
+    encontradas: Callable[[int], VagaEncontradaRepository]
+
+
 def lote_max_por_dia(env: Mapping[str, str] | None = None) -> int | None:
     """IA_LOTE_MAX_POR_DIA: inteiro >= 1 é o teto em 24 h, 0 desliga o lote; ausente, vazio ou inválido
     cai no padrão (None, sem teto), sem derrubar a app."""
@@ -99,7 +114,12 @@ class PedidoIAService:
         relogio: Callable[[], datetime] | None = None,
         trava_lote: TravaColeta | None = None,
         detalhe: DetalheService | None = None,
+        fabricas: FabricasPorPessoa | None = None,
     ):
+        # `pedidos`, `encontradas`, `perfis` e `curriculos` são da pessoa da requisição (tela, lote, pausa).
+        # O worker lê a fila de todas as pessoas: `proximo` e `concluir` usam as `fabricas` com a pessoa do
+        # pedido. Sem elas (testes de uma pessoa só), os repositórios acima valem para todos os pedidos.
+        self.fabricas = fabricas
         self.pedidos = pedidos
         # Busca a descrição que faltar antes do pedido de currículo. None (testes): não busca nada.
         self.detalhe = detalhe
@@ -145,6 +165,31 @@ class PedidoIAService:
         aberta = self.detalhe.carregar(vaga_url)
         if aberta is not None and aberta.aviso is not None:
             raise DadoInvalido(MSG_SEM_DESCRICAO)
+
+    def _da_pessoa(self, pessoa_id: int | None) -> tuple[VagaEncontradaRepository, PerfilBuscaRepository, CurriculoRepository]:
+        """(vagas, perfis, currículos) da pessoa dona do pedido."""
+        if self.fabricas is None:
+            return self.encontradas, self.perfis, self.curriculos
+        if pessoa_id is None:
+            raise ValueError("pedido sem pessoa_id")
+        return self.fabricas.encontradas(pessoa_id), self.fabricas.perfis(pessoa_id), self.fabricas.curriculos(pessoa_id)
+
+    def curriculos_do_pedido(self, pedido_id: int, vaga_url: str) -> CurriculoRepository:
+        """O repositório de currículos da pessoa dona do pedido, para o worker gravar o adaptado dela.
+
+        É o `POST /curriculos/adaptados` com `pedido_id`: o servidor tira a pessoa do pedido (o worker não
+        escolhe). Pedido inexistente, que não é de currículo, que não está rodando ou de outra vaga é
+        `DadoInvalido`. Rodando porque a rota não exige o Bearer do worker: sem isso qualquer id gravaria
+        currículo na pessoa dona dele.
+        """
+        pedido = self.pedidos.obter_da_fila(pedido_id)
+        if pedido is None:
+            raise DadoInvalido("pedido_id: pedido não encontrado")
+        if pedido.tipo != TipoPedidoIA.CURRICULO or pedido.estado != EstadoPedidoIA.RODANDO:
+            raise DadoInvalido("pedido_id: não é um pedido de currículo em andamento")
+        if pedido.vaga_url != vaga_url:
+            raise DadoInvalido("pedido_id: o pedido é de outra vaga")
+        return self._da_pessoa(pedido.pessoa_id)[2]
 
     def versao_compatibilidade(self) -> str | None:
         """A versão do prompt de compatibilidade que vale: a maior `compatibilidade-vN` já vista nos
@@ -232,7 +277,8 @@ class PedidoIAService:
         return self.enfileirar_lote(candidatas)
 
     def restante_lote(self) -> int | None:
-        """Quantos pedidos do lote ainda cabem nas próximas 24 h (mínimo 0); None = sem teto."""
+        """Quantos pedidos do lote ainda cabem nas próximas 24 h (mínimo 0); None = sem teto. O teto é a cota do
+        worker (a assinatura): conta o lote de todas as pessoas, não só o da pessoa do serviço."""
         if self.max_lote_por_dia is None:
             return None
         if self.max_lote_por_dia <= 0:
@@ -273,8 +319,10 @@ class PedidoIAService:
             if pedido is None:
                 return None
             _log(pedido)
-            base = self.curriculos.obter_base()
-            vaga = self.encontradas.obter(pedido.vaga_url)
+            # Os dados são da pessoa do pedido reivindicado, não da pessoa da requisição.
+            encontradas, perfis, curriculos = self._da_pessoa(pedido.pessoa_id)
+            base = curriculos.obter_base()
+            vaga = encontradas.obter(pedido.vaga_url)
             if base is None or vaga is None:
                 falho = self.pedidos.falhar(pedido.id, pedido.tentativas, ERRO_SEM_BASE if base is None else "Vaga não encontrada")
                 if falho is not None:
@@ -283,11 +331,10 @@ class PedidoIAService:
             if pedido.curriculo_base_id != base.id:
                 # A nota vale para a base que o worker recebe agora, não a da criação do pedido.
                 pedido = self.pedidos.marcar_base(pedido.id, pedido.tentativas, base.id) or pedido
-            return self._montar(pedido, vaga, base)
+            return self._montar(pedido, vaga, base, perfis.obter())
         return None
 
-    def _montar(self, pedido: PedidoIA, vaga, base) -> dict:
-        perfil = self.perfis.obter()
+    def _montar(self, pedido: PedidoIA, vaga, base, perfil) -> dict:
         requisitos = [r for r in (_requisito(i) for i in (getattr(vaga, "requisitos", None) or [])) if r]
         return {
             "id": pedido.id,
@@ -352,9 +399,10 @@ class PedidoIAService:
         else:
             validar_resultado_curriculo(resultado)
             curriculo_id = resultado["curriculo_id"]
-            adaptado = self.curriculos.obter(curriculo_id)
+            # O repositório é o da pessoa do pedido: o currículo de outra pessoa não existe para ele.
+            adaptado = self._da_pessoa(pedido.pessoa_id)[2].obter(curriculo_id)
             if adaptado is None or adaptado.tipo != "adaptado" or adaptado.vaga_url != pedido.vaga_url:
-                raise DadoInvalido("curriculo_id: não é um currículo adaptado desta vaga")
+                raise DadoInvalido("curriculo_id: não é um currículo adaptado desta vaga e desta pessoa")
         pronto = self.pedidos.concluir(id, tentativa, resultado, prompt_versao, modelo, nota, faixa, curriculo_id)
         if pronto is None:
             raise PedidoEmConflito(id)
