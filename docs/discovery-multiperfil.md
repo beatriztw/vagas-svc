@@ -1,140 +1,183 @@
 # Discovery: vagas para mais de uma pessoa
 
-Hoje o vagas-svc atende uma pessoa só. O pedido é que outra pessoa tenha o próprio perfil, currículo,
-histórico, candidaturas e notas da IA no mesmo app, sem misturar nada com o da Beatriz.
+Hoje o vagas-svc atende uma pessoa só. O objetivo é que outra pessoa tenha, no mesmo app, o próprio
+perfil, currículo, vagas, candidaturas e notas da IA, sem misturar nada com o da Beatriz.
 
-Este documento levanta onde o código assume "uma pessoa", o que é de cada pessoa e o que pode ser
-compartilhado, compara três caminhos e recomenda um. Nada foi implementado ainda.
+## Decisão
+
+- **Um app, várias pessoas** (tabela `pessoa` e `pessoa_id` em tudo).
+- **Nenhuma vaga compartilhada.** Cada pessoa tem as próprias linhas de vaga: a mesma URL achada para
+  duas pessoas são duas linhas, cada uma com o próprio detalhe, expiração, vista, salva e termos. Uma
+  pessoa nunca lê nem escreve vaga da outra.
+- Os dados que já existem passam a ser da pessoa `1`.
+
+Consequências aceitas: o detalhe da mesma vaga pode ser buscado uma vez por pessoa (o LinkedIn limita a
+partir da 4ª requisição seguida; a falha já vira aviso e tenta de novo depois), e a expiração vista na
+coleta de uma pessoa não marca a vaga da outra.
 
 ## Onde o app assume uma pessoa só
 
-| Lugar | Como está | Efeito com duas pessoas |
+| Lugar | Como está | O que muda |
 |---|---|---|
-| `perfil_busca` (001) | `id SMALLINT DEFAULT 1 CHECK (id = 1)`; `PerfilBuscaRepository.obter()`/`salvar()` sem parâmetro | só cabe um perfil |
-| `curriculo` (001) | base vigente = a `tipo='base'` mais recente; `obter_base()` sem parâmetro | o currículo de uma pessoa vira a base da outra |
-| `vaga_encontrada` (002, 004, 009) | `url` é a chave; `termos`, `vista_em` e `salva_em` são colunas da vaga | "nova", "salva" e "achada por qual termo" ficam iguais para as duas |
-| `candidatura` (003) | `vaga_url UNIQUE` | só uma pessoa consegue aplicar numa vaga |
-| `pedido_ia` (006, 007) | um ativo por `(vaga_url, tipo)`; `curriculo_base_id` é a base global | a nota de uma vale para a outra; o lote não sabe de quem é a vaga |
-| `rotulo_ia` (006) | `vaga_url` é a chave | o rótulo de uma sobrescreve o da outra; métricas misturadas |
-| `ia_lote_pausa` (010) | linha única (`id = 1`) | pausar pausa para as duas |
-| `coleta_agendada` (008) / `ColetaService` | lê `perfis.obter()` e coleta os termos de um perfil | só os termos de uma pessoa são coletados |
-| `HistoricoService` | janela das `TETO_VARREDURA_HISTORICO` (5000) mais recentes de `vaga_encontrada`, perfil aplicado na leitura | a janela enche com vagas achadas pelos termos da outra pessoa; `excluir`/`niveis` filtram, mas não tiram vaga que só a outra procurou |
-| `PedidoIAService` | `curriculos.obter_base()` e `perfis.obter()` em 6 pontos | o worker recebe perfil e currículo errados |
-| Tela e API | sem login (rede interna); `/tela/perfil`, `/curriculos/base` etc. sem dono | não há como saber quem está usando |
-| `metricas_ia.py` | docstrings e nomes tratam a faixa "da Beatriz" como referência | nomes a generalizar (`faixa_pessoa`) |
-| S3 (`Armazenamento.enviar`) | chave escolhida por quem chama, sem prefixo de pessoa | arquivos das duas no mesmo espaço |
+| `perfil_busca` (001) | `id SMALLINT DEFAULT 1 CHECK (id = 1)`; `obter()`/`salvar()` sem parâmetro | uma linha por pessoa |
+| `curriculo` (001) | base vigente = a `tipo='base'` mais recente | base vigente = a mais recente da pessoa |
+| `vaga_encontrada` (002, 004, 009) | PK `url`; `termos`, `vista_em`, `salva_em`, detalhe e expiração na linha | PK `(pessoa_id, url)` |
+| `candidatura` (003) | `vaga_url UNIQUE REFERENCES vaga_encontrada (url)` | `UNIQUE (pessoa_id, vaga_url)`, FK composta |
+| `pedido_ia` (006, 007) | `REFERENCES vaga_encontrada (url)`; um ativo por `(vaga_url, tipo)` | FK composta; ativo por `(pessoa_id, vaga_url, tipo)` |
+| `rotulo_ia` (006) | PK `vaga_url` | PK `(pessoa_id, vaga_url)` |
+| `ia_lote_pausa` (010) | linha única (`id = 1`) | PK `pessoa_id` |
+| `coleta_agendada` (008) | horário global | fica global (o horário é do app) |
+| `ColetaService` | `perfis.obter()`, coleta os termos de um perfil | coleta para cada pessoa |
+| `HistoricoService` | janela das 5000 mais recentes de `vaga_encontrada` | janela das 5000 mais recentes da pessoa |
+| `PedidoIAService` | `curriculos.obter_base()` e `perfis.obter()` em 6 pontos | base e perfil da pessoa do pedido |
+| `DetalheService` | `gravar_detalhe(url, ...)`, `marcar_expirada(url)` | na vaga da pessoa que abriu |
+| Tela e API | sem login (rede interna) | sessão por pessoa (ver "Quem está usando") |
+| `metricas_ia.py` | nomes e docstrings falam na faixa "da Beatriz" | por pessoa, nomes genéricos (`faixa_pessoa`) |
+| S3 (`Armazenamento.enviar`) | chave sem prefixo de pessoa | chave com prefixo `pessoa/<id>/` |
 
-Pontos de chamada que mudam: `src/controller/api.py` (rotas de perfil, currículo, `/vagas`, `criar_app`),
-`src/controller/coleta.py`, `src/controller/tela*.py`, `src/service/{coleta,historico,pedido_ia}_service.py`,
-`src/repository/{base,postgres,candidatura_postgres,pedido_ia_postgres}.py`.
+## Modelo de dados
 
-## O que é de cada pessoa e o que é compartilhado
+Uma migration nova, `013_pessoa.sql` (as publicadas não são editadas). Idempotente, sem `BEGIN`/`COMMIT`
+e sem `CONCURRENTLY`, como as outras: roda numa transação só na subida, então ou tudo muda ou nada muda.
 
-**De cada pessoa:** perfil, currículos (base e adaptados), quais vagas a coleta achou *para ela* (e por
-quais termos dela), vista, salva, candidaturas, pedidos e notas da IA, rótulos, pausa do lote.
+```sql
+CREATE TABLE IF NOT EXISTS pessoa (
+    id             BIGINT      GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
+    nome_exibicao  TEXT        NOT NULL CHECK (char_length(nome_exibicao) BETWEEN 1 AND 60),
+    criada_em      TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+-- Dona dos dados de antes da 013. O nome real fica só no banco: o seed usa um rótulo neutro.
+INSERT INTO pessoa (id, nome_exibicao) VALUES (1, 'Pessoa 1') ON CONFLICT (id) DO NOTHING;
+SELECT setval(pg_get_serial_sequence('pessoa', 'id'), GREATEST(1, (SELECT max(id) FROM pessoa)));
+```
 
-**Compartilhado:** o catálogo da vaga em si (`url`, título, empresa, local, descrição, requisitos,
-salário, expiração). O detalhe buscado sob demanda e a expiração valem para qualquer pessoa, e
-compartilhar evita buscar o mesmo detalhe duas vezes (o LinkedIn limita a partir da 4ª requisição).
+Ordem dos passos dentro da migration (as FKs dependem da PK de `vaga_encontrada`, então saem antes e
+voltam compostas depois):
 
-**A decidir:** configuração de providers por variável de ambiente (`APIFY_LOCAIS`, `GREENHOUSE_EMPRESAS`
-etc.). Começa global; vira campo do perfil só se as duas pessoas precisarem de locais/empresas diferentes.
+1. `pessoa_id BIGINT NOT NULL DEFAULT 1 REFERENCES pessoa` em `vaga_encontrada`, `candidatura`,
+   `pedido_ia`, `rotulo_ia`, `curriculo` (`ADD COLUMN IF NOT EXISTS`). O `DEFAULT 1` só existe para
+   preencher as linhas atuais; o passo 6 o remove, para código novo que esquecer a pessoa falhar alto em
+   vez de gravar na pessoa 1.
+2. Derrubar as FKs `candidatura_vaga_url_fkey`, `pedido_ia_vaga_url_fkey`, `rotulo_ia_vaga_url_fkey`
+   (`DROP CONSTRAINT IF EXISTS`), o `UNIQUE` de `candidatura.vaga_url` e a PK de `rotulo_ia`.
+3. Trocar a PK de `vaga_encontrada` de `(url)` para `(pessoa_id, url)`.
+4. Recriar: `candidatura UNIQUE (pessoa_id, vaga_url)`, `rotulo_ia PRIMARY KEY (pessoa_id, vaga_url)` e
+   as FKs compostas `(pessoa_id, vaga_url) REFERENCES vaga_encontrada (pessoa_id, url)`. A FK composta é
+   o que garante, no banco, que uma pessoa não aplica nem pede IA de vaga da outra.
+5. `perfil_busca`: nova coluna `pessoa_id` (1 na linha atual), PK trocada de `id` para `pessoa_id`, e a
+   coluna `id` com o `CHECK (id = 1)` removida. `ia_lote_pausa`: o mesmo.
+6. `ALTER COLUMN pessoa_id DROP DEFAULT` em todas.
+7. Índices recriados com `pessoa_id` na frente: `vaga_encontrada_novas_idx`,
+   `vaga_encontrada_primeira_vez_idx`, `vaga_encontrada_salva_em_idx`, `candidatura_aplicada_idx`,
+   `pedido_ia_ativo_uq` (`(pessoa_id, vaga_url, tipo) WHERE estado IN ('pendente','rodando')`),
+   `pedido_ia_vaga_idx`, `pedido_ia_lote_idx` e índice de `curriculo (pessoa_id, tipo, criado_em DESC)`.
+   A fila do worker (`pedido_ia_fila_prioridade_idx`) continua global.
 
-## Caminhos
+Idempotência: cada passo é condicional (`IF NOT EXISTS`/`IF EXISTS`, ou um `DO $$ ... $$` que confere em
+`information_schema` se a PK já é a composta), para a migration rodar de novo sem erro.
 
-### A. Segunda instância (sem mudar código)
+`pedido_ia.curriculo_id` e `curriculo_base_id` apontam para `curriculo (id)`, que continua global. A
+garantia de que o currículo é da mesma pessoa do pedido fica no serviço (e num teste), não numa FK.
 
-Outro container do vagas-svc com outro banco (ou outro `PGDATABASE`), outra porta/host e outro bucket S3.
+## Código
 
-- **Prós:** zero código, zero risco para os dados atuais, isolamento total.
-- **Contras:** custo do Apify dobra (a mesma busca roda duas vezes); o worker de IA do `claude-pi` precisa
-  consultar as duas filas (dois tokens, duas URLs); duas coletas agendadas no mesmo Pi; toda correção
-  é implantada duas vezes (mesma imagem, então é só reiniciar); o detalhe da mesma vaga é buscado duas
-  vezes no LinkedIn.
-- **Esforço:** compose + secrets + ajuste do worker. Horas.
+### Repositórios
 
-### B. Mesmo app, uma pessoa por instância lógica (`PESSOA` no ambiente)
+- A pessoa entra no construtor: `PerfilBuscaRepositoryPostgres(conn, pessoa_id)`, idem para vagas,
+  currículos, candidaturas, pedidos. O `_PorChamada` de `api.py` já cria o repositório por chamada com
+  uma conexão do pool; passa a receber também a pessoa da requisição. Continua uma conexão por chamada.
+- Todo SQL ganha `pessoa_id = %(pessoa_id)s`; todo `INSERT` grava a pessoa. As implementações em memória
+  (`*Memoria`) mudam igual, com um dicionário por pessoa.
+- `perfil_para_linha`/`linha_para_perfil` não mudam (o `Perfil` não carrega a pessoa).
+- Exceção: o worker de IA (`POST /pedidos-ia/proximo`, `PUT /pedidos-ia/{id}`) lê a fila de todas as
+  pessoas. O repositório da fila não recebe pessoa; o pedido reivindicado traz o `pessoa_id`, e os
+  repositórios de perfil e currículo usados para montar o payload são criados com ele.
 
-Um campo `pessoa_id` nas tabelas, e cada container fixa a pessoa por variável de ambiente. Mesmo banco,
-dois containers.
+### Coleta
 
-- Resolve o catálogo compartilhado e a coleta deduplicada só parcialmente (cada container coleta sozinho).
-- Tem quase todo o custo do C (todas as tabelas ganham `pessoa_id`) com metade do ganho. **Não recomendado.**
+- `ColetaService.coletar()` passa a rodar para cada pessoa com perfil e termos, uma depois da outra,
+  dentro da mesma trava (`TravaColetaPostgres`). Pessoa sem perfil ou sem termos é pulada, não falha a
+  coleta das outras.
+- A busca nos providers pode ser feita uma vez por termo normalizado entre todas as pessoas (cache só em
+  memória, durante a coleta), e o resultado é gravado separado para cada pessoa que tem o termo. Nada é
+  compartilhado no banco; o ganho é não pagar duas vezes ao Apify pelo mesmo termo. O teto
+  (`limite`/`maxItems`) continua por busca.
+- `coleta_agendada.resultado` continua só com contagens, agora somadas (sem id nem nome de pessoa).
+- CLI `python -m src.controller.coleta`: coleta todas as pessoas; uma linha por pessoa e termo
+  (`pessoa 2 | python: 20 encontradas, 3 novas`), com o id, nunca o nome.
+- O fim da coleta enfileira o lote da IA de cada pessoa.
 
-### C. Multiperfil de verdade (um app, várias pessoas)
+### Histórico, detalhe, salvas, candidaturas
 
-Tabela `pessoa` e `pessoa_id` em tudo que é de cada pessoa; o catálogo de vagas fica compartilhado.
+Mudam só pela pessoa no repositório: a janela de 5000 é da pessoa, o detalhe e a expiração são gravados
+na vaga da pessoa, a aba "Salvas" e "Vagas aplicadas" leem só as dela.
 
-Modelo de dados (uma migration nova, `013_pessoa.sql`, idempotente; não editar as publicadas):
+### IA
 
-- `pessoa (id, nome_exibicao, criada_em)`; a linha `id = 1` é criada pela migration e recebe tudo o que já existe.
-- `perfil_busca`: trocar a PK `id` (CHECK `id = 1`) por `pessoa_id REFERENCES pessoa`. Os dados atuais
-  já estão em `id = 1`, então a troca não move linha.
-- `curriculo`: `pessoa_id NOT NULL DEFAULT 1`; base vigente passa a ser a mais recente *da pessoa*.
-- `vaga_encontrada` continua o catálogo. Nova tabela `vaga_pessoa (pessoa_id, vaga_url, termos,
-  primeira_vez_em, ultima_vez_em, vista_em, salva_em, PK (pessoa_id, vaga_url))`, preenchida pela
-  migration a partir das colunas atuais (todas para a pessoa 1). As colunas antigas ficam sem uso
-  até uma migration de limpeza.
-- `candidatura`: `pessoa_id` e `UNIQUE (pessoa_id, vaga_url)` no lugar de `UNIQUE (vaga_url)`.
-- `pedido_ia`: `pessoa_id`; índice de ativo por `(pessoa_id, vaga_url, tipo)`; fila do worker segue global.
-- `rotulo_ia`: PK `(pessoa_id, vaga_url)`.
-- `ia_lote_pausa`: PK `pessoa_id`.
-- `coleta_agendada` fica global (o horário é do app, não da pessoa).
+- O pedido grava `pessoa_id`; o payload do worker mantém a mesma forma (`vaga`, `curriculo_base`,
+  `perfil`), montado com os dados da pessoa do pedido. **O worker não muda.**
+- `curriculo-v1`: o `POST /curriculos/adaptados` que o worker chama precisa saber a pessoa. Proposta:
+  o worker manda o `id` do pedido e o servidor tira a pessoa do pedido; o servidor confere que
+  `curriculo_id` é da mesma pessoa e da mesma vaga, como já confere a `vaga_url`. Isso muda o worker num
+  ponto só (um campo a mais), e é o único ponto que muda.
+- Lote, pausa, rótulos e métricas por pessoa.
+- `IA_LOTE_MAX_POR_DIA` é a cota da assinatura do worker, então fica global. Para uma pessoa não gastar a
+  cota da outra, o `proximo` alterna as pessoas entre os pedidos de lote (prioridade 1); o clique
+  (prioridade 0) continua passando na frente de tudo.
 
-Serviço:
+### Quem está usando
 
-- Repositórios recebem `pessoa_id` (no construtor, criado por requisição, como o `_PorChamada` já faz
-  com a conexão do pool: uma conexão por chamada continua valendo).
-- Coleta: junta os termos de todas as pessoas, normaliza como hoje (`front-end` = `front end`), busca
-  cada termo **uma vez** nos providers e grava em `vaga_pessoa` para cada pessoa cujo perfil tem o termo.
-  Isso mantém o custo do Apify igual ao de hoje para termos em comum e só soma os termos novos. O teto
-  (`limite`/`maxItems`) continua por busca; vale um teto total por coleta para o caso de muitas pessoas.
-- Histórico: a janela de varredura passa a ser das vagas *da pessoa* (`JOIN vaga_pessoa`), com
-  vista/salva lidas de lá.
-- IA: o pedido leva a pessoa; `proximo` monta o payload com o perfil e a base daquela pessoa. O payload
-  do worker não muda de forma (só o conteúdo), então o worker não precisa mudar. O teto
-  `IA_LOTE_MAX_POR_DIA` é cota da assinatura do worker: fica global e é dividido entre as pessoas
-  (ex.: rodízio na fila), para uma pessoa não consumir a cota da outra.
-- Métricas: por pessoa (o rótulo é de quem avaliou).
+Hoje a tela é publicada na LAN sem login, e com duas pessoas o currículo de cada uma ficaria aberto para
+a outra e para a rede. Proposta:
 
-Identificar quem está usando (a parte que mais pesa, porque hoje não há autenticação):
+- Login com senha por pessoa (hash `scrypt` da stdlib em `pessoa.senha_hash`), sessão em cookie
+  `HttpOnly`, `SameSite=Strict`, id aleatório guardado numa tabela `sessao (id, pessoa_id, expira_em)`.
+- Toda rota de `/tela` e da API JSON exige sessão; sem sessão, `/tela` redireciona para o login e a API
+  responde 401. `/pedidos-ia/*` continua com o Bearer do worker. `/saude` continua aberta. Isso também
+  fecha a dívida do `GET /curriculos/base` aberto, registrada no README.
+- O CSRF atual (`HX-Request` + `Origin` na tela; `Content-Type` + `Origin`/`Sec-Fetch-Site` no JSON)
+  continua igual, e o login ganha a mesma proteção.
+- Cadastro de pessoa: um comando (`python -m src.controller.pessoa criar`) que pede nome e senha no
+  terminal. Sem tela de cadastro aberta na rede. A senha da pessoa 1 é definida por esse comando depois
+  do deploy; até lá, o login não deixa ninguém entrar.
+- O perfil da pessoa nova pode sair do currículo dela pelo fluxo de `perfil_ia` que já existe.
 
-1. **Seletor de pessoa na tela (cookie) sem senha.** Simples, mas qualquer um na LAN vê o currículo da
-   outra pessoa. Só serve se as duas confiam uma na outra e na rede.
-2. **Login com senha por pessoa (sessão em cookie `HttpOnly`, `SameSite=Strict`).** Protege o currículo
-   de cada uma. A API JSON aberta (`GET /curriculos/base` já é dívida conhecida no README) passa a exigir
-   sessão ou o Bearer do worker.
-3. **Proxy na frente (ex.: autenticação do proxy reverso passando um cabeçalho com o usuário).** Menos
-   código no app, mas depende da infraestrutura do Pi.
+## Ordem dos PRs
 
-Recomendo o 2: o currículo e o telefone de cada pessoa passam a dividir o mesmo app, e hoje a tela é
-publicada na LAN.
+Cada PR deixa o app funcionando só com a pessoa 1, até o último ligar a segunda pessoa.
 
-## Recomendação
+1. **Migration 013 + `pessoa_id` nos repositórios**, sempre `1` (vem de uma constante em `api.py`).
+   Nenhuma mudança visível. Testes de Postgres: os dados de antes da 013 ficam na pessoa 1; a 013 roda
+   duas vezes sem erro; uma candidatura da pessoa 2 numa vaga só da pessoa 1 falha pela FK.
+2. **Repositórios e serviços filtram por pessoa** (perfil, currículo, vagas, histórico, detalhe,
+   salvas, candidaturas). Teste: duas pessoas com a mesma URL têm vista/salva/detalhe separados.
+3. **IA por pessoa**: pedido, payload, lote, pausa, rótulo, métricas, rodízio da cota, conferência do
+   currículo adaptado.
+4. **Coleta multiperfil** com a busca feita uma vez por termo entre as pessoas.
+5. **Login e sessão**, comando de cadastro, `pessoa_id` da sessão no lugar da constante.
+6. **README e `CLAUDE.md`**: a seção "Banco" (as tabelas por pessoa), a regra "toda consulta filtra por
+   pessoa" e o fim de "sem autenticação: só para a rede interna".
 
-- **Se a ideia é testar logo:** caminho A (segunda instância). Dá para usar amanhã e valida se o
-  produto serve para outro perfil antes de investir na mudança.
-- **Para ficar:** caminho C, em PRs pequenos, nesta ordem (cada um mantém o app funcionando só com a
-  pessoa 1):
-  1. Migration `013_pessoa.sql` + `pessoa_id` nos repositórios, sempre `1`. Nenhuma mudança visível.
-     Testes de Postgres conferem que os dados atuais continuam na pessoa 1.
-  2. `vaga_pessoa`: vista/salva/termos por pessoa; histórico lê de lá.
-  3. Candidaturas, rótulos e pausa por pessoa.
-  4. IA por pessoa (pedido, lote, métricas, rodízio da cota).
-  5. Coleta multiperfil com termos deduplicados entre pessoas.
-  6. Login e tela de "trocar de pessoa"; cadastro da segunda pessoa (perfil importado do currículo dela
-     pelo fluxo de `perfil_ia` que já existe).
+Estimativa grosseira: cerca de 15 arquivos de `src/` e a maioria dos 46 arquivos de teste (os
+construtores dos repositórios mudam). O 1 e o 2 são os maiores; o 5 é o mais delicado (segurança).
 
-Estimativa grosseira: o C mexe em cerca de 15 arquivos de `src/` e na maioria dos ~45 arquivos de teste
-(os construtores dos repositórios mudam). 1 e 2 são os maiores; 6 é o mais delicado (segurança).
+## Riscos
+
+- **Consulta sem filtro de pessoa** vaza vaga ou currículo de uma pessoa para a outra. Mitigação: a
+  pessoa no construtor (não dá para chamar sem), a FK composta no banco e um teste por repositório com
+  duas pessoas.
+- **Migration grande na subida**: se falhar, a app não sobe (é a regra do README). Testar a 013 contra
+  uma cópia do banco do Pi antes do merge.
+- **Rodízio da fila de IA** muda a ordem do lote de hoje; com uma pessoa só, a ordem fica igual.
 
 ## Perguntas em aberto
 
-1. Teste rápido (A) ou já a versão definitiva (C)?
-2. As duas pessoas podem ver os dados uma da outra na rede de casa, ou precisa de login (afeta o passo 6)?
-3. A segunda pessoa procura no mesmo mercado (remoto, Brasil/América Latina) ou precisa de outros locais
-   do LinkedIn e outras empresas no Greenhouse/Lever/Ashby (afeta se providers viram campo do perfil)?
-4. A cota do worker de IA dá para as duas? Se não, qual divisão (meio a meio, por ordem de chegada)?
+1. A segunda pessoa procura no mesmo mercado (vagas remotas, Brasil e América Latina) ou precisa de
+   outros locais do LinkedIn e outras empresas no Greenhouse/Lever/Ashby? Se precisar, `APIFY_LOCAIS` e
+   `*_EMPRESAS` saem do ambiente e viram campos do perfil (um PR a mais, depois do 4).
+2. Login com senha (proposta acima) está bom, ou basta um seletor de pessoa sem senha (mais simples, mas
+   cada um vê o currículo do outro na rede)?
+3. Rodízio meio a meio da cota do worker está bom?
 
-Dados pessoais da segunda pessoa (currículo, contato) seguem a mesma regra do `CLAUDE.md`: ficam só no
+Dados pessoais da segunda pessoa (currículo, contato, nome) seguem a regra do `CLAUDE.md`: ficam só no
 banco e no S3, nunca em código, fixture, commit ou PR.
