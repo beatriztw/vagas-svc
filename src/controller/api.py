@@ -46,11 +46,12 @@ from src.repository.base import (
 )
 from src.repository.candidatura import CandidaturaRepository, CandidaturaRepositoryMemoria, vaga_por_url_em
 from src.repository.pedido_ia import PedidoIARepository, PedidoIARepositoryMemoria
+from src.repository.pessoa import PessoaRepository, PessoaRepositoryMemoria
 from src.repository.trava import CHAVE_TRAVA_LOTE_IA, ColetaEmAndamento, TravaColeta, TravaColetaPostgres
 from src.service.agendador_coleta import AgendadorColeta
 from src.service.busca_service import BuscaService
 from src.service.candidatura_service import CandidaturaService
-from src.service.coleta_service import ColetaService
+from src.service.coleta_service import ColetaDaPessoa, ColetaService, RepositoriosDaPessoa
 from src.service.detalhe_service import DetalheService
 from src.service.historico_service import HistoricoService
 from src.service.pedido_ia_service import PedidoIAService
@@ -161,6 +162,8 @@ class ColetaDoTermoJson(BaseModel):
 
 
 class ResultadoColetaJson(BaseModel):
+    # Só a pessoa da requisição (hoje PESSOA_PADRAO), como sempre foi: termo e contagem de uma pessoa não saem
+    # na resposta para outra. Cada pessoa vê o resultado das outras só nas contagens somadas do agendador e na CLI.
     termos: list[ColetaDoTermoJson]
     novas: int
 
@@ -196,12 +199,16 @@ def criar_app(
     detalhe: DetalheService | None = None,
     ao_subir: Callable[[], object] | None = None,
     agendador: Callable[[Callable[[], object]], "AgendadorColeta | None"] | None = None,
+    pessoas: PessoaRepository | None = None,
+    repositorios_da_pessoa: Callable[[int], RepositoriosDaPessoa] | None = None,
 ) -> FastAPI:
     """Sem `encontradas` e `candidaturas`, o histórico da coleta e as candidaturas ficam em memória (testes);
     a produção passa os do Postgres. Sem `detalhe`, a tela não busca o detalhe no provider (testes).
     `ao_subir` roda no startup (lifespan); se levantar, a app não sobe. `agendador` recebe a coleta
     (a mesma do POST /coletas) e devolve o agendador da coleta, que o lifespan inicia depois do
-    `ao_subir` e para no shutdown; sem ele (testes), nada é agendado."""
+    `ao_subir` e para no shutdown; sem ele (testes), nada é agendado. A coleta roda para cada pessoa de `pessoas`
+    com os repositórios de `repositorios_da_pessoa` (a produção passa os do Postgres, um por chamada); sem eles
+    (testes) a única pessoa é a PESSOA_PADRAO, com `perfis` e `encontradas`."""
 
     @asynccontextmanager
     async def ciclo_de_vida(app_: FastAPI):
@@ -228,9 +235,25 @@ def criar_app(
     # Um serviço só para as rotas do worker, as da tela e as métricas.
     # Com `detalhe`, o pedido de currículo busca antes a descrição que faltar (LinkedIn sob demanda).
     servico_ia = PedidoIAService(pedidos_ia, encontradas, perfis, curriculos, trava_lote=trava_lote_ia, detalhe=detalhe)
-    # Toda coleta (API, tela, CLI) termina mandando as vagas sem nota para a fila da IA em lote.
+    # Toda coleta (API, tela, CLI) termina mandando, para cada pessoa coletada, as vagas dela sem nota para a fila da
+    # IA em lote. Falha de uma pessoa só vai para o log (ColetaService).
+    def enfileirar_lote_da_pessoa(coletada: ColetaDaPessoa) -> int:
+        if repositorios_da_pessoa is None:
+            ia_da_pessoa, historico_da_pessoa = servico_ia, historico
+        else:
+            repos = repositorios_da_pessoa(coletada.pessoa_id)
+            ia_da_pessoa = PedidoIAService(
+                repos.pedidos_ia, repos.vagas, repos.perfis, repos.curriculos, trava_lote=trava_lote_ia, detalhe=detalhe
+            )
+            historico_da_pessoa = HistoricoService(repos.vagas, repos.perfis)
+        return ia_da_pessoa.enfileirar_lote(historico_da_pessoa.visiveis())
+
     coleta = ColetaService(
-        recomendacao, perfis, encontradas, trava, ao_terminar=lambda _: servico_ia.enfileirar_lote(historico.visiveis())
+        recomendacao,
+        pessoas if pessoas is not None else PessoaRepositoryMemoria([PESSOA_PADRAO]),
+        repositorios_da_pessoa or (lambda _: RepositoriosDaPessoa(perfis, encontradas)),
+        trava,
+        ao_terminar=enfileirar_lote_da_pessoa,
     )
     app.state.agendador = agendador(coleta.coletar) if agendador is not None else None
     if candidaturas is None:
@@ -280,7 +303,7 @@ def criar_app(
         return resposta
 
     app.mount("/static", StaticFiles(directory=DIRETORIO_STATIC), name="static")
-    app.include_router(criar_router_tela(encontradas, historico, coleta, servico_candidaturas, detalhe, servico_ia))
+    app.include_router(criar_router_tela(encontradas, historico, coleta, servico_candidaturas, detalhe, servico_ia, PESSOA_PADRAO))
     app.include_router(criar_router_tela_candidaturas(servico_candidaturas))
     app.include_router(criar_router_tela_ia(app.state.pedido_ia_service))
     app.include_router(criar_router_tela_perfil(perfis))
@@ -360,8 +383,10 @@ def criar_app(
     def coletar() -> ResultadoColetaJson:
         # Sem perfil ou sem termos: DadoInvalido do serviço, 422; outra coleta rodando: 409.
         resultado = coleta.coletar()
+        da_pessoa = resultado.da_pessoa(PESSOA_PADRAO)
         return ResultadoColetaJson(
-            termos=[ColetaDoTermoJson(**vars(t)) for t in resultado.termos], novas=resultado.novas
+            termos=[ColetaDoTermoJson(**vars(t)) for t in da_pessoa.termos],
+            novas=da_pessoa.novas,
         )
 
     @app.get("/vagas/encontradas")
@@ -585,6 +610,12 @@ def _pedidos_ia_postgres() -> type:
     return PedidoIARepositoryPostgres
 
 
+def _pessoas_postgres() -> type:
+    from src.repository.pessoa_postgres import PessoaRepositoryPostgres
+
+    return PessoaRepositoryPostgres
+
+
 def _coleta_agendada_postgres() -> type:
     from src.repository.coleta_agendada import RegistroColetaAgendadaPostgres
 
@@ -606,6 +637,16 @@ def criar_app_producao() -> FastAPI:
 
     pool = _PoolPreguicoso()
     encontradas = _PorChamada(pool, _encontradas_postgres, PESSOA_PADRAO)
+
+    def repositorios_da_pessoa(pessoa_id: int) -> RepositoriosDaPessoa:
+        # Repositórios novos por pessoa, cada chamada com a própria conexão do pool.
+        return RepositoriosDaPessoa(
+            perfis=_PorChamada(pool, _perfis_postgres, pessoa_id),
+            vagas=_PorChamada(pool, _encontradas_postgres, pessoa_id),
+            curriculos=_PorChamada(pool, _curriculos_postgres, pessoa_id),
+            pedidos_ia=_PorChamada(pool, _pedidos_ia_postgres, pessoa_id),
+        )
+
     return criar_app(
         perfis=_PorChamada(pool, _perfis_postgres, PESSOA_PADRAO),
         curriculos=_PorChamada(pool, _curriculos_postgres, PESSOA_PADRAO),
@@ -625,6 +666,9 @@ def criar_app_producao() -> FastAPI:
         ao_subir=_migrar,
         # Coleta às 08:00 e 18:00 de Brasília (COLETA_HORARIOS; vazia ou inválida desliga).
         agendador=lambda coletar: AgendadorColeta.da_config(coletar, _PorChamada(pool, _coleta_agendada_postgres)),
+        # A coleta roda para todas as pessoas da tabela `pessoa`; o resto do app segue na PESSOA_PADRAO.
+        pessoas=_PorChamada(pool, _pessoas_postgres),
+        repositorios_da_pessoa=repositorios_da_pessoa,
     )
 
 

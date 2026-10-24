@@ -112,10 +112,12 @@ def criar_router_tela(
     candidaturas: CandidaturaService,
     servico_detalhe: DetalheService | None = None,
     ia: PedidoIAService | None = None,
+    pessoa_id: int = 1,
 ) -> APIRouter:
     """Recebe o que `criar_app` já tem: os repositories (na produção, os `_PorChamada`), o MESMO
     `HistoricoService` da rota JSON (a lista com o perfil salvo aplicado), o MESMO `ColetaService`
-    (com a mesma trava de uma coleta por vez da API e do cron) e o serviço de candidaturas."""
+    (com a mesma trava de uma coleta por vez da API e do cron) e o serviço de candidaturas. `pessoa_id` é a
+    pessoa da tela: a coleta roda para todas, mas o resumo mostrado é o dela."""
     router = APIRouter(prefix=PREFIXO_TELA, include_in_schema=False)
     # Sem o serviço (testes antigos) nada sai para a rede: a vaga abre só com o que já está guardado.
     servico_detalhe = servico_detalhe if servico_detalhe is not None else DetalheService(encontradas)
@@ -415,7 +417,7 @@ def criar_router_tela(
         """Roda a coleta (a trava de uma por vez é do ColetaService: 409 em HTML se já há uma) e devolve a lista."""
         busca, somente_novas, so_salvas = _busca(q), _novas(novas), _salvas(salvas)
         ordem_, faixa_ = validar_ordem(ordem), validar_faixa(faixa)
-        resultado = coleta.coletar()
+        resultado = coleta.coletar().da_pessoa(pessoa_id)
         contexto = contexto_lista(busca, somente_novas, 0, ordem_, faixa_, so_salvas)
         contexto["resumo"] = {
             "novas": resultado.novas,

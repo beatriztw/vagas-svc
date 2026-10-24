@@ -123,11 +123,17 @@ class RecomendacaoService:
         self.busca = busca
 
     def recomendar(self, termo: str, perfil: Perfil | None, hoje: date | None = None) -> ResultadoBusca:
-        resultado = self.busca.buscar(termo)
+        return self.refinar(self.busca.buscar(termo), termo, perfil, hoje)
+
+    def refinar(
+        self, resultado: ResultadoBusca, termo: str, perfil: Perfil | None, hoje: date | None = None
+    ) -> ResultadoBusca:
+        """Filtros e ordem do perfil sobre um resultado CRU já buscado. Não altera `resultado`, então o mesmo
+        resultado serve a perfis diferentes (a coleta de várias pessoas busca o termo uma vez só)."""
         vagas = resultado.vagas
         if perfil is not None:
             vagas = aplicar_perfil(vagas, perfil, hoje or date.today())
         # Título mais parecido com o termo primeiro; sorted é estável, então dentro da mesma
         # relevância fica a ordem das skills (e depois a da data).
         vagas = sorted(vagas, key=lambda v: relevancia_termo(v.titulo, termo), reverse=True)
-        return ResultadoBusca(vagas=vagas, erros=resultado.erros)
+        return ResultadoBusca(vagas=vagas, erros=dict(resultado.erros))

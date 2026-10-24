@@ -98,11 +98,13 @@ A app de produção lê o Postgres pelas variáveis `PG*` (`PGHOST`, `PGPORT`, `
 
 ## Coleta
 
-`GET /vagas` busca ao vivo a cada chamada. A coleta roda a mesma recomendação para cada termo do perfil salvo (termos repetidos por grafia, como `Front-end` e `front end`, rodam uma vez) e guarda as vagas na tabela `vaga_encontrada` de `migrations/002_vaga_encontrada.sql` (idempotente, aplicada sozinha na subida). A chave é a URL: a mesma vaga achada por dois termos é uma linha só, com os dois em `termos`; uma coleta seguinte atualiza `ultima_vez_em` e os campos que vieram preenchidos, sem contar a vaga como nova e sem mexer em `primeira_vez_em` nem em `vista_em`. Nova = ainda não marcada como vista.
+`GET /vagas` busca ao vivo a cada chamada. A coleta roda a mesma recomendação para cada termo do perfil de cada pessoa (termos repetidos por grafia, como `Front-end` e `front end`, rodam uma vez) e guarda as vagas na tabela `vaga_encontrada` de `migrations/002_vaga_encontrada.sql` (idempotente, aplicada sozinha na subida). A chave é a URL: a mesma vaga achada por dois termos é uma linha só, com os dois em `termos`; uma coleta seguinte atualiza `ultima_vez_em` e os campos que vieram preenchidos, sem contar a vaga como nova e sem mexer em `primeira_vez_em` nem em `vista_em`. Nova = ainda não marcada como vista.
+
+**Várias pessoas.** A coleta cobre todas as pessoas da tabela `pessoa`, uma depois da outra, dentro da mesma trava; pessoa sem perfil ou sem termos é pulada e não atrapalha as outras. Cada termo (normalizado: `Front-end` = `front end`) é buscado nos providers uma vez por coleta, mesmo com várias pessoas, para não pagar o Apify duas vezes: o cache é só em memória e guarda o resultado cru, e o filtro do perfil, o registro e o lote da IA são de cada pessoa (a mesma URL achada para duas pessoas são duas linhas). A CLI imprime uma linha por pessoa e termo (`pessoa 2 | python: 20 encontradas, 3 novas`), sempre com o id, nunca o nome.
 
 | Método e rota | O que faz |
 |---|---|
-| `POST /coletas` | roda a coleta e devolve `{termos: [{termo, encontradas, novas, erros}], novas}`; 422 sem perfil salvo ou com perfil sem termos; provider que falha aparece em `erros` do termo e não interrompe |
+| `POST /coletas` | roda a coleta (de todas as pessoas) e devolve, da pessoa da requisição, `{termos: [{termo, encontradas, novas, erros}], novas}`; 422 se nenhuma pessoa tem perfil com termos; provider que falha aparece em `erros` do termo e não interrompe |
 | `GET /vagas/encontradas?novas=true&limite=50&q=&deslocamento=0` | vagas guardadas com o perfil salvo aplicado na leitura (ver "Histórico pelo perfil" abaixo); sem perfil salvo, primeiro as achadas mais recentemente; `novas=false` inclui as já vistas; `q` filtra por palavra (título, empresa, local ou plataforma: `linkedin` traz as do LinkedIn); `limite` de 1 a 500 (fora disso, 422) |
 | `POST /vagas/vistas` | `{"urls": [...]}` (até 500): marca como vistas e devolve `{"marcadas": n}`, só as que ainda não estavam |
 
@@ -112,10 +114,10 @@ A própria app coleta às 08:00 e às 18:00 de Brasília (`COLETA_HORARIOS`, `HH
 
 O log da app (logger `src`: migrations, coleta agendada, pedidos de IA) sai no stderr em INFO, ou no nível de `LOG_NIVEL` (`DEBUG`, `INFO`, `WARNING`...; inválido cai em INFO). Só contagens e ids, nunca vaga, termo ou dado do perfil. O root e as bibliotecas ficam em WARNING: em INFO o httpx logaria a URL do Apify, que leva o token.
 
-- É a mesma coleta do `POST /coletas`: a mesma trava (outra coleta rodando = "em andamento") e, no fim, o lote da IA.
+- É a mesma coleta do `POST /coletas`: a mesma trava (outra coleta rodando = "em andamento") e, no fim, o lote da IA de cada pessoa.
 - Cada horário é reservado em `coleta_agendada` (`migrations/008_coleta_agendada.sql`) ANTES de coletar, com `INSERT ... ON CONFLICT DO NOTHING`: só quem insere coleta, então um reinício ou uma segunda réplica nunca rodam o mesmo horário.
 - Recuperação: ao subir e a cada volta (no máximo 5 min), o horário mais recente que passou há até 6 h e não foi reservado roda (Pi desligado ou app reiniciando no horário). Mais velho que isso fica para o próximo.
-- O registro guarda só contagens (`ok termos=6 novas=12 termos_com_erro=1`) ou o motivo (`em andamento`, `sem perfil ou sem termos`, `erro <Tipo>`); o log também. Banco fora ao reservar: tenta de novo em 60 s, sem marcar o horário. Uma coleta que falha nunca derruba a thread.
+- O registro guarda só contagens somadas de todas as pessoas, sem id nem nome (`ok termos=6 novas=12 termos_com_erro=1`) ou o motivo (`em andamento`, `sem perfil ou sem termos`, `erro <Tipo>`); o log também. Banco fora ao reservar: tenta de novo em 60 s, sem marcar o horário. Uma coleta que falha nunca derruba a thread.
 - A CLI `python -m src.controller.coleta` continua para rodar à mão.
 
 ### Histórico pelo perfil

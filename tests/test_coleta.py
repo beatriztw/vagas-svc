@@ -71,7 +71,7 @@ class ContratoVagaEncontrada:
         perfis = PerfilBuscaRepositoryMemoria(1)
         perfis.salvar(Perfil(termos=["dados"]))
         linkedin = ApifyLinkedInClient(token="tk", http_post=fake_post("apify_linkedin.json"))
-        ColetaService(RecomendacaoService(BuscaService([linkedin])), perfis, self.repo).coletar()
+        ColetaService.de_uma_pessoa(RecomendacaoService(BuscaService([linkedin])), perfis, self.repo).coletar()
 
         url = "https://www.linkedin.com/jobs/view/4310298811"
         salva = self.repo.obter(url)
@@ -255,7 +255,7 @@ class ColetaServiceTest(unittest.TestCase):
         )
 
     def servico(self, *clients) -> ColetaService:
-        return ColetaService(RecomendacaoService(BuscaService(list(clients) or [self.client])), self.perfis, self.vagas)
+        return ColetaService.de_uma_pessoa(RecomendacaoService(BuscaService(list(clients) or [self.client])), self.perfis, self.vagas)
 
     def test_sem_perfil_salvo_e_dado_invalido(self):
         with self.assertRaisesRegex(DadoInvalido, "Nenhum perfil salvo"):
@@ -454,7 +454,7 @@ class CliColetaTest(unittest.TestCase):
         self.saida, self.erro = io.StringIO(), io.StringIO()
 
     def rodar(self, *clients) -> int:
-        servico = ColetaService(RecomendacaoService(BuscaService(list(clients))), self.perfis, self.vagas)
+        servico = ColetaService.de_uma_pessoa(RecomendacaoService(BuscaService(list(clients))), self.perfis, self.vagas)
         return rodar(lambda: servico, self.saida, self.erro)
 
     def test_uma_linha_por_termo_e_sai_com_zero_mesmo_com_provider_quebrado(self):
@@ -466,8 +466,8 @@ class CliColetaTest(unittest.TestCase):
         self.assertEqual(
             self.saida.getvalue().splitlines(),
             [
-                "python: 1 encontradas, 1 novas | erros: Quebrado: TimeoutError: sem resposta",
-                "django: 0 encontradas, 0 novas | erros: Quebrado: TimeoutError: sem resposta",
+                "pessoa 1 | python: 1 encontradas, 1 novas | erros: Quebrado: TimeoutError: sem resposta",
+                "pessoa 1 | django: 0 encontradas, 0 novas | erros: Quebrado: TimeoutError: sem resposta",
             ],
         )
         self.assertEqual(self.erro.getvalue(), "")

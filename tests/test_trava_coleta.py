@@ -48,7 +48,7 @@ class ProviderBloqueado(ProviderClient):
 
 
 def servico(client, perfis, vagas=None, trava=None) -> ColetaService:
-    return ColetaService(
+    return ColetaService.de_uma_pessoa(
         RecomendacaoService(BuscaService([client])), perfis, vagas or VagaEncontradaRepositoryMemoria(1), trava
     )
 
