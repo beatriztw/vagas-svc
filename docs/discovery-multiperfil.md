@@ -10,6 +10,10 @@ perfil, currículo, vagas, candidaturas e notas da IA, sem misturar nada com o d
   duas pessoas são duas linhas, cada uma com o próprio detalhe, expiração, vista, salva e termos. Uma
   pessoa nunca lê nem escreve vaga da outra.
 - Os dados que já existem passam a ser da pessoa `1`.
+- **Mercados distintos.** A pessoa 1 segue no mercado de hoje (vagas remotas, Brasil e América Latina).
+  A pessoa 2 procura no mercado internacional, com currículo em inglês e com o PostHog como fonte de
+  vagas. Por isso os providers deixam de ser configuração do app e passam a ser de cada pessoa (ver
+  "Providers por pessoa").
 
 Consequências aceitas: o detalhe da mesma vaga pode ser buscado uma vez por pessoa (o LinkedIn limita a
 partir da 4ª requisição seguida; a falha já vira aviso e tenta de novo depois), e a expiração vista na
@@ -107,6 +111,46 @@ garantia de que o currículo é da mesma pessoa do pedido fica no serviço (e nu
   (`pessoa 2 | python: 20 encontradas, 3 novas`), com o id, nunca o nome.
 - O fim da coleta enfileira o lote da IA de cada pessoa.
 
+### Providers por pessoa
+
+Hoje os providers saem do ambiente, iguais para todo mundo (`providers_padrao()` em `api.py`:
+`LATAM_PROVIDERS`, `GREENHOUSE_EMPRESAS`, `LEVER_EMPRESAS`, `ASHBY_EMPRESAS`, `APIFY_LOCAIS`,
+`APIFY_POSTS_LIMITE`). Com mercados distintos, isso vira configuração de cada pessoa:
+
+- Tabela `pessoa_provider (pessoa_id, provider, config JSONB)`, com `provider` restrito aos nomes
+  conhecidos (`remotar`, `trampos`, `himalayas`, `remotive`, `greenhouse`, `lever`, `ashby`,
+  `linkedin`, `linkedin_posts`) e `config` com o que hoje vem do ambiente (lista de empresas, locais do
+  LinkedIn, limite). Validada antes de gravar, como o perfil: config inválida é `DadoInvalido` e não
+  grava.
+- A coleta monta os providers de cada pessoa pela tabela. A busca uma vez por termo (seção "Coleta")
+  passa a valer por `(provider, config, termo)`: só reaproveita quando as duas pessoas usam o mesmo
+  provider com a mesma config.
+- Os segredos continuam no ambiente (`APIFY_TOKEN`/`APIFY_TOKEN_FILE`), nunca na tabela. O teto de custo
+  do Apify (`limite`/`maxItems`) continua obrigatório e passa a ser por pessoa, com um teto máximo global
+  no ambiente para uma config não estourar a conta.
+- A migration grava para a pessoa 1 exatamente o que o ambiente de produção tem hoje, para a coleta dela
+  não mudar. Enquanto a tabela da pessoa estiver vazia, vale o ambiente (o comportamento de hoje).
+- Tela "Meu perfil" ganha a seção de fontes (quais providers e as listas de empresas e locais).
+
+**PostHog como fonte da pessoa 2.** O PostHog não tem um board de vagas próprio: as vagas dele ficam no
+Ashby, onde a empresa publica a página de carreiras (o Ashby conta isso no estudo de caso com o PostHog).
+O `AshbyClient` que já existe lê exatamente esse board pela API pública
+(`api.ashbyhq.com/posting-api/job-board/<empresa>`), então "via PostHog" é o provider `ashby` com
+`posthog` na lista de empresas da pessoa 2, sem client novo. Outras empresas internacionais que publicam
+no Ashby, no Greenhouse ou no Lever entram na mesma lista. A conferir antes do PR: o nome do board
+(`posthog`) respondendo na API do Ashby (deste ambiente o host está bloqueado) e uma resposta gravada para
+o teste.
+
+Para o mercado internacional, o perfil da pessoa 2 também muda o filtro: os títulos vêm em inglês (a
+comparação já normaliza título em inglês), e `localidades` precisa aceitar vaga remota global, que hoje
+passa como "remota" de qualquer forma.
+
+### Currículo em inglês
+
+O fluxo atual já serve: a base vigente da pessoa 2 é o currículo dela em inglês, e o worker adapta o
+currículo "pelo texto e no idioma da vaga" (`curriculo-v3`). O PDF para ATS usa só Latin-1, que cobre o
+inglês. Nada muda além de a base ser por pessoa.
+
 ### Histórico, detalhe, salvas, candidaturas
 
 Mudam só pela pessoa no repositório: a janela de 5000 é da pessoa, o detalhe e a expiração são gravados
@@ -154,12 +198,14 @@ Cada PR deixa o app funcionando só com a pessoa 1, até o último ligar a segun
 3. **IA por pessoa**: pedido, payload, lote, pausa, rótulo, métricas, rodízio da cota, conferência do
    currículo adaptado.
 4. **Coleta multiperfil** com a busca feita uma vez por termo entre as pessoas.
-5. **Login e sessão**, comando de cadastro, `pessoa_id` da sessão no lugar da constante.
-6. **README e `CLAUDE.md`**: a seção "Banco" (as tabelas por pessoa), a regra "toda consulta filtra por
+5. **Providers por pessoa** (`pessoa_provider`, seção de fontes no "Meu perfil"), com a pessoa 1 igual
+   ao ambiente de hoje e a pessoa 2 com o Ashby do PostHog.
+6. **Login e sessão**, comando de cadastro, `pessoa_id` da sessão no lugar da constante.
+7. **README e `CLAUDE.md`**: a seção "Banco" (as tabelas por pessoa), a regra "toda consulta filtra por
    pessoa" e o fim de "sem autenticação: só para a rede interna".
 
 Estimativa grosseira: cerca de 15 arquivos de `src/` e a maioria dos 46 arquivos de teste (os
-construtores dos repositórios mudam). O 1 e o 2 são os maiores; o 5 é o mais delicado (segurança).
+construtores dos repositórios mudam). O 1 e o 2 são os maiores; o 6 é o mais delicado (segurança).
 
 ## Riscos
 
@@ -172,9 +218,9 @@ construtores dos repositórios mudam). O 1 e o 2 são os maiores; o 5 é o mais 
 
 ## Perguntas em aberto
 
-1. A segunda pessoa procura no mesmo mercado (vagas remotas, Brasil e América Latina) ou precisa de
-   outros locais do LinkedIn e outras empresas no Greenhouse/Lever/Ashby? Se precisar, `APIFY_LOCAIS` e
-   `*_EMPRESAS` saem do ambiente e viram campos do perfil (um PR a mais, depois do 4).
+1. Além do PostHog, quais empresas e fontes entram no mercado internacional da pessoa 2 (outras empresas
+   no Ashby/Greenhouse/Lever, LinkedIn com locais fora da América Latina)? Se "PostHog" quer dizer outra
+   fonte que não o board de vagas do PostHog no Ashby, ela precisa de um client novo.
 2. Login com senha (proposta acima) está bom, ou basta um seletor de pessoa sem senha (mais simples, mas
    cada um vê o currículo do outro na rede)?
 3. Rodízio meio a meio da cota do worker está bom?
