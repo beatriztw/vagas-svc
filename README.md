@@ -60,7 +60,7 @@ resultado = BuscaService([GreenhouseClient(["stone"]), RemotarClient()]).buscar(
 
 ## Banco
 
-O estado (perfil de busca e currículos) fica num Postgres. O schema está em `migrations/*.sql` (de `001_curriculo_perfil.sql` até `013_pessoa.sql`, descritas nas seções de coleta, candidaturas, "Detalhe e expiração" e abaixo) e **é aplicado sozinho na subida da app**: as pendentes, em ordem lexicográfica do nome (`001_...`, `002_...`; numere com largura fixa), cada uma numa transação junto com o registro em `schema_migrations` e sob `pg_advisory_lock` (réplicas subindo juntas não aplicam duas vezes; quem chega depois espera).
+O estado (perfil de busca e currículos) fica num Postgres. O schema está em `migrations/*.sql` (de `001_curriculo_perfil.sql` até `014_pedido_ia_rodizio.sql`, descritas nas seções de coleta, candidaturas, "Detalhe e expiração" e abaixo) e **é aplicado sozinho na subida da app**: as pendentes, em ordem lexicográfica do nome (`001_...`, `002_...`; numere com largura fixa), cada uma numa transação junto com o registro em `schema_migrations` e sob `pg_advisory_lock` (réplicas subindo juntas não aplicam duas vezes; quem chega depois espera).
 
 - Migration com erro é desfeita (nada fica, nem registro) e a app **não sobe**: o erro aparece no log. Banco inacessível na subida é tentado de novo com backoff por ~60 s; depois disso a subida falha (o orquestrador reinicia o container). Por isso `/saude` só responde com o banco no ar.
 - Escreva migration idempotente (`IF NOT EXISTS`), sem `BEGIN`/`COMMIT` e sem `CREATE INDEX CONCURRENTLY` (rodam dentro de uma transação). Não edite uma migration já publicada: crie outra.
@@ -70,6 +70,7 @@ O estado (perfil de busca e currículos) fica num Postgres. O schema está em `m
 - `perfil_busca`: uma linha por pessoa (chave `pessoa_id`), gravada por upsert. Os CHECK de `modalidades` e `niveis` espelham `Modalidade` e `Nivel` de `src/model/vaga.py`.
 - `curriculo`: `tipo` é `base` ou `adaptado`; adaptado sempre aponta para uma base (`base_id`). A base vigente é a base mais recente; as anteriores ficam como histórico.
 - `013_pessoa.sql` cria `pessoa` e põe `pessoa_id` em tudo o que é de uma pessoa (vagas, candidaturas, pedidos e rótulos de IA, currículos, perfil e pausa do lote): o que já existia fica na pessoa 1, a chave de `vaga_encontrada` passa a ser `(pessoa_id, url)` e chaves estrangeiras compostas impedem uma pessoa de usar a vaga de outra. Os repositórios recebem a pessoa no construtor e todo SQL filtra por ela (a fila do worker de IA lê todas), mas por enquanto a pessoa é sempre a 1 (`PESSOA_PADRAO` em `src/controller/api.py`), sem mudança na API nem na tela.
+- `014_pedido_ia_rodizio.sql` só cria dois índices parciais em `pedido_ia` (idempotente): o do último lote reivindicado de cada pessoa, que o rodízio da cota do `proximo` consulta, e o do teto diário global do lote (ver "Lote" na seção de IA).
 
 `src/repository/conexao.py` conecta com as variáveis `PGHOST`, `PGPORT` (padrão 5432), `PGDATABASE`, `PGUSER` e a senha de `PGPASSWORD` ou do arquivo apontado por `PGPASSWORD_FILE` (no Swarm, `/run/secrets/vagas_db_password`).
 
@@ -93,7 +94,7 @@ A app de produção lê o Postgres pelas variáveis `PG*` (`PGHOST`, `PGPORT`, `
 | `GET /curriculos/base` | currículo base vigente (404 se não houver) |
 | `PUT /curriculos/base` | `{titulo, conteudo_md, arquivo_s3?}`: cria uma nova versão da base |
 | `GET /curriculos/adaptados` | lista os currículos adaptados |
-| `POST /curriculos/adaptados` | `{titulo, conteudo_md, vaga_url, base_id?}`: sem `base_id` usa a base vigente (409 se não houver base) |
+| `POST /curriculos/adaptados` | `{titulo, conteudo_md, vaga_url, base_id?, pedido_id?}`: sem `base_id` usa a base vigente (409 se não houver base). O worker manda também o `pedido_id` (ver "Currículo adaptado do worker"): a pessoa é a do pedido; sem ele vale a pessoa da requisição |
 | `GET /vagas?termo=...` | busca nos providers (o Remotar, cuja busca é frouxa, corta título sem nenhuma palavra do termo), aplica o perfil: exclui termos do título, só remotas se a modalidade for só Remoto, corta vagas mais antigas que `publicada_desde_dias`, corta nível fora de `niveis` quando o título diz o nível, mantém só a cidade de `localidades` ou remotas (vaga sem local fica) e ordena pela relevância do título (fração das palavras do termo que ele tem), desempatando pelas `skills` que aparecem no título; devolve `{vagas, erros}` |
 
 ## Coleta
@@ -198,7 +199,7 @@ Fluxo: `pendente` → (`POST /pedidos-ia/proximo`) → `rodando` → (`PUT /pedi
 
 | Método e caminho | Quem usa | O que faz |
 |---|---|---|
-| `POST /pedidos-ia/proximo` | worker (Bearer) | corpo `{}`; reivindica um pedido: `200` com o pedido, `204` com a fila vazia |
+| `POST /pedidos-ia/proximo` | worker (Bearer) | corpo `{}`; reivindica um pedido de qualquer pessoa (a fila é uma só, com rodízio no lote: ver "Rodízio da cota"): `200` com o pedido montado com os dados da pessoa dele, `204` com a fila vazia |
 | `PUT /pedidos-ia/{id}` | worker (Bearer) | devolve o resultado ou o erro: `200 {id, estado}`, `404`, `409` (não está rodando ou a tentativa não é a atual), `422` (nada muda) |
 | `PUT /vagas/rotulo-ia` | JSON aberto | `{"vaga_url", "faixa": "alta"\|"média"\|"baixa"\|null}`: grava o rótulo da pessoa (`null` apaga); `422` com `media` sem acento ou vaga fora do histórico |
 | `GET /ia/metricas?prompt_versao=` | JSON aberto | concordância de faixa, correlação de ordem e estabilidade de reexecução (chega com o PR das métricas) |
@@ -220,7 +221,7 @@ As rotas `/pedidos-ia/*` não aparecem no `/docs`. Respondem com `Cache-Control:
 }
 ```
 
-`descricao`, `requisitos` e `subtitulo` vêm do detalhe da vaga, buscado quando a pessoa abre a vaga na tela; sem ele saem `null`, `[]` e `null`. O pedido de **currículo** busca antes o detalhe que faltar (o mesmo `carregar` de abrir a vaga), porque o worker adapta o currículo pelo texto e no idioma da vaga (`curriculo-v3`); se o provider falhar (ex.: LinkedIn limitando), o pedido é recusado com o aviso 422 "abra a vaga de novo mais tarde" em vez de seguir sem descrição. Plataforma sem detalhe sob demanda segue como antes. A compatibilidade (inclusive o lote) não busca nada. O `proximo` não busca nada no provider. `perfil` é `null` sem perfil salvo. `curriculo_base` é a base vigente: sem base, o pedido vira `erro` ("Não há currículo base") e o `proximo` passa ao seguinte.
+`descricao`, `requisitos` e `subtitulo` vêm do detalhe da vaga, buscado quando a pessoa abre a vaga na tela; sem ele saem `null`, `[]` e `null`. O pedido de **currículo** busca antes o detalhe que faltar (o mesmo `carregar` de abrir a vaga), porque o worker adapta o currículo pelo texto e no idioma da vaga (`curriculo-v3`); se o provider falhar (ex.: LinkedIn limitando), o pedido é recusado com o aviso 422 "abra a vaga de novo mais tarde" em vez de seguir sem descrição. Plataforma sem detalhe sob demanda segue como antes. A compatibilidade (inclusive o lote) não busca nada. O `proximo` não busca nada no provider. `perfil` é `null` sem perfil salvo. `vaga`, `curriculo_base` e `perfil` são da pessoa dona do pedido reivindicado (`pedido_ia.pessoa_id`), não da pessoa da requisição: cada chamada de repositório do `proximo` usa uma conexão do pool, como o resto da API. `curriculo_base` é a base vigente dela: sem base, o pedido vira `erro` ("Não há currículo base") e o `proximo` passa ao seguinte.
 
 ### Resultado (`PUT /pedidos-ia/{id}`)
 
@@ -232,7 +233,19 @@ As rotas `/pedidos-ia/*` não aparecem no `/docs`. Respondem com `Cache-Control:
 - O corpo recusa chaves extras. `pronto` exige `resultado` e proíbe `erro`; `erro` exige o texto e proíbe `resultado`. O servidor corta `erro` em 500 caracteres (não recusa). `prompt_versao` casa `^[a-z]+-v[0-9]{1,6}$` e começa com o tipo do pedido; `modelo` tem de 1 a 100 caracteres, sem caractere de controle (NUL viraria 500 no Postgres). `resultado` com mais de 64 KB é `422`.
 - O `PUT` só vale com o pedido `rodando` e `tentativa` igual à atual; senão `409`.
 - `compatibilidade-v1`: `{nota 0-100 (inteiro; bool não vale), faixa, atende[{requisito, evidencia_no_curriculo}], falta[{requisito, obrigatorio}], eliminatorios[], resumo}`, sem chaves extras, com até 30 `atende`, 30 `falta` e 20 `eliminatorios`, textos sem espaço nas pontas e não vazios. A faixa tem que bater com a nota: `alta` 70-100, `média` 40-69, `baixa` 0-39 (cortes provisórios, a calibrar pelas métricas; mudá-los exige um prompt `-v2`). A grafia é sempre `média`; só o worker normaliza `media`. O servidor grava `nota` e `faixa` nas colunas. Que cada `evidencia_no_curriculo` seja um trecho literal do currículo é regra só do worker: o servidor não tem o currículo da época.
-- `curriculo-v1`: o worker grava o adaptado em `POST /curriculos/adaptados` e manda `resultado = {curriculo_id, titulo, o_que_mudou, lacunas}` (sem o `conteudo_md`). O servidor confere que `curriculo_id` existe, é `adaptado` e tem a mesma `vaga_url` do pedido (senão `422`) e grava `curriculo_id`. Se o worker morrer entre o `POST` e o `PUT`, a reentrega cria um segundo adaptado (duplicata aceita no v1).
+- `curriculo-v1`: o worker grava o adaptado em `POST /curriculos/adaptados` e manda `resultado = {curriculo_id, titulo, o_que_mudou, lacunas}` (sem o `conteudo_md`). O servidor confere que `curriculo_id` existe, é `adaptado`, tem a mesma `vaga_url` do pedido e é da mesma pessoa do pedido (senão `422`) e grava `curriculo_id`. Se o worker morrer entre o `POST` e o `PUT`, a reentrega cria um segundo adaptado (duplicata aceita no v1).
+
+### Currículo adaptado do worker (`pedido_id`)
+
+O `POST /curriculos/adaptados` não tem Bearer nem pessoa na requisição além da padrão, e o worker atende pedidos de todas as pessoas. Por isso o worker passa a mandar o `id` do pedido que está atendendo:
+
+```json
+{"titulo": "...", "conteudo_md": "...", "vaga_url": "...", "base_id": 3, "pedido_id": 12}
+```
+
+- **Mudança no worker**: incluir `pedido_id` (o `id` que veio no `POST /pedidos-ia/proximo`) em todo `POST /curriculos/adaptados`. É o único ponto do worker que muda. O campo é opcional para não quebrar o worker atual: sem ele o currículo vai para a pessoa da requisição (hoje a pessoa 1), o que errará assim que existir um pedido de outra pessoa.
+- Com `pedido_id` o servidor tira a pessoa do pedido e grava o adaptado nela, com a base dela (`base_id`, se vier, tem de ser base dessa pessoa: senão `404`).
+- `422` se o pedido não existe, se é de outra `vaga_url`, se não é de currículo ou se não está `rodando` (a rota é aberta; sem isso qualquer id gravaria na pessoa dona dele).
 
 ### Currículo em PDF (ATS)
 
@@ -240,17 +253,19 @@ As rotas `/pedidos-ia/*` não aparecem no `/docs`. Respondem com `Cache-Control:
 
 ### Pedido preso
 
-Rodando há mais de 15 minutos (`reivindicado_em`) é pedido preso: o worker morreu. O `proximo`, numa transação, (1) marca como `erro` ("O worker não terminou depois de 3 tentativas") o preso que já gastou 3 tentativas, (2) escolhe um pendente ou preso (pendente primeiro, depois o mais antigo; `FOR UPDATE SKIP LOCKED`, então dois workers nunca pegam o mesmo) e (3) marca `rodando`, soma 1 em `tentativas` e grava `reivindicado_em`. A tentativa antiga que chegar depois no `PUT` recebe `409`.
+Rodando há mais de 15 minutos (`reivindicado_em`) é pedido preso: o worker morreu. O `proximo`, numa transação, (1) marca como `erro` ("O worker não terminou depois de 3 tentativas") o preso que já gastou 3 tentativas, (2) escolhe um pendente ou preso (pendente primeiro; a prioridade; no lote, o rodízio de pessoas; depois o mais antigo; `FOR UPDATE SKIP LOCKED`, então dois workers nunca pegam o mesmo) e (3) marca `rodando`, soma 1 em `tentativas` e grava `reivindicado_em`. A tentativa antiga que chegar depois no `PUT` recebe `409`.
 
 ### Lote: a IA avalia as vagas do histórico
 
 Além do clique da pessoa, a compatibilidade roda em lote, uma vaga por vez, pela mesma fila e pelo mesmo worker (`migrations/007_pedido_ia_lote.sql`).
 
 - **Quem dispara**: o fim de toda coleta bem-sucedida (`POST /coletas`, o botão da tela e `python -m src.controller.coleta`, que o timer do Pi roda às 08:00 e 18:00; a CLI imprime `ia: N vagas na fila` depois das linhas dos termos, e falha do lote vai para o stderr sem mudar o código de saída) e o botão "Avaliar vagas com IA" da tela (`POST /tela/ia/lote`, com o CSRF da tela). Falha ao enfileirar só vai para o log: a coleta não falha por causa disso. Um enfileiramento por vez (trava no Postgres): quem chega com outro rodando espera a vez (até 30 s) e então enfileira as vagas dele, com o teto relido dentro da trava.
+- **Rodízio da cota**: para uma pessoa não gastar a cota da outra, o `proximo` alterna as pessoas entre os pedidos do lote (prioridade 1): entre os pendentes do lote vai primeiro a pessoa cujo último pedido de lote foi reivindicado há mais tempo (ou que nunca teve um) e, dentro dela, o mais antigo. O clique da pessoa (prioridade 0) continua passando na frente de tudo e não conta no rodízio; o preso (rodando há mais de 15 min) segue a regra de sempre. Com uma pessoa só a ordem é a de antes.
+- **Por pessoa**: o enfileiramento, a pausa, os rótulos, a nota válida e as métricas são da pessoa da requisição (`GET /ia/metricas` e os rótulos só enxergam os pedidos e rótulos dela). O que é global é a fila do worker, o rodízio e o teto diário.
 - **Quais vagas**: as da lista da tela (as que passam no perfil, sem as expiradas, na mesma ordem), menos as que já têm pedido de compatibilidade ativo e as que já têm nota válida.
 - **Nota válida**: pronto de compatibilidade feito com o currículo base vigente (`curriculo_base_id`, gravado quando o pedido é criado) e com a versão atual do prompt (a maior `compatibilidade-vN` já vista nos prontos). Trocou a base ou subiu a versão, a vaga volta para o lote. Pedido de antes da 007 não tem base gravada e não conta.
 - **Prioridade**: o clique da pessoa (`prioridade` 0) passa na frente do lote (1) na fila; pedir pela tela uma vaga que já está no lote sobe o pedido para a prioridade da pessoa.
-- **Teto**: por padrão não há (o lote enfileira todas as vagas que faltam). Com `IA_LOTE_MAX_POR_DIA` >= 1, no máximo tantos pedidos do lote criados nas últimas 24 h; `0` desliga o lote; ausente, vazio ou inválido cai no padrão (sem teto). A cota é a da assinatura do worker: cota estourada deixa o pedido `rodando` e o worker espera, como no clique.
+- **Teto**: por padrão não há (o lote enfileira todas as vagas que faltam). Com `IA_LOTE_MAX_POR_DIA` >= 1, no máximo tantos pedidos do lote criados nas últimas 24 h, somando TODAS as pessoas (`migrations/014_pedido_ia_rodizio.sql` traz o índice da contagem); `0` desliga o lote; ausente, vazio ou inválido cai no padrão (sem teto). A cota é a da assinatura do worker, que as pessoas dividem (por isso o teto é global e há o rodízio abaixo): cota estourada deixa o pedido `rodando` e o worker espera, como no clique.
 - **Na tela**: a barra da lista mostra `IA: N avaliadas · M na fila` (entre as vagas da lista). Com teto, mostra também `restam N hoje`; teto cheio troca o "0 vagas na fila da IA" por "Limite de N avaliações da IA em 24 h atingido. Tente mais tarde." e desabilita o botão; com `0`, diz que o lote está desligado.
 - **Pausar**: o botão "Pausar avaliação" (`POST /tela/ia/lote/pausar`) grava a pausa no banco (`migrations/010_ia_lote_pausa.sql`, uma linha por pessoa; sobrevive a um reinício sem deploy) e apaga, numa transação, os pedidos de compatibilidade do lote ainda **pendentes**. O que está rodando termina; o clique da pessoa ("Compatibilidade"), o currículo e o que já terminou ficam. Pausado, nem a coleta nem o botão enfileiram (o enfileiramento devolve 0), e a barra mostra `· pausada` e só "Retomar avaliação" (`POST /tela/ia/lote/retomar`), que tira a pausa e já enfileira as vagas sem nota. Pausar usa a mesma trava do enfileiramento: uma coleta enfileirando termina antes, e nada que ela criar fica para trás.
 - **Ranking**: com alguma nota válida, a lista da tela vem por padrão em "Compatibilidade (IA)": as avaliadas primeiro, da maior nota para a menor (empate: a ordem do perfil), depois as sem nota na ordem do perfil. O card mostra a nota e a faixa (`82 · alta`) ou "IA na fila". `?ordem=perfil` volta à ordem do perfil; `?faixa=alta` ou `?faixa=media` deixa só as avaliadas nessa faixa ou acima (`todas` ou vazio tira o corte). A escolha viaja no card, no "carregar mais", na busca e na barra do navegador. As notas saem de uma consulta por página. Uma nota que chega entre duas páginas do "carregar mais" muda a ordem (a vaga sobe), como uma coleta no meio. A rota JSON `/vagas/encontradas` continua na ordem do perfil.

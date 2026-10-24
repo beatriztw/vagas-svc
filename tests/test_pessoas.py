@@ -266,7 +266,8 @@ class ContratoDuasPessoas:
         self.um.pedidos.criar(URL, "compatibilidade", prioridade=1)
         self.dois.pedidos.criar(URL, "compatibilidade", prioridade=1)
         desde = datetime.now(timezone.utc) - timedelta(hours=1)
-        self.assertEqual((self.um.pedidos.contar_lote_desde(desde), self.dois.pedidos.contar_lote_desde(desde)), (1, 1))
+        # O teto diário é a cota do worker: a contagem do lote é global, igual vista de qualquer pessoa.
+        self.assertEqual((self.um.pedidos.contar_lote_desde(desde), self.dois.pedidos.contar_lote_desde(desde)), (2, 2))
 
         self.assertFalse(self.um.pedidos.lote_pausado())
         self.assertEqual(self.um.pedidos.pausar_lote(), 1)
@@ -275,7 +276,7 @@ class ContratoDuasPessoas:
         self.assertFalse(self.dois.pedidos.lote_pausado())
         self.assertEqual(self.dois.pedidos.urls_ativas(TipoPedidoIA.COMPATIBILIDADE), {URL})
         self.assertEqual(self.um.pedidos.urls_ativas(TipoPedidoIA.COMPATIBILIDADE), set())
-        self.assertEqual((self.um.pedidos.contar_lote_desde(desde), self.dois.pedidos.contar_lote_desde(desde)), (0, 1))
+        self.assertEqual((self.um.pedidos.contar_lote_desde(desde), self.dois.pedidos.contar_lote_desde(desde)), (1, 1))
 
         self.um.pedidos.retomar_lote()
         self.assertFalse(self.um.pedidos.lote_pausado())
