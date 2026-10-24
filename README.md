@@ -48,6 +48,26 @@ O `ApifyLinkedInPostsClient` (plataforma `LinkedIn (posts)`) usa o mesmo token e
 
 Custo dos posts (plano Free, out/2026): US$ 0,002 por post, US$ 0,00005 por run e US$ 0,001 por consulta sem resultado. Com 6 termos e 2 coletas por dia: 6 × `APIFY_POSTS_LIMITE` × 2 × 30 = 360 posts por mês para cada post por termo, ou seja **~US$ 0,72/mês com `APIFY_POSTS_LIMITE=1`** (até ~US$ 0,38 a mais se as consultas vierem vazias). O crédito Free é de US$ 5/mês e ~US$ 4,30 já ficam com o LinkedIn de vagas (`APIFY_LIMITE=6`): ligar os posts com 1 por termo pede baixar `APIFY_LIMITE` para 5 antes, senão o crédito acaba no fim do mês. Para ligar: `APIFY_POSTS_LIMITE=1` (e `APIFY_LIMITE=5`) no serviço.
 
+### Por pessoa
+
+Os providers acima são o **padrão do servidor** (variáveis de ambiente). Cada pessoa pode ter os seus na tabela `pessoa_provider` (`migrations/015_pessoa_provider.sql`: `pessoa_id`, `provider`, `config` JSONB). **Tabela vazia para a pessoa = vale o ambiente** (o comportamento de antes; a migration não grava seed). Com pelo menos um provider gravado, valem **só** os dela.
+
+| `provider` | `config` |
+|---|---|
+| `remotar`, `trampos` | `{}` |
+| `greenhouse`, `lever`, `ashby` | `{"empresas": ["slug", ...]}`: obrigatória, até 200, sem vazios, repetidos saem; slug só com letras, números, `-`, `_` e `.` |
+| `himalayas` | `{"limite": 1..20}` (opcional; padrão 20) |
+| `remotive` | `{"limite": 1..100}` (opcional; padrão 100) |
+| `linkedin` | `{"locais": [até 5, em inglês], "limite": 1..APIFY_LIMITE_MAX}`; ausentes valem `APIFY_LOCAIS` e `APIFY_LIMITE` (este nunca acima do teto) |
+| `linkedin_posts` | `{"limite": 1..APIFY_POSTS_LIMITE_MAX}`; ausente = 1 |
+
+- Validação **antes** de gravar (`DadoInvalido`, 422; nada é gravado): provider desconhecido, chave desconhecida na config, tipo errado, lista vazia ou acima do teto.
+- **Segredo nunca na tabela**: `APIFY_TOKEN`/`APIFY_TOKEN_FILE` seguem só no ambiente. Sem token, o LinkedIn da pessoa fica desligado e aparece em `erros` da busca (`APIFY_TOKEN não definido`).
+- **Teto de custo do Apify**: `limite` por pessoa, no máximo `APIFY_LIMITE_MAX` (padrão = 50, o `APIFY_LIMITE_PADRAO`) para o LinkedIn e `APIFY_POSTS_LIMITE_MAX` (padrão 5) para os posts, e no máximo 5 locais (o Apify cobra `limite` por local). Config acima do teto é recusada; se o teto baixar depois, a config gravada é cortada no teto ao buscar. Valor inválido dessas variáveis cai no padrão, sem derrubar a app.
+- **Cache da coleta**: a busca de um termo vale por `(config efetiva, termo)`. Duas pessoas com a mesma config (padrões já preenchidos) compartilham a busca; configs diferentes buscam cada uma, e quem usa o ambiente só compartilha com quem usa o ambiente.
+- `GET/PUT /perfil/providers` (corpo `{"providers": [{"provider": "ashby", "config": {"empresas": ["posthog"]}}]}`; o `PUT` substitui tudo e `[]` volta ao padrão do servidor; mesmo CSRF das outras rotas JSON) e a seção "Fontes de vaga" em `/tela/perfil`. A coleta (app e CLI) e a busca ao vivo `GET /vagas` usam os providers da pessoa.
+- **PostHog**: as vagas dele ficam no Ashby, então a fonte é `ashby` com `posthog` em `empresas`, sem client novo. **Ressalva: o slug `posthog` no Ashby não foi conferido contra a API real** (o host `api.ashbyhq.com` está bloqueado neste ambiente); os testes usam uma resposta escrita à mão.
+
 `BuscaService` consulta todos, remove vagas repetidas pela URL e registra em `erros` os providers que falharam, sem interromper a busca:
 
 ```python

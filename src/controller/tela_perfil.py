@@ -121,8 +121,10 @@ def providers_do_formulario(campos: dict[str, str], usar: list[str]) -> list[Pro
         if nome == "linkedin":
             if locais := _linhas(campos.get("linkedin_locais", "")):
                 config["locais"] = locais
-        if nome in tetos and (limite := _inteiro(campos.get(f"{nome}_limite", ""), f"{nome}: limite", tetos[nome])):
-            config["limite"] = limite
+        if nome in tetos:
+            limite = _inteiro(campos.get(f"{nome}_limite", ""), f"{nome}: limite", tetos[nome])
+            if limite is not None:  # "0" chega aqui e a validação recusa; só o campo vazio fica de fora
+                config["limite"] = limite
         itens.append(ProviderPessoa(nome, config))
     return itens
 
