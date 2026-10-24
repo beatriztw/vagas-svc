@@ -217,6 +217,45 @@ class DuasPessoasTest(unittest.TestCase):
         self.assertFalse(self.banco.servico(ClientQuebrado(), self.client).coletar(HOJE).falhou)
 
 
+class BancoFora(VagaEncontradaRepositoryMemoria):
+    """Repositório de vagas de uma pessoa cujo `registrar` falha como um banco que caiu no meio."""
+
+    def registrar(self, vagas, termo):
+        raise ConnectionError("banco fora")
+
+
+class ErroDeUmaPessoaTest(unittest.TestCase):
+    def setUp(self):
+        self.banco = Banco(1, 2, 3)
+        for p in (1, 2, 3):
+            self.banco.perfis[p].salvar(Perfil(termos=["python"]))
+        self.banco.vagas[2] = BancoFora(2)
+        self.client = ClientPorTermo("A", {"python": [vaga("u1", "Dev Python")]})
+
+    def test_erro_de_banco_numa_pessoa_nao_derruba_as_outras(self):
+        terminadas = []
+
+        resultado = self.banco.servico(self.client, ao_terminar=lambda c: terminadas.append(c.pessoa_id)).coletar(
+            HOJE
+        )
+
+        self.assertEqual([p.pessoa_id for p in resultado.pessoas], [1, 3])
+        self.assertEqual(resultado.com_erro, [2])
+        self.assertEqual(self.banco.urls(1), {"u1"})
+        self.assertEqual(self.banco.urls(3), {"u1"})
+        self.assertEqual(terminadas, [1, 3])  # o lote da IA de quem coletou é enfileirado
+        self.assertIn("pessoas_com_erro=1", resumir(resultado))
+
+    def test_cli_avisa_a_pessoa_com_erro_e_sai_com_zero(self):
+        saida, erro = io.StringIO(), io.StringIO()
+
+        codigo = rodar(lambda: self.banco.servico(self.client), saida=saida, erro=erro)
+
+        self.assertEqual(codigo, 0)
+        self.assertIn("pessoa 2 | coleta falhou", erro.getvalue())
+        self.assertNotIn("banco fora", erro.getvalue())  # só o id: a mensagem pode trazer dado do perfil
+
+
 class CliMultipessoaTest(unittest.TestCase):
     def test_uma_linha_por_pessoa_e_termo_com_o_id_e_o_lote_de_cada_uma(self):
         banco = Banco(1, 2, 3)
