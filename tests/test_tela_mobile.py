@@ -14,7 +14,7 @@ STATIC = Path(__file__).resolve().parent.parent / "src" / "static"
 
 
 def cliente() -> TestClient:
-    return TestClient(criar_app(PerfilBuscaRepositoryMemoria(), CurriculoRepositoryMemoria(), BuscaService([])))
+    return TestClient(criar_app(PerfilBuscaRepositoryMemoria(1), CurriculoRepositoryMemoria(1), BuscaService([])))
 
 
 class TelaMobileTest(unittest.TestCase):

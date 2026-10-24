@@ -49,12 +49,12 @@ class ProviderBloqueado(ProviderClient):
 
 def servico(client, perfis, vagas=None, trava=None) -> ColetaService:
     return ColetaService(
-        RecomendacaoService(BuscaService([client])), perfis, vagas or VagaEncontradaRepositoryMemoria(), trava
+        RecomendacaoService(BuscaService([client])), perfis, vagas or VagaEncontradaRepositoryMemoria(1), trava
     )
 
 
 def perfis_com(*termos: str) -> PerfilBuscaRepositoryMemoria:
-    perfis = PerfilBuscaRepositoryMemoria()
+    perfis = PerfilBuscaRepositoryMemoria(1)
     perfis.salvar(Perfil(termos=list(termos)))
     return perfis
 
@@ -93,7 +93,7 @@ class ColetaServiceTravaTest(unittest.TestCase):
                     raise ValueError("banco caiu")
                 return super().registrar(vagas, termo)
 
-        banco = FalhaDoBanco()
+        banco = FalhaDoBanco(1)
         coleta = servico(ProviderBloqueado(), perfis_com("python"), banco)
         coleta.recomendacao.busca.clients[0].soltar.set()
 
@@ -104,7 +104,7 @@ class ColetaServiceTravaTest(unittest.TestCase):
         self.assertEqual(coleta.coletar().novas, 1)
 
     def test_libera_a_trava_quando_nao_ha_perfil(self):
-        coleta = servico(ProviderBloqueado(), PerfilBuscaRepositoryMemoria())
+        coleta = servico(ProviderBloqueado(), PerfilBuscaRepositoryMemoria(1))
 
         for _ in range(2):  # a segunda vez seria ColetaEmAndamento se a trava tivesse ficado presa
             with self.assertRaises(DadoInvalido):
@@ -135,7 +135,7 @@ class ApiTravaTest(unittest.TestCase):
     def test_post_coletas_com_outra_em_andamento_e_409_sem_esperar(self):
         provider = ProviderBloqueado()
         perfis = perfis_com("python")
-        api = criar_app(perfis, CurriculoRepositoryMemoria(), BuscaService([provider]))
+        api = criar_app(perfis, CurriculoRepositoryMemoria(1), BuscaService([provider]))
         resposta = {}
         primeira = threading.Thread(target=lambda: resposta.update(r=TestClient(api).post("/coletas", json={})))
         primeira.start()
@@ -160,7 +160,7 @@ class ApiTravaTest(unittest.TestCase):
         perfis = perfis_com("python")
         provider = ProviderBloqueado()
         provider.soltar.set()
-        api = TestClient(criar_app(perfis, CurriculoRepositoryMemoria(), BuscaService([provider]), trava=trava))
+        api = TestClient(criar_app(perfis, CurriculoRepositoryMemoria(1), BuscaService([provider]), trava=trava))
 
         with trava.segurar():
             self.assertEqual(api.post("/coletas", json={}).status_code, 409)
@@ -175,7 +175,7 @@ class ApiTravaTest(unittest.TestCase):
         provider = ProviderBloqueado()
         provider.soltar.set()
         api = TestClient(
-            criar_app(perfis_com("python"), CurriculoRepositoryMemoria(), BuscaService([provider]), encontradas=FalhaDoBanco()),
+            criar_app(perfis_com("python"), CurriculoRepositoryMemoria(1), BuscaService([provider]), encontradas=FalhaDoBanco(1)),
             raise_server_exceptions=False,
         )
 
@@ -321,10 +321,10 @@ class TravaPostgresTest(unittest.TestCase):
         provider.soltar.set()
         api = TestClient(
             criar_app(
-                _PorChamada(lambda: pool, lambda: PerfilBuscaRepositoryPostgres),
-                _PorChamada(lambda: pool, lambda: CurriculoRepositoryPostgres),
+                _PorChamada(lambda: pool, lambda: PerfilBuscaRepositoryPostgres, 1),
+                _PorChamada(lambda: pool, lambda: CurriculoRepositoryPostgres, 1),
                 BuscaService([provider]),
-                encontradas=_PorChamada(lambda: pool, lambda: VagaEncontradaRepositoryPostgres),
+                encontradas=_PorChamada(lambda: pool, lambda: VagaEncontradaRepositoryPostgres, 1),
                 trava=TravaColetaPostgres(),
             )
         )
@@ -401,7 +401,7 @@ class TravaPostgresFalhasTest(unittest.TestCase):
         conn = ConexaoFalsa(falhas=("pg_advisory_unlock",))
 
         with self.assertLogs("src.repository.trava", "WARNING"), self.assertRaisesRegex(ValueError, "banco caiu"):
-            self.coleta(conn, FalhaDoBanco()).coletar()
+            self.coleta(conn, FalhaDoBanco(1)).coletar()
 
         self.assertTrue(conn.fechada)
 

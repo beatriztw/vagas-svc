@@ -66,10 +66,10 @@ class PedidoIAPostgresTest(unittest.TestCase):
 
         self.errors = psycopg.errors
         self.conn, self.schema = _schema(self)
-        VagaEncontradaRepositoryPostgres(self.conn).registrar(
+        VagaEncontradaRepositoryPostgres(self.conn, 1).registrar(
             [VagaExterna(titulo="Analista", empresa="Acme", plataforma="Remotar", url=u) for u in (URL_A, URL_B)], "dados"
         )
-        self.repo = PedidoIARepositoryPostgres(self.conn)
+        self.repo = PedidoIARepositoryPostgres(self.conn, 1)
 
     def linha(self, id):
         return self.conn.execute("SELECT estado, tentativas, erro FROM pedido_ia WHERE id = %s", (id,)).fetchone()
@@ -99,11 +99,11 @@ class PedidoIAPostgresTest(unittest.TestCase):
         self.assertTrue(self.repo.criar(URL_A, "compatibilidade")[1])
 
     def test_indice_parcial_barra_dois_ativos_mas_nao_os_terminados(self):
-        self.conn.execute("INSERT INTO pedido_ia (vaga_url, tipo) VALUES (%s, 'compatibilidade')", (URL_A,))
+        self.conn.execute("INSERT INTO pedido_ia (pessoa_id, vaga_url, tipo) VALUES (1, %s, 'compatibilidade')", (URL_A,))
         with self.assertRaises(self.errors.UniqueViolation):
-            self.conn.execute("INSERT INTO pedido_ia (vaga_url, tipo) VALUES (%s, 'compatibilidade')", (URL_A,))
+            self.conn.execute("INSERT INTO pedido_ia (pessoa_id, vaga_url, tipo) VALUES (1, %s, 'compatibilidade')", (URL_A,))
         self.conn.execute("UPDATE pedido_ia SET estado = 'erro', erro = 'x'")
-        self.conn.execute("INSERT INTO pedido_ia (vaga_url, tipo) VALUES (%s, 'compatibilidade')", (URL_A,))
+        self.conn.execute("INSERT INTO pedido_ia (pessoa_id, vaga_url, tipo) VALUES (1, %s, 'compatibilidade')", (URL_A,))
 
     def test_ordem_da_fila_e_fila_vazia(self):
         self.assertIsNone(self.repo.proximo())
@@ -124,9 +124,9 @@ class PedidoIAPostgresTest(unittest.TestCase):
         # tem que pular a linha travada (SKIP LOCKED) em vez de esperar ou pegar a mesma.
         with self.conn.transaction():
             self.conn.execute("SELECT id FROM pedido_ia WHERE id = %s FOR UPDATE", (a.id,))
-            durante = PedidoIARepositoryPostgres(outra).proximo()
+            durante = PedidoIARepositoryPostgres(outra, 1).proximo()
         self.assertEqual(durante.id, b.id)
-        depois = PedidoIARepositoryPostgres(outra).proximo()
+        depois = PedidoIARepositoryPostgres(outra, 1).proximo()
         self.assertEqual(depois.id, a.id)
 
     def test_varios_workers_simultaneos_reivindicam_pedidos_distintos(self):
@@ -137,14 +137,14 @@ class PedidoIAPostgresTest(unittest.TestCase):
         from src.repository.postgres import VagaEncontradaRepositoryPostgres
 
         urls = [f"https://exemplo.com/lote-{i}" for i in range(total)]
-        VagaEncontradaRepositoryPostgres(self.conn).registrar(
+        VagaEncontradaRepositoryPostgres(self.conn, 1).registrar(
             [VagaExterna(titulo="T", empresa="E", plataforma="P", url=u) for u in urls], "lote"
         )
         for u in urls:
             self.repo.criar(u, "compatibilidade")
         conexoes = [_conexao_extra(self, self.schema) for _ in range(total)]
         with ThreadPoolExecutor(max_workers=total) as executor:
-            pegos = list(executor.map(lambda c: PedidoIARepositoryPostgres(c).proximo(), conexoes))
+            pegos = list(executor.map(lambda c: PedidoIARepositoryPostgres(c, 1).proximo(), conexoes))
 
         ids = [p.id for p in pegos if p is not None]
         self.assertEqual(len(ids), total)
@@ -200,7 +200,7 @@ class PedidoIAPostgresTest(unittest.TestCase):
         self.assertEqual(falho.estado.value, "erro")
 
     def test_checks_recusam_pronto_sem_resultado_e_faixa_invalida(self):
-        self.conn.execute("INSERT INTO pedido_ia (vaga_url, tipo) VALUES (%s, 'compatibilidade')", (URL_A,))
+        self.conn.execute("INSERT INTO pedido_ia (pessoa_id, vaga_url, tipo) VALUES (1, %s, 'compatibilidade')", (URL_A,))
         recusados = (
             "UPDATE pedido_ia SET estado = 'pronto', prompt_versao = 'compatibilidade-v1'",  # sem resultado
             "UPDATE pedido_ia SET estado = 'pronto', resultado = '{}'",  # sem prompt_versao
@@ -222,7 +222,7 @@ class PedidoIAPostgresTest(unittest.TestCase):
         self.assertEqual(self.conn.execute("SELECT estado FROM pedido_ia").fetchone()[0], "pendente")
 
     def test_curriculo_id_tem_chave_estrangeira(self):
-        self.conn.execute("INSERT INTO pedido_ia (vaga_url, tipo) VALUES (%s, 'curriculo')", (URL_A,))
+        self.conn.execute("INSERT INTO pedido_ia (pessoa_id, vaga_url, tipo) VALUES (1, %s, 'curriculo')", (URL_A,))
         with self.assertRaises(self.errors.ForeignKeyViolation):
             self.conn.execute("UPDATE pedido_ia SET curriculo_id = 999")
 
@@ -264,7 +264,7 @@ class PedidoIAPostgresTest(unittest.TestCase):
         from src.model.curriculo import Curriculo
         from src.repository.postgres import CurriculoRepositoryPostgres
 
-        return CurriculoRepositoryPostgres(self.conn).salvar(Curriculo(tipo="base", titulo=titulo, conteudo_md="# Base"))
+        return CurriculoRepositoryPostgres(self.conn, 1).salvar(Curriculo(tipo="base", titulo=titulo, conteudo_md="# Base"))
 
     def test_clique_da_pessoa_passa_na_frente_do_lote_e_promove_o_ativo_do_lote(self):
         lote_a, _ = self.repo.criar(URL_A, "compatibilidade", prioridade=1)
@@ -279,10 +279,10 @@ class PedidoIAPostgresTest(unittest.TestCase):
 
     def test_coluna_prioridade_so_aceita_0_e_1_e_base_tem_chave_estrangeira(self):
         with self.assertRaises(self.errors.CheckViolation):
-            self.conn.execute("INSERT INTO pedido_ia (vaga_url, tipo, prioridade) VALUES (%s, 'curriculo', 2)", (URL_A,))
+            self.conn.execute("INSERT INTO pedido_ia (pessoa_id, vaga_url, tipo, prioridade) VALUES (1, %s, 'curriculo', 2)", (URL_A,))
         with self.assertRaises(self.errors.ForeignKeyViolation):
             self.conn.execute(
-                "INSERT INTO pedido_ia (vaga_url, tipo, curriculo_base_id) VALUES (%s, 'curriculo', 999999)", (URL_A,)
+                "INSERT INTO pedido_ia (pessoa_id, vaga_url, tipo, curriculo_base_id) VALUES (1, %s, 'curriculo', 999999)", (URL_A,)
             )
 
     def test_notas_so_da_base_e_da_versao_e_a_mais_recente_numa_consulta(self):
@@ -348,15 +348,15 @@ class PedidoIAPostgresTest(unittest.TestCase):
         from tests.test_candidaturas import _pool
 
         pool = _pool(self, self.schema)
-        CurriculoRepositoryPostgres(self.conn).salvar(
+        CurriculoRepositoryPostgres(self.conn, 1).salvar(
             Curriculo(tipo="base", titulo="Base", conteudo_md="# Base")
         )
         app = criar_app(
-            _PorChamada(lambda: pool, lambda: PerfilBuscaRepositoryPostgres),
-            _PorChamada(lambda: pool, lambda: CurriculoRepositoryPostgres),
+            _PorChamada(lambda: pool, lambda: PerfilBuscaRepositoryPostgres, 1),
+            _PorChamada(lambda: pool, lambda: CurriculoRepositoryPostgres, 1),
             BuscaService([]),
-            encontradas=_PorChamada(lambda: pool, lambda: VagaEncontradaRepositoryPostgres),
-            pedidos_ia=_PorChamada(lambda: pool, lambda: PedidoIARepositoryPostgres),
+            encontradas=_PorChamada(lambda: pool, lambda: VagaEncontradaRepositoryPostgres, 1),
+            pedidos_ia=_PorChamada(lambda: pool, lambda: PedidoIARepositoryPostgres, 1),
         )
         api = TestClient(app, raise_server_exceptions=False)
         auth = {"Authorization": "Bearer tok"}

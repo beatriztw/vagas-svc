@@ -58,10 +58,10 @@ class ConversaoPerfilTest(unittest.TestCase):
 
 class PerfilBuscaMemoriaTest(unittest.TestCase):
     def test_vazio_devolve_none(self):
-        self.assertIsNone(PerfilBuscaRepositoryMemoria().obter())
+        self.assertIsNone(PerfilBuscaRepositoryMemoria(1).obter())
 
     def test_salvar_duas_vezes_fica_o_ultimo(self):
-        repo = PerfilBuscaRepositoryMemoria()
+        repo = PerfilBuscaRepositoryMemoria(1)
         repo.salvar(perfil_exemplo())
         repo.salvar(perfil_exemplo(termos=["go"], niveis=["Júnior"]))
         perfil = repo.obter()
@@ -69,14 +69,14 @@ class PerfilBuscaMemoriaTest(unittest.TestCase):
         self.assertEqual(perfil.niveis, [Nivel.JUNIOR])
 
     def test_alterar_objeto_depois_de_salvar_nao_muda_o_gravado(self):
-        repo = PerfilBuscaRepositoryMemoria()
+        repo = PerfilBuscaRepositoryMemoria(1)
         perfil = perfil_exemplo()
         repo.salvar(perfil)
         perfil.termos.append("java")
         self.assertEqual(repo.obter().termos, ["python", "dados"])
 
     def test_recusa_enum_invalido_e_dias_nao_positivos(self):
-        repo = PerfilBuscaRepositoryMemoria()
+        repo = PerfilBuscaRepositoryMemoria(1)
         with self.assertRaises(ValueError):
             repo.salvar(perfil_exemplo(modalidades=["Presencial"]))
         with self.assertRaises(ValueError):
@@ -86,29 +86,29 @@ class PerfilBuscaMemoriaTest(unittest.TestCase):
 
 class CurriculoMemoriaTest(unittest.TestCase):
     def test_salvar_preenche_id_e_criado_em(self):
-        salvo = CurriculoRepositoryMemoria().salvar(Curriculo("base", "Base", "# texto"))
+        salvo = CurriculoRepositoryMemoria(1).salvar(Curriculo("base", "Base", "# texto"))
         self.assertIsNotNone(salvo.id)
         self.assertIsNotNone(salvo.criado_em)
 
     def test_base_vigente_e_a_mais_recente_e_historico_fica(self):
-        repo = CurriculoRepositoryMemoria()
+        repo = CurriculoRepositoryMemoria(1)
         primeira = repo.salvar(Curriculo("base", "v1", "# v1"))
         segunda = repo.salvar(Curriculo("base", "v2", "# v2"))
         self.assertEqual(repo.obter_base().id, segunda.id)
         self.assertEqual(repo.obter(primeira.id).titulo, "v1")
 
     def test_sem_base_devolve_none(self):
-        self.assertIsNone(CurriculoRepositoryMemoria().obter_base())
+        self.assertIsNone(CurriculoRepositoryMemoria(1).obter_base())
 
     def test_adaptado_exige_base_existente(self):
-        repo = CurriculoRepositoryMemoria()
+        repo = CurriculoRepositoryMemoria(1)
         with self.assertRaises(ValueError):
             repo.salvar(Curriculo("adaptado", "Vaga X", "# x", vaga_url="https://exemplo.com/1"))
         with self.assertRaises(ValueError):
             repo.salvar(Curriculo("adaptado", "Vaga X", "# x", base_id=99))
 
     def test_adaptado_nao_pode_derivar_de_outro_adaptado(self):
-        repo = CurriculoRepositoryMemoria()
+        repo = CurriculoRepositoryMemoria(1)
         base = repo.salvar(Curriculo("base", "Base", "# b"))
         adaptado = repo.salvar(Curriculo("adaptado", "Vaga X", "# x", base_id=base.id))
 
@@ -116,7 +116,7 @@ class CurriculoMemoriaTest(unittest.TestCase):
             repo.salvar(Curriculo("adaptado", "Vaga Y", "# y", base_id=adaptado.id))
 
     def test_base_nao_aceita_base_id_e_tipo_invalido(self):
-        repo = CurriculoRepositoryMemoria()
+        repo = CurriculoRepositoryMemoria(1)
         base = repo.salvar(Curriculo("base", "Base", "# b"))
         with self.assertRaises(ValueError):
             repo.salvar(Curriculo("base", "Outra", "# o", base_id=base.id))
@@ -124,14 +124,14 @@ class CurriculoMemoriaTest(unittest.TestCase):
             repo.salvar(Curriculo("rascunho", "R", "# r"))
 
     def test_listar_adaptados_so_traz_adaptados_mais_recente_primeiro(self):
-        repo = CurriculoRepositoryMemoria()
+        repo = CurriculoRepositoryMemoria(1)
         base = repo.salvar(Curriculo("base", "Base", "# b"))
         a1 = repo.salvar(Curriculo("adaptado", "A1", "# a1", base_id=base.id))
         a2 = repo.salvar(Curriculo("adaptado", "A2", "# a2", base_id=base.id))
         self.assertEqual([c.id for c in repo.listar_adaptados()], [a2.id, a1.id])
 
     def test_obter_inexistente_devolve_none(self):
-        self.assertIsNone(CurriculoRepositoryMemoria().obter(1))
+        self.assertIsNone(CurriculoRepositoryMemoria(1).obter(1))
 
 
 class ParametrosConexaoTest(unittest.TestCase):

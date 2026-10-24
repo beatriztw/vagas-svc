@@ -16,10 +16,10 @@ HX = {"HX-Request": "true", "Origin": "http://testserver"}
 
 
 def cliente(perfil=None):
-    perfis = PerfilBuscaRepositoryMemoria()
+    perfis = PerfilBuscaRepositoryMemoria(1)
     if perfil is not None:
         perfis.salvar(perfil)
-    app = criar_app(perfis, CurriculoRepositoryMemoria(), BuscaService([]))
+    app = criar_app(perfis, CurriculoRepositoryMemoria(1), BuscaService([]))
     return TestClient(app), perfis
 
 
@@ -209,7 +209,7 @@ class SalvarTest(unittest.TestCase):
         from src.model.vaga_externa import VagaExterna
         from src.repository.base import VagaEncontradaRepositoryMemoria
 
-        encontradas = VagaEncontradaRepositoryMemoria()
+        encontradas = VagaEncontradaRepositoryMemoria(1)
         encontradas.registrar(
             [
                 VagaExterna("Analista de Dados", "Alfa", "Remotar", "https://exemplo.test/a"),
@@ -217,8 +217,8 @@ class SalvarTest(unittest.TestCase):
             ],
             "dados",
         )
-        perfis = PerfilBuscaRepositoryMemoria()
-        api = TestClient(criar_app(perfis, CurriculoRepositoryMemoria(), BuscaService([]), encontradas=encontradas))
+        perfis = PerfilBuscaRepositoryMemoria(1)
+        api = TestClient(criar_app(perfis, CurriculoRepositoryMemoria(1), BuscaService([]), encontradas=encontradas))
 
         api.put("/tela/perfil", data={"termos": "dados", "excluir": "vendas"}, headers=HX)
         html = api.get("/tela").text

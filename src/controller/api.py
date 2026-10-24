@@ -57,6 +57,11 @@ from src.service.pedido_ia_service import PedidoIAService
 from src.service.recomendacao_service import RecomendacaoService
 
 
+# Em produção a pessoa é sempre esta (a dona dos dados de antes da migration 013). Os repositórios recebem a
+# pessoa no construtor; quando a sessão por pessoa chegar, esta constante sai e a pessoa vem da requisição.
+PESSOA_PADRAO = 1
+
+
 class PerfilJson(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -215,11 +220,11 @@ def criar_app(
     app = FastAPI(title="vagas-svc", lifespan=ciclo_de_vida, dependencies=[Depends(exigir_json_mesma_origem)])
     app.state.armazenamento = armazenamento
     recomendacao = RecomendacaoService(busca)
-    encontradas = encontradas if encontradas is not None else VagaEncontradaRepositoryMemoria()
+    encontradas = encontradas if encontradas is not None else VagaEncontradaRepositoryMemoria(PESSOA_PADRAO)
     # Lista do histórico (JSON e tela) com o perfil salvo aplicado na leitura.
     historico = HistoricoService(encontradas, perfis)
     if pedidos_ia is None:
-        pedidos_ia = PedidoIARepositoryMemoria(vaga_por_url_em(encontradas))
+        pedidos_ia = PedidoIARepositoryMemoria(PESSOA_PADRAO, vaga_por_url_em(encontradas))
     # Um serviço só para as rotas do worker, as da tela e as métricas.
     # Com `detalhe`, o pedido de currículo busca antes a descrição que faltar (LinkedIn sob demanda).
     servico_ia = PedidoIAService(pedidos_ia, encontradas, perfis, curriculos, trava_lote=trava_lote_ia, detalhe=detalhe)
@@ -229,7 +234,7 @@ def criar_app(
     )
     app.state.agendador = agendador(coleta.coletar) if agendador is not None else None
     if candidaturas is None:
-        candidaturas = CandidaturaRepositoryMemoria(vaga_por_url_em(encontradas))
+        candidaturas = CandidaturaRepositoryMemoria(PESSOA_PADRAO, vaga_por_url_em(encontradas))
     # Um serviço só, para as rotas JSON e as da tela (na produção, o repositório é o _PorChamada).
     servico_candidaturas = CandidaturaService(candidaturas, encontradas)
     # Só para os testes alcançarem o serviço; as rotas recebem o serviço explicitamente.
@@ -382,17 +387,22 @@ class _PorChamada:
     Uma conexão compartilhada entre as threads do FastAPI misturaria as transações de
     requisições simultâneas: o segundo `transaction()` vira SAVEPOINT do primeiro, e o
     rollback de um desfaz a gravação do outro, que já respondeu 201.
+
+    `pessoa_id` é a pessoa dos dados do repositório; sem ele (o registro da coleta agendada, que é do app),
+    o repositório só recebe a conexão.
     """
 
-    def __init__(self, pool: Callable[[], Any], classe: Callable[[], type]):
+    def __init__(self, pool: Callable[[], Any], classe: Callable[[], type], pessoa_id: int | None = None):
         self._pool = pool
         # A classe vem por função para o import do psycopg ficar para o primeiro uso.
         self._classe = classe
+        self._pessoa_id = pessoa_id
 
     def __getattr__(self, nome: str) -> Any:
         def chamar(*args, **kwargs):
             with self._pool().connection() as conn:
-                return getattr(self._classe()(conn), nome)(*args, **kwargs)
+                repositorio = self._classe()(conn) if self._pessoa_id is None else self._classe()(conn, self._pessoa_id)
+                return getattr(repositorio, nome)(*args, **kwargs)
 
         return chamar
 
@@ -595,16 +605,16 @@ def criar_app_producao() -> FastAPI:
     configurar_log()
 
     pool = _PoolPreguicoso()
-    encontradas = _PorChamada(pool, _encontradas_postgres)
+    encontradas = _PorChamada(pool, _encontradas_postgres, PESSOA_PADRAO)
     return criar_app(
-        perfis=_PorChamada(pool, _perfis_postgres),
-        curriculos=_PorChamada(pool, _curriculos_postgres),
+        perfis=_PorChamada(pool, _perfis_postgres, PESSOA_PADRAO),
+        curriculos=_PorChamada(pool, _curriculos_postgres, PESSOA_PADRAO),
         busca=BuscaService(providers_padrao()),
         armazenamento=Armazenamento(),
         encontradas=encontradas,
-        candidaturas=_PorChamada(pool, _candidaturas_postgres),
+        candidaturas=_PorChamada(pool, _candidaturas_postgres, PESSOA_PADRAO),
         trava=TravaColetaPostgres(),
-        pedidos_ia=_PorChamada(pool, _pedidos_ia_postgres),
+        pedidos_ia=_PorChamada(pool, _pedidos_ia_postgres, PESSOA_PADRAO),
         trava_lote_ia=TravaColetaPostgres(chave=CHAVE_TRAVA_LOTE_IA),
         # LinkedIn: a coleta (Apify) não traz a descrição; a página pública da vaga dá, uma requisição
         # por vaga aberta sem descrição.

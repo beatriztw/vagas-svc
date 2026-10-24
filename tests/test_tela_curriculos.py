@@ -22,10 +22,10 @@ URL = "https://exemplo.test/vaga/1"
 
 
 def montar(*urls: str):
-    encontradas = VagaEncontradaRepositoryMemoria()
+    encontradas = VagaEncontradaRepositoryMemoria(1)
     encontradas.registrar([VagaExterna("Analista de Dados", "Empresa Teste", "Remotar", u) for u in urls or (URL,)], "dados")
-    curriculos = CurriculoRepositoryMemoria()
-    app = criar_app(PerfilBuscaRepositoryMemoria(), curriculos, BuscaService([]), encontradas=encontradas)
+    curriculos = CurriculoRepositoryMemoria(1)
+    app = criar_app(PerfilBuscaRepositoryMemoria(1), curriculos, BuscaService([]), encontradas=encontradas)
     return TestClient(app, raise_server_exceptions=False), curriculos
 
 
@@ -166,7 +166,7 @@ class DownloadTest(unittest.TestCase):
 
 class FiltroDoRepositorioTest(unittest.TestCase):
     def test_memoria_filtra_por_vaga_url_exata_do_mais_recente_ao_mais_antigo(self):
-        curriculos = CurriculoRepositoryMemoria()
+        curriculos = CurriculoRepositoryMemoria(1)
         a = adaptado(curriculos, "u1", titulo="a")
         adaptado(curriculos, "u2", titulo="b")
         c = adaptado(curriculos, "u1", titulo="c")
@@ -186,7 +186,7 @@ class FiltroPostgresTest(unittest.TestCase):
 
         from src.repository.conexao import conectar
         from src.repository.postgres import CurriculoRepositoryPostgres
-        from tests.test_postgres import MIGRATION
+        from tests.test_postgres import aplicar_todas_duas_vezes
 
         self.conn = conectar()
         self.addCleanup(self.conn.close)
@@ -194,8 +194,8 @@ class FiltroPostgresTest(unittest.TestCase):
         self.conn.execute(sql.SQL("CREATE SCHEMA {}").format(sql.Identifier(schema)))
         self.addCleanup(self.conn.execute, sql.SQL("DROP SCHEMA {} CASCADE").format(sql.Identifier(schema)))
         self.conn.execute(sql.SQL("SET search_path TO {}").format(sql.Identifier(schema)))
-        self.conn.execute(MIGRATION.read_text())
-        self.curriculos = CurriculoRepositoryPostgres(self.conn)
+        aplicar_todas_duas_vezes(self.conn)
+        self.curriculos = CurriculoRepositoryPostgres(self.conn, 1)
 
     def test_filtra_por_vaga_url_com_caracteres_dificeis(self):
         base = self.curriculos.salvar(Curriculo("base", "b", "# b"))

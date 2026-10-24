@@ -78,14 +78,14 @@ class Montagem:
 
     def __init__(self, com_base: bool = True, com_perfil: bool = False):
         self.relogio = Relogio()
-        self.encontradas = VagaEncontradaRepositoryMemoria()
+        self.encontradas = VagaEncontradaRepositoryMemoria(1)
         self.encontradas.registrar([vaga(URL_A), vaga(URL_B, "Engenheiro de Dados", "Beta")], "dados")
-        self.curriculos = CurriculoRepositoryMemoria()
+        self.curriculos = CurriculoRepositoryMemoria(1)
         self.base = self.curriculos.salvar(Curriculo(tipo="base", titulo="Base", conteudo_md="# Base\nConsultas SQL")) if com_base else None
-        self.perfis = PerfilBuscaRepositoryMemoria()
+        self.perfis = PerfilBuscaRepositoryMemoria(1)
         if com_perfil:
             self.perfis.salvar(Perfil(termos=["dados"], modalidades=[Modalidade.REMOTO], skills=["sql"]))
-        self.pedidos = PedidoIARepositoryMemoria(vaga_por_url_em(self.encontradas), self.relogio)
+        self.pedidos = PedidoIARepositoryMemoria(1, vaga_por_url_em(self.encontradas), self.relogio)
         self.app = criar_app(
             self.perfis, self.curriculos, BuscaService([]), encontradas=self.encontradas, pedidos_ia=self.pedidos
         )
@@ -116,7 +116,7 @@ class ComToken(unittest.TestCase):
 class RepositorioMemoriaTest(unittest.TestCase):
     def setUp(self):
         self.relogio = Relogio()
-        self.repo = PedidoIARepositoryMemoria(relogio=self.relogio)
+        self.repo = PedidoIARepositoryMemoria(1, relogio=self.relogio)
 
     def test_criar_e_idempotente_com_o_ativo(self):
         primeiro, criado = self.repo.criar(URL_A, "compatibilidade")
@@ -758,7 +758,7 @@ class RotuloTest(ComToken):
 
 class FiacaoTest(unittest.TestCase):
     def test_criar_app_sem_pedidos_ia_usa_memoria_e_expoe_o_servico(self):
-        app = criar_app(PerfilBuscaRepositoryMemoria(), CurriculoRepositoryMemoria(), BuscaService([]))
+        app = criar_app(PerfilBuscaRepositoryMemoria(1), CurriculoRepositoryMemoria(1), BuscaService([]))
         self.assertIsNotNone(app.state.pedido_ia_service)
 
     def test_producao_liga_o_repositorio_postgres_por_chamada(self):

@@ -45,7 +45,7 @@ class ContratoUltimaColeta:
 class UltimaColetaMemoriaTest(ContratoUltimaColeta, unittest.TestCase):
     def setUp(self):
         self.agora = datetime(2026, 10, 13, 12, 0, tzinfo=timezone.utc)
-        self.repo = VagaEncontradaRepositoryMemoria(relogio=lambda: self.agora)
+        self.repo = VagaEncontradaRepositoryMemoria(1, relogio=lambda: self.agora)
 
     def passar_tempo(self) -> None:
         self.agora += timedelta(seconds=1)
@@ -57,7 +57,7 @@ class UltimaColetaPostgresTest(ContratoUltimaColeta, unittest.TestCase):
         from src.repository.postgres import VagaEncontradaRepositoryPostgres
 
         self.conn, _ = _schema_descartavel(self, "teste_ultima_coleta")
-        self.repo = VagaEncontradaRepositoryPostgres(self.conn)
+        self.repo = VagaEncontradaRepositoryPostgres(self.conn, 1)
 
     def passar_tempo(self) -> None:
         time.sleep(0.01)  # o now() de cada transação avança

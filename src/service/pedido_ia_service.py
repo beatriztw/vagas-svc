@@ -328,7 +328,8 @@ class PedidoIAService:
 
     def _rodando(self, id: int, tentativa: int) -> PedidoIA:
         """404 se não existe; 409 se não está rodando ou a tentativa não é a atual."""
-        pedido = self.pedidos.obter(id)
+        # O worker lê a fila de todas as pessoas: o `obter` do repositório só acha os pedidos da pessoa dele.
+        pedido = self.pedidos.obter_da_fila(id)
         if pedido is None:
             raise PedidoInexistente(id)
         if pedido.estado.value != "rodando" or pedido.tentativas != tentativa:

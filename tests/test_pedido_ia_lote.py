@@ -45,7 +45,7 @@ class Relogio:
 class Montagem:
     def __init__(self, max_por_dia: int | None = None, com_base: bool = True):
         self.relogio = Relogio()
-        self.encontradas = VagaEncontradaRepositoryMemoria()
+        self.encontradas = VagaEncontradaRepositoryMemoria(1)
         self.encontradas.registrar(
             [
                 VagaExterna(titulo=f"Analista de Dados {i}", empresa="Acme", plataforma="Remotar", url=u, remoto=True)
@@ -53,12 +53,12 @@ class Montagem:
             ],
             "dados",
         )
-        self.curriculos = CurriculoRepositoryMemoria()
+        self.curriculos = CurriculoRepositoryMemoria(1)
         self.base = (
             self.curriculos.salvar(Curriculo(tipo="base", titulo="Base", conteudo_md="# Base")) if com_base else None
         )
-        self.perfis = PerfilBuscaRepositoryMemoria()
-        self.pedidos = PedidoIARepositoryMemoria(vaga_por_url_em(self.encontradas), self.relogio)
+        self.perfis = PerfilBuscaRepositoryMemoria(1)
+        self.pedidos = PedidoIARepositoryMemoria(1, vaga_por_url_em(self.encontradas), self.relogio)
         self.servico = PedidoIAService(
             self.pedidos, self.encontradas, self.perfis, self.curriculos, max_lote_por_dia=max_por_dia, relogio=self.relogio
         )
@@ -77,7 +77,7 @@ class Montagem:
 class PrioridadeTest(unittest.TestCase):
     def setUp(self):
         self.relogio = Relogio()
-        self.repo = PedidoIARepositoryMemoria(relogio=self.relogio)
+        self.repo = PedidoIARepositoryMemoria(1, relogio=self.relogio)
 
     def test_clique_da_pessoa_passa_na_frente_do_lote_mais_antigo(self):
         lote, _ = self.repo.criar(URLS[0], "compatibilidade", prioridade=PRIORIDADE_LOTE)

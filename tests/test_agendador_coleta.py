@@ -64,9 +64,9 @@ class Coletas:
 
 
 def coleta_real(*providers) -> ColetaService:
-    perfis = PerfilBuscaRepositoryMemoria()
+    perfis = PerfilBuscaRepositoryMemoria(1)
     perfis.salvar(Perfil(termos=["python"]))
-    return ColetaService(RecomendacaoService(BuscaService(list(providers))), perfis, VagaEncontradaRepositoryMemoria())
+    return ColetaService(RecomendacaoService(BuscaService(list(providers))), perfis, VagaEncontradaRepositoryMemoria(1))
 
 
 class HorariosTest(unittest.TestCase):
@@ -190,7 +190,7 @@ def threads_do_agendador():
 
 class AppTest(unittest.TestCase):
     def app(self, **kwargs):
-        return criar_app(PerfilBuscaRepositoryMemoria(), CurriculoRepositoryMemoria(), BuscaService([]), **kwargs)
+        return criar_app(PerfilBuscaRepositoryMemoria(1), CurriculoRepositoryMemoria(1), BuscaService([]), **kwargs)
 
     def test_criar_app_sem_agendador_nao_inicia_thread(self):
         app = self.app()

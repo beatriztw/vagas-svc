@@ -155,8 +155,8 @@ class ContratoHistoricoPerfil:
 
 class HistoricoPerfilMemoriaTest(ContratoHistoricoPerfil, unittest.TestCase):
     def criar(self):
-        self.repo = VagaEncontradaRepositoryMemoria()
-        self.perfis = PerfilBuscaRepositoryMemoria()
+        self.repo = VagaEncontradaRepositoryMemoria(1)
+        self.perfis = PerfilBuscaRepositoryMemoria(1)
 
 
 @unittest.skipUnless(os.environ.get("PGHOST"), "PGHOST não definido: integração com Postgres pulada")
@@ -165,11 +165,11 @@ class HistoricoPerfilPostgresTest(ContratoHistoricoPerfil, unittest.TestCase):
         from src.repository.postgres import PerfilBuscaRepositoryPostgres, VagaEncontradaRepositoryPostgres
 
         self.conn, _ = _schema_descartavel(self, "teste_historico_perfil")
-        self.repo = VagaEncontradaRepositoryPostgres(self.conn)
-        self.perfis = PerfilBuscaRepositoryPostgres(self.conn)
+        self.repo = VagaEncontradaRepositoryPostgres(self.conn, 1)
+        self.perfis = PerfilBuscaRepositoryPostgres(self.conn, 1)
 
     def test_listar_recentes_igual_a_memoria(self):
-        memoria = VagaEncontradaRepositoryMemoria()
+        memoria = VagaEncontradaRepositoryMemoria(1)
         memoria.registrar(ANTES, "desenvolvedor python")
         memoria.registrar(DEPOIS, "assistente administrativo")
         for novas in (False, True):
@@ -192,11 +192,11 @@ class RelevanciaPerfilTest(unittest.TestCase):
 
 class ApiETelaComPerfilTest(unittest.TestCase):
     def setUp(self):
-        self.repo = VagaEncontradaRepositoryMemoria()
+        self.repo = VagaEncontradaRepositoryMemoria(1)
         self.repo.registrar(ANTES, "desenvolvedor python")
         self.repo.registrar(DEPOIS, "assistente administrativo")
-        self.perfis = PerfilBuscaRepositoryMemoria()
-        app = criar_app(self.perfis, CurriculoRepositoryMemoria(), BuscaService([]), encontradas=self.repo)
+        self.perfis = PerfilBuscaRepositoryMemoria(1)
+        app = criar_app(self.perfis, CurriculoRepositoryMemoria(1), BuscaService([]), encontradas=self.repo)
         self.cliente = TestClient(app, raise_server_exceptions=False)
 
     def json(self, consulta: str = "") -> list[str]:

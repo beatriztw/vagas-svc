@@ -106,9 +106,9 @@ class FuncoesPurasTest(unittest.TestCase):
 
 class RotaMetricasTest(unittest.TestCase):
     def setUp(self):
-        self.repo = PedidoIARepositoryMemoria()
+        self.repo = PedidoIARepositoryMemoria(1)
         self.client = TestClient(criar_app(
-            PerfilBuscaRepositoryMemoria(), CurriculoRepositoryMemoria(), BuscaService([]), pedidos_ia=self.repo
+            PerfilBuscaRepositoryMemoria(1), CurriculoRepositoryMemoria(1), BuscaService([]), pedidos_ia=self.repo
         ))
 
     def _pronto(self, url, nota, versao=V1):

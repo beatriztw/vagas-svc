@@ -1,7 +1,7 @@
 import threading
 from abc import ABC, abstractmethod
 from collections.abc import Callable
-from dataclasses import replace
+from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
 
 from src.model.erros import DadoInvalido
@@ -23,7 +23,12 @@ from src.repository.candidatura import validar_vaga_url
 
 
 class PedidoIARepository(ABC):
-    """Fila de pedidos de IA e rótulo manual da faixa."""
+    """Fila de pedidos de IA e rótulo manual da faixa.
+
+    Tudo é da pessoa do repositório (criar, ler, lote, pausa, notas, rótulos), menos a fila do worker:
+    `proximo`, `obter_da_fila`, `concluir`, `falhar` e `marcar_base` leem e gravam os pedidos de todas as
+    pessoas, e o pedido devolvido traz o `pessoa_id` dele.
+    """
 
     @abstractmethod
     def criar(
@@ -41,7 +46,12 @@ class PedidoIARepository(ABC):
         """
 
     @abstractmethod
-    def obter(self, id: int) -> PedidoIA | None: ...
+    def obter(self, id: int) -> PedidoIA | None:
+        """O pedido da pessoa pelo id; o de outra pessoa é None."""
+
+    @abstractmethod
+    def obter_da_fila(self, id: int) -> PedidoIA | None:
+        """O pedido pelo id, de qualquer pessoa: é o que o worker, que lê a fila global, devolve."""
 
     @abstractmethod
     def ultimo(self, vaga_url: str, tipo: TipoPedidoIA | str) -> PedidoIA | None:
@@ -49,7 +59,7 @@ class PedidoIARepository(ABC):
 
     @abstractmethod
     def proximo(self, agora: datetime | None = None) -> PedidoIA | None:
-        """Reivindica um pedido para o worker, numa transação:
+        """Reivindica um pedido para o worker, de qualquer pessoa, numa transação:
 
         1. pedido rodando há mais de PRAZO_RODANDO que já gastou MAX_TENTATIVAS vira erro;
         2. escolhe um pendente ou preso (pendente primeiro; entre eles a menor prioridade, a da
@@ -163,21 +173,42 @@ def id_possivel(id: int) -> bool:
     return isinstance(id, int) and not isinstance(id, bool) and 0 < id < 2**63
 
 
+@dataclass
+class _ArmazemPedidos:
+    """O "banco" dos pedidos em memória: a fila é uma só, com o id global; rótulo e pausa são por pessoa."""
+
+    linhas: dict[int, PedidoIA] = field(default_factory=dict)
+    rotulos: dict[int, dict[str, Faixa]] = field(default_factory=dict)
+    pausadas: set[int] = field(default_factory=set)
+    proximo_id: int = 1
+    lock: threading.Lock = field(default_factory=threading.Lock)
+
+
 class PedidoIARepositoryMemoria(PedidoIARepository):
-    """Mesma regra do Postgres, com relógio injetável. `vaga_por_url` faz o papel da chave estrangeira."""
+    """Mesma regra do Postgres, com relógio injetável. `vaga_por_url` faz o papel da chave estrangeira e
+    tem que ler as vagas da MESMA pessoa.
+
+    `compartilhado`: outra instância cujo armazenamento esta usa, para duas pessoas no mesmo "banco".
+    """
 
     def __init__(
         self,
+        pessoa_id: int,
         vaga_por_url: Callable[[str], VagaEncontrada | None] | None = None,
         relogio: Callable[[], datetime] | None = None,
+        compartilhado: "PedidoIARepositoryMemoria | None" = None,
     ) -> None:
+        self._pessoa_id = pessoa_id
         self._vaga_por_url = vaga_por_url
         self._relogio = relogio or (lambda: datetime.now(timezone.utc))
-        self._linhas: dict[int, PedidoIA] = {}
-        self._rotulos: dict[str, Faixa] = {}
-        self._lote_pausado = False
-        self._proximo_id = 1
-        self._lock = threading.Lock()
+        self._armazem = compartilhado._armazem if compartilhado is not None else _ArmazemPedidos()
+        # Todos os pedidos (a fila é global); `_meus` é o recorte da pessoa.
+        self._linhas: dict[int, PedidoIA] = self._armazem.linhas
+        self._rotulos: dict[str, Faixa] = self._armazem.rotulos.setdefault(pessoa_id, {})
+        self._lock = self._armazem.lock
+
+    def _meus(self) -> list[PedidoIA]:
+        return [p for p in self._linhas.values() if p.pessoa_id == self._pessoa_id]
 
     def _existe(self, vaga_url: str) -> bool:
         return self._vaga_por_url is None or self._vaga_por_url(vaga_url) is not None
@@ -193,27 +224,31 @@ class PedidoIARepositoryMemoria(PedidoIARepository):
         tipo = validar_tipo(tipo)
         prioridade = validar_prioridade(prioridade)
         with self._lock:
-            ativo = next(
-                (p for p in self._linhas.values() if p.vaga_url == vaga_url and p.tipo == tipo and p.ativo), None
-            )
+            ativo = next((p for p in self._meus() if p.vaga_url == vaga_url and p.tipo == tipo and p.ativo), None)
             if ativo is not None:
                 ativo.prioridade = min(ativo.prioridade, prioridade)
                 return replace(ativo), False
             if not self._existe(vaga_url):
                 raise DadoInvalido(f"vaga não encontrada no histórico: {vaga_url}")
             pedido = PedidoIA(
-                self._proximo_id,
+                self._armazem.proximo_id,
                 tipo,
                 vaga_url,
                 prioridade=prioridade,
                 curriculo_base_id=curriculo_base_id,
                 criado_em=self._relogio(),
+                pessoa_id=self._pessoa_id,
             )
             self._linhas[pedido.id] = pedido
-            self._proximo_id += 1
+            self._armazem.proximo_id += 1
             return replace(pedido), True
 
     def obter(self, id: int) -> PedidoIA | None:
+        with self._lock:
+            linha = self._linhas.get(id)
+            return replace(linha) if linha and linha.pessoa_id == self._pessoa_id else None
+
+    def obter_da_fila(self, id: int) -> PedidoIA | None:
         with self._lock:
             linha = self._linhas.get(id)
             return replace(linha) if linha else None
@@ -222,7 +257,7 @@ class PedidoIARepositoryMemoria(PedidoIARepository):
         vaga_url = validar_vaga_url(vaga_url)
         tipo = validar_tipo(tipo)
         with self._lock:
-            do_tipo = [p for p in self._linhas.values() if p.vaga_url == vaga_url and p.tipo == tipo]
+            do_tipo = [p for p in self._meus() if p.vaga_url == vaga_url and p.tipo == tipo]
             return replace(max(do_tipo, key=lambda p: p.id)) if do_tipo else None
 
     def proximo(self, agora: datetime | None = None) -> PedidoIA | None:
@@ -312,7 +347,7 @@ class PedidoIARepositoryMemoria(PedidoIARepository):
         with self._lock:
             return [
                 replace(p)
-                for p in sorted(self._linhas.values(), key=lambda p: p.id)
+                for p in sorted(self._meus(), key=lambda p: p.id)
                 if p.tipo == TipoPedidoIA.COMPATIBILIDADE
                 and p.estado == EstadoPedidoIA.PRONTO
                 and (prompt_versao is None or p.prompt_versao == prompt_versao)
@@ -322,14 +357,14 @@ class PedidoIARepositoryMemoria(PedidoIARepository):
         with self._lock:
             return {
                 p.prompt_versao
-                for p in self._linhas.values()
+                for p in self._meus()
                 if p.tipo == TipoPedidoIA.COMPATIBILIDADE and p.estado == EstadoPedidoIA.PRONTO and p.prompt_versao
             }
 
     def notas_compatibilidade(self, curriculo_base_id: int, prompt_versao: str | None) -> dict[str, NotaIA]:
         with self._lock:
             notas: dict[str, NotaIA] = {}
-            for p in sorted(self._linhas.values(), key=lambda p: p.id):
+            for p in sorted(self._meus(), key=lambda p: p.id):
                 if (
                     p.tipo == TipoPedidoIA.COMPATIBILIDADE
                     and p.estado == EstadoPedidoIA.PRONTO
@@ -344,13 +379,13 @@ class PedidoIARepositoryMemoria(PedidoIARepository):
     def urls_ativas(self, tipo: TipoPedidoIA | str) -> set[str]:
         tipo = validar_tipo(tipo)
         with self._lock:
-            return {p.vaga_url for p in self._linhas.values() if p.tipo == tipo and p.ativo}
+            return {p.vaga_url for p in self._meus() if p.tipo == tipo and p.ativo}
 
     def urls_com_erro_desde(self, curriculo_base_id: int, desde: datetime) -> set[str]:
         with self._lock:
             return {
                 p.vaga_url
-                for p in self._linhas.values()
+                for p in self._meus()
                 if p.tipo == TipoPedidoIA.COMPATIBILIDADE
                 and p.estado == EstadoPedidoIA.ERRO
                 and p.curriculo_base_id == curriculo_base_id
@@ -360,18 +395,18 @@ class PedidoIARepositoryMemoria(PedidoIARepository):
 
     def contar_lote_desde(self, desde: datetime) -> int:
         with self._lock:
-            return sum(1 for p in self._linhas.values() if p.prioridade == PRIORIDADE_LOTE and p.criado_em >= desde)
+            return sum(1 for p in self._meus() if p.prioridade == PRIORIDADE_LOTE and p.criado_em >= desde)
 
     def lote_pausado(self) -> bool:
         with self._lock:
-            return self._lote_pausado
+            return self._pessoa_id in self._armazem.pausadas
 
     def pausar_lote(self) -> int:
         with self._lock:
-            self._lote_pausado = True
+            self._armazem.pausadas.add(self._pessoa_id)
             do_lote = [
-                id
-                for id, p in self._linhas.items()
+                p.id
+                for p in self._meus()
                 if p.estado == EstadoPedidoIA.PENDENTE
                 and p.prioridade == PRIORIDADE_LOTE
                 and p.tipo == TipoPedidoIA.COMPATIBILIDADE
@@ -382,7 +417,7 @@ class PedidoIARepositoryMemoria(PedidoIARepository):
 
     def retomar_lote(self) -> None:
         with self._lock:
-            self._lote_pausado = False
+            self._armazem.pausadas.discard(self._pessoa_id)
 
     def gravar_rotulo(self, vaga_url: str, faixa: Faixa | str | None) -> Faixa | None:
         vaga_url = validar_vaga_url(vaga_url)

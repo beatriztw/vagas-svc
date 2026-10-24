@@ -32,13 +32,13 @@ MUTACAO = {"HX-Request": "true", "Origin": "http://testserver"}
 
 class Montagem:
     def __init__(self, com_base: bool = True, teto: str | None = None):
-        self.perfis = PerfilBuscaRepositoryMemoria()
+        self.perfis = PerfilBuscaRepositoryMemoria(1)
         self.perfis.salvar(Perfil(termos=["python"]))
-        self.encontradas = VagaEncontradaRepositoryMemoria()
-        self.curriculos = CurriculoRepositoryMemoria()
+        self.encontradas = VagaEncontradaRepositoryMemoria(1)
+        self.curriculos = CurriculoRepositoryMemoria(1)
         if com_base:
             self.curriculos.salvar(Curriculo(tipo="base", titulo="Base", conteudo_md="# Base"))
-        self.pedidos = PedidoIARepositoryMemoria(vaga_por_url_em(self.encontradas))
+        self.pedidos = PedidoIARepositoryMemoria(1, vaga_por_url_em(self.encontradas))
         client = ClientPorTermo("A", {"python": [vaga("u1"), vaga("u2")]})
         # O teto do lote vem de IA_LOTE_MAX_POR_DIA, lida quando a app monta o serviço da IA.
         env = {} if teto is None else {"IA_LOTE_MAX_POR_DIA": teto}
@@ -62,7 +62,7 @@ class Montagem:
 
 class PosColetaTest(unittest.TestCase):
     def test_ao_terminar_roda_depois_da_coleta_com_o_resultado(self):
-        perfis, vagas = PerfilBuscaRepositoryMemoria(), VagaEncontradaRepositoryMemoria()
+        perfis, vagas = PerfilBuscaRepositoryMemoria(1), VagaEncontradaRepositoryMemoria(1)
         perfis.salvar(Perfil(termos=["python"]))
         vistos = []
         servico = ColetaService(
@@ -75,7 +75,7 @@ class PosColetaTest(unittest.TestCase):
         self.assertEqual(vistos, [(1, 1)])  # já com a coleta gravada
 
     def test_falha_no_pos_coleta_nao_derruba_a_coleta(self):
-        perfis, vagas = PerfilBuscaRepositoryMemoria(), VagaEncontradaRepositoryMemoria()
+        perfis, vagas = PerfilBuscaRepositoryMemoria(1), VagaEncontradaRepositoryMemoria(1)
         perfis.salvar(Perfil(termos=["python"]))
 
         def quebra(_):
@@ -108,7 +108,7 @@ class PosColetaTest(unittest.TestCase):
         self.assertEqual(len(m.lote()), 2)
 
     def _servico(self, providers):
-        perfis, vagas = PerfilBuscaRepositoryMemoria(), VagaEncontradaRepositoryMemoria()
+        perfis, vagas = PerfilBuscaRepositoryMemoria(1), VagaEncontradaRepositoryMemoria(1)
         perfis.salvar(Perfil(termos=["python", "sql"]))
         return ColetaService(RecomendacaoService(BuscaService(providers)), perfis, vagas)
 

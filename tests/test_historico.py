@@ -213,7 +213,7 @@ class ContratoHistorico:
 
 class HistoricoMemoriaTest(ContratoHistorico, unittest.TestCase):
     def setUp(self):
-        self.repo = VagaEncontradaRepositoryMemoria()
+        self.repo = VagaEncontradaRepositoryMemoria(1)
 
     def test_obter_devolve_copia(self):
         self.carregar()
@@ -230,7 +230,7 @@ class HistoricoPostgresTest(ContratoHistorico, unittest.TestCase):
         from src.repository.postgres import VagaEncontradaRepositoryPostgres
 
         self.conn, _ = _schema_descartavel(self, "teste_historico")
-        self.repo = VagaEncontradaRepositoryPostgres(self.conn)
+        self.repo = VagaEncontradaRepositoryPostgres(self.conn, 1)
 
     def test_url_com_nul_nao_estoura(self):
         self.assertIsNone(self.repo.obter("a\x00b"))
@@ -244,8 +244,8 @@ class ParidadeMemoriaPostgresTest(unittest.TestCase):
         from src.repository.postgres import VagaEncontradaRepositoryPostgres
 
         self.conn, _ = _schema_descartavel(self, "teste_paridade")
-        self.pg = VagaEncontradaRepositoryPostgres(self.conn)
-        self.mem = VagaEncontradaRepositoryMemoria()
+        self.pg = VagaEncontradaRepositoryPostgres(self.conn, 1)
+        self.mem = VagaEncontradaRepositoryMemoria(1)
         for repo in (self.mem, self.pg):
             repo.registrar(vagas_do_conjunto(), "termo")
             repo.marcar_vistas(["u2", "u5"])
@@ -272,10 +272,10 @@ class ParidadeMemoriaPostgresTest(unittest.TestCase):
 
 class ApiHistoricoTest(unittest.TestCase):
     def setUp(self):
-        self.repo = VagaEncontradaRepositoryMemoria()
+        self.repo = VagaEncontradaRepositoryMemoria(1)
         self.repo.registrar(vagas_do_conjunto(), "termo")
         self.api = TestClient(
-            criar_app(PerfilBuscaRepositoryMemoria(), CurriculoRepositoryMemoria(), BuscaService([]), encontradas=self.repo)
+            criar_app(PerfilBuscaRepositoryMemoria(1), CurriculoRepositoryMemoria(1), BuscaService([]), encontradas=self.repo)
         )
 
     def urls(self, consulta: str) -> list[str]:
@@ -334,7 +334,7 @@ class ApiHistoricoTest(unittest.TestCase):
 
         for classe, status in ((Invalido, 422), (Quebrado, 500)):
             api = TestClient(
-                criar_app(PerfilBuscaRepositoryMemoria(), CurriculoRepositoryMemoria(), BuscaService([]), encontradas=classe()),
+                criar_app(PerfilBuscaRepositoryMemoria(1), CurriculoRepositoryMemoria(1), BuscaService([]), encontradas=classe(1)),
                 raise_server_exceptions=False,
             )
             self.assertEqual(api.get("/vagas/encontradas?q=a").status_code, status)

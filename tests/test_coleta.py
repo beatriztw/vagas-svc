@@ -68,7 +68,7 @@ class ContratoVagaEncontrada:
         from src.client.apify_linkedin import ApifyLinkedInClient
         from tests.test_clients import fake_post
 
-        perfis = PerfilBuscaRepositoryMemoria()
+        perfis = PerfilBuscaRepositoryMemoria(1)
         perfis.salvar(Perfil(termos=["dados"]))
         linkedin = ApifyLinkedInClient(token="tk", http_post=fake_post("apify_linkedin.json"))
         ColetaService(RecomendacaoService(BuscaService([linkedin])), perfis, self.repo).coletar()
@@ -182,7 +182,7 @@ class ContratoVagaEncontrada:
 
 class VagaEncontradaMemoriaTest(ContratoVagaEncontrada, unittest.TestCase):
     def setUp(self):
-        self.repo = VagaEncontradaRepositoryMemoria()
+        self.repo = VagaEncontradaRepositoryMemoria(1)
 
 
 def _schema_descartavel(teste: unittest.TestCase, prefixo: str):
@@ -210,7 +210,7 @@ class VagaEncontradaPostgresTest(ContratoVagaEncontrada, unittest.TestCase):
         from src.repository.postgres import VagaEncontradaRepositoryPostgres
 
         self.conn, _ = _schema_descartavel(self, "teste_coleta")
-        self.repo = VagaEncontradaRepositoryPostgres(self.conn)
+        self.repo = VagaEncontradaRepositoryPostgres(self.conn, 1)
 
     def test_migration_cria_tabela_e_indice(self):
         self.assertTrue((MIGRATIONS / "002_vaga_encontrada.sql").exists())
@@ -244,8 +244,8 @@ class VagaEncontradaPostgresTest(ContratoVagaEncontrada, unittest.TestCase):
 
 class ColetaServiceTest(unittest.TestCase):
     def setUp(self):
-        self.perfis = PerfilBuscaRepositoryMemoria()
-        self.vagas = VagaEncontradaRepositoryMemoria()
+        self.perfis = PerfilBuscaRepositoryMemoria(1)
+        self.vagas = VagaEncontradaRepositoryMemoria(1)
         self.client = ClientPorTermo(
             "A",
             {
@@ -328,10 +328,10 @@ class ColetaServiceTest(unittest.TestCase):
 
 class ApiColetaTest(unittest.TestCase):
     def setUp(self):
-        self.perfis = PerfilBuscaRepositoryMemoria()
+        self.perfis = PerfilBuscaRepositoryMemoria(1)
         self.client = ClientPorTermo("A", {"python": [vaga("u1"), vaga("u2")], "django": [vaga("u1")]})
         busca = BuscaService([ClientQuebrado(), self.client])
-        self.api = TestClient(criar_app(self.perfis, CurriculoRepositoryMemoria(), busca))
+        self.api = TestClient(criar_app(self.perfis, CurriculoRepositoryMemoria(1), busca))
 
     def test_coleta_sem_perfil_e_422(self):
         resposta = self.api.post("/coletas", json={})
@@ -393,10 +393,10 @@ class FalhaDoBanco(VagaEncontradaRepositoryMemoria):
 
 class ApiColetaErroDoServidorTest(unittest.TestCase):
     def test_value_error_do_repositorio_na_coleta_vira_500(self):
-        perfis = PerfilBuscaRepositoryMemoria()
+        perfis = PerfilBuscaRepositoryMemoria(1)
         perfis.salvar(Perfil(termos=["python"]))
         api = TestClient(
-            criar_app(perfis, CurriculoRepositoryMemoria(), BuscaService([ClientFixo("A", [vaga("u1")])]), encontradas=FalhaDoBanco()),
+            criar_app(perfis, CurriculoRepositoryMemoria(1), BuscaService([ClientFixo("A", [vaga("u1")])]), encontradas=FalhaDoBanco(1)),
             raise_server_exceptions=False,
         )
 
@@ -429,10 +429,10 @@ class ApiColetaPostgresTest(unittest.TestCase):
         client = ClientPorTermo("A", {"python": [vaga("u1"), vaga("u2")], "django": [vaga("u1")]})
         api = TestClient(
             criar_app(
-                _PorChamada(lambda: pool, lambda: PerfilBuscaRepositoryPostgres),
-                _PorChamada(lambda: pool, lambda: CurriculoRepositoryPostgres),
+                _PorChamada(lambda: pool, lambda: PerfilBuscaRepositoryPostgres, 1),
+                _PorChamada(lambda: pool, lambda: CurriculoRepositoryPostgres, 1),
                 BuscaService([ClientQuebrado(), client]),
-                encontradas=_PorChamada(lambda: pool, lambda: VagaEncontradaRepositoryPostgres),
+                encontradas=_PorChamada(lambda: pool, lambda: VagaEncontradaRepositoryPostgres, 1),
             )
         )
 
@@ -449,8 +449,8 @@ class ApiColetaPostgresTest(unittest.TestCase):
 
 class CliColetaTest(unittest.TestCase):
     def setUp(self):
-        self.perfis = PerfilBuscaRepositoryMemoria()
-        self.vagas = VagaEncontradaRepositoryMemoria()
+        self.perfis = PerfilBuscaRepositoryMemoria(1)
+        self.vagas = VagaEncontradaRepositoryMemoria(1)
         self.saida, self.erro = io.StringIO(), io.StringIO()
 
     def rodar(self, *clients) -> int:

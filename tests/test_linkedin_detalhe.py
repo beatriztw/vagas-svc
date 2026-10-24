@@ -189,7 +189,7 @@ class IdLinkedinTest(unittest.TestCase):
 
 class DetalheServiceLinkedinTest(unittest.TestCase):
     def setUp(self):
-        self.repo = VagaEncontradaRepositoryMemoria()
+        self.repo = VagaEncontradaRepositoryMemoria(1)
         self.repo.registrar([vaga_linkedin(), vaga_remotar(123)], "dados")
         self.linkedin = ProviderFalso(DetalheVaga(descricao="Descrição do LinkedIn"))
         self.remotar = ProviderFalso()
@@ -265,10 +265,10 @@ class DetalheServiceLinkedinTest(unittest.TestCase):
 
 class TelaLinkedinTest(unittest.TestCase):
     def montar(self, provider):
-        repo = VagaEncontradaRepositoryMemoria()
+        repo = VagaEncontradaRepositoryMemoria(1)
         repo.registrar([vaga_linkedin()], "dados")
         servico = DetalheService(repo, ProviderProibido(), linkedin=provider)
-        app = criar_app(PerfilBuscaRepositoryMemoria(), CurriculoRepositoryMemoria(), BuscaService([]), encontradas=repo, detalhe=servico)
+        app = criar_app(PerfilBuscaRepositoryMemoria(1), CurriculoRepositoryMemoria(1), BuscaService([]), encontradas=repo, detalhe=servico)
         return TestClient(app), repo
 
     def test_vaga_do_linkedin_sem_detalhe_traz_o_carregador_sem_chamar_o_provider(self):

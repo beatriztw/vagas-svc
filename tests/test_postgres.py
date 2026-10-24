@@ -13,9 +13,15 @@ from src.model.curriculo import Curriculo
 from src.model.perfil import Perfil
 from src.model.vaga import Modalidade, Nivel
 
-MIGRATION = Path(__file__).resolve().parent.parent / "migrations" / "001_curriculo_perfil.sql"
-# A 011 acrescenta `salario_minimo` ao perfil_busca da 001.
-MIGRATION_SALARIO = MIGRATION.with_name("011_perfil_salario_minimo.sql")
+MIGRATIONS = Path(__file__).resolve().parent.parent / "migrations"
+
+
+def aplicar_todas_duas_vezes(conn) -> None:
+    """Todas as migrations em ordem, duas vezes (idempotência). A 013 (pessoa_id) depende das anteriores
+    e os repositórios gravam e leem por `pessoa_id`, então não dá para aplicar só a 001."""
+    for _ in range(2):
+        for arquivo in sorted(MIGRATIONS.glob("*.sql")):
+            conn.execute(arquivo.read_text(encoding="utf-8"))
 
 
 @unittest.skipUnless(os.environ.get("PGHOST"), "PGHOST não definido: integração com Postgres pulada")
@@ -36,13 +42,9 @@ class PostgresTest(unittest.TestCase):
             self.conn.execute, sql.SQL("DROP SCHEMA {} CASCADE").format(sql.Identifier(schema))
         )
         self.conn.execute(sql.SQL("SET search_path TO {}").format(sql.Identifier(schema)))
-        migration = MIGRATION.read_text(encoding="utf-8")
-        self.conn.execute(migration)
-        self.conn.execute(migration)  # idempotente: segunda aplicação não falha
-        for _ in range(2):  # idempotente também
-            self.conn.execute(MIGRATION_SALARIO.read_text(encoding="utf-8"))
-        self.perfis = PerfilBuscaRepositoryPostgres(self.conn)
-        self.curriculos = CurriculoRepositoryPostgres(self.conn)
+        aplicar_todas_duas_vezes(self.conn)
+        self.perfis = PerfilBuscaRepositoryPostgres(self.conn, 1)
+        self.curriculos = CurriculoRepositoryPostgres(self.conn, 1)
 
     def contar(self, tabela: str) -> int:
         return self.conn.execute(f"SELECT count(*) FROM {tabela}").fetchone()[0]
@@ -67,15 +69,13 @@ class PostgresTest(unittest.TestCase):
 
     def test_enum_invalido_recusado_pelo_check(self):
         with self.assertRaises(self.errors.CheckViolation):
-            self.conn.execute("INSERT INTO perfil_busca (modalidades) VALUES (ARRAY['Presencial'])")
+            self.conn.execute("INSERT INTO perfil_busca (pessoa_id, modalidades) VALUES (1, ARRAY['Presencial'])")
         with self.assertRaises(self.errors.CheckViolation):
-            self.conn.execute("INSERT INTO perfil_busca (niveis) VALUES (ARRAY['Estagiário'])")
+            self.conn.execute("INSERT INTO perfil_busca (pessoa_id, niveis) VALUES (1, ARRAY['Estagiário'])")
         with self.assertRaises(self.errors.CheckViolation):
-            self.conn.execute("INSERT INTO perfil_busca (id) VALUES (2)")
+            self.conn.execute("INSERT INTO perfil_busca (pessoa_id, publicada_desde_dias) VALUES (1, 0)")
         with self.assertRaises(self.errors.CheckViolation):
-            self.conn.execute("INSERT INTO perfil_busca (publicada_desde_dias) VALUES (0)")
-        with self.assertRaises(self.errors.CheckViolation):
-            self.conn.execute("INSERT INTO perfil_busca (publicada_desde_dias) VALUES (3651)")
+            self.conn.execute("INSERT INTO perfil_busca (pessoa_id, publicada_desde_dias) VALUES (1, 3651)")
         self.assertEqual(self.contar("perfil_busca"), 0)
 
     def test_repository_recusa_perfil_invalido_com_value_error(self):
@@ -97,7 +97,7 @@ class PostgresTest(unittest.TestCase):
     def test_adaptado_exige_base_id(self):
         with self.assertRaises(self.errors.CheckViolation):
             self.conn.execute(
-                "INSERT INTO curriculo (tipo, titulo, conteudo_md) VALUES ('adaptado', 'A', '# a')"
+                "INSERT INTO curriculo (pessoa_id, tipo, titulo, conteudo_md) VALUES (1, 'adaptado', 'A', '# a')"
             )
         with self.assertRaises(ValueError):
             self.curriculos.salvar(Curriculo("adaptado", "A", "# a"))
@@ -106,7 +106,7 @@ class PostgresTest(unittest.TestCase):
         base = self.curriculos.salvar(Curriculo("base", "Base", "# b"))
         with self.assertRaises(self.errors.CheckViolation):
             self.conn.execute(
-                "INSERT INTO curriculo (tipo, titulo, conteudo_md, base_id) VALUES ('base', 'B', '# b', %s)",
+                "INSERT INTO curriculo (pessoa_id, tipo, titulo, conteudo_md, base_id) VALUES (1, 'base', 'B', '# b', %s)",
                 (base.id,),
             )
         adaptado = self.curriculos.salvar(

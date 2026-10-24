@@ -61,6 +61,8 @@ class PedidoIA:
     criado_em: datetime | None = None
     reivindicado_em: datetime | None = None
     terminado_em: datetime | None = None
+    # Dona do pedido: quem lê a fila de todas as pessoas (o worker) monta o payload com os dados dela.
+    pessoa_id: int | None = None
 
     @property
     def ativo(self) -> bool:

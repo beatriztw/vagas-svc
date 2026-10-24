@@ -2,7 +2,6 @@ import os
 import unittest
 import uuid
 from datetime import date
-from pathlib import Path
 
 from fastapi.testclient import TestClient
 
@@ -12,10 +11,8 @@ from src.model.vaga_externa import VagaExterna
 from src.repository.base import CurriculoRepositoryMemoria, PerfilBuscaRepositoryMemoria
 from src.service.busca_service import BuscaService
 from tests.test_busca_service import ClientFixo, ClientQuebrado
+from tests.test_postgres import aplicar_todas_duas_vezes
 
-MIGRATION = Path(__file__).resolve().parent.parent / "migrations" / "001_curriculo_perfil.sql"
-# A 011 acrescenta `salario_minimo` ao perfil_busca da 001.
-MIGRATION_SALARIO = MIGRATION.with_name("011_perfil_salario_minimo.sql")
 
 PERFIL = {
     "termos": ["python"],
@@ -33,8 +30,8 @@ PERFIL = {
 
 class ApiTest(unittest.TestCase):
     def setUp(self):
-        self.perfis = PerfilBuscaRepositoryMemoria()
-        self.curriculos = CurriculoRepositoryMemoria()
+        self.perfis = PerfilBuscaRepositoryMemoria(1)
+        self.curriculos = CurriculoRepositoryMemoria(1)
         self.vagas = [
             VagaExterna("Dev Python Sênior", "X", "A", "u1", remoto=True, publicada_em=date.today()),
             VagaExterna("Dev Python", "X", "A", "u2", remoto=True, publicada_em=date.today()),
@@ -194,7 +191,7 @@ class FalhaDeConfiguracao(PerfilBuscaRepositoryMemoria):
 class ApiErrosDoServidorTest(unittest.TestCase):
     def test_value_error_que_nao_e_validacao_vira_500(self):
         api = TestClient(
-            criar_app(FalhaDeConfiguracao(), CurriculoRepositoryMemoria(), BuscaService([])),
+            criar_app(FalhaDeConfiguracao(1), CurriculoRepositoryMemoria(1), BuscaService([])),
             raise_server_exceptions=False,
         )
 
@@ -203,7 +200,7 @@ class ApiErrosDoServidorTest(unittest.TestCase):
 
 class ApiErrosDoRepositorioTest(unittest.TestCase):
     def test_value_error_do_repositorio_vira_422(self):
-        api = TestClient(criar_app(ValueErrorDoRepositorio(), CurriculoRepositoryMemoria(), BuscaService([])))
+        api = TestClient(criar_app(ValueErrorDoRepositorio(1), CurriculoRepositoryMemoria(1), BuscaService([])))
 
         resposta = api.put("/perfil", json=PERFIL)
 
@@ -227,10 +224,9 @@ class ApiPostgresTest(unittest.TestCase):
         conn.execute(sql.SQL("CREATE SCHEMA {}").format(sql.Identifier(schema)))
         self.addCleanup(conn.execute, sql.SQL("DROP SCHEMA {} CASCADE").format(sql.Identifier(schema)))
         conn.execute(sql.SQL("SET search_path TO {}").format(sql.Identifier(schema)))
-        conn.execute(MIGRATION.read_text(encoding="utf-8"))
-        conn.execute(MIGRATION_SALARIO.read_text(encoding="utf-8"))
+        aplicar_todas_duas_vezes(conn)
         self.api = TestClient(
-            criar_app(PerfilBuscaRepositoryPostgres(conn), CurriculoRepositoryPostgres(conn), BuscaService([]))
+            criar_app(PerfilBuscaRepositoryPostgres(conn, 1), CurriculoRepositoryPostgres(conn, 1), BuscaService([]))
         )
 
     def test_perfil_e_curriculos_de_ponta_a_ponta(self):
@@ -270,8 +266,7 @@ class PoolPostgresConcorrenciaTest(unittest.TestCase):
         admin.execute(sql.SQL("CREATE SCHEMA {}").format(sql.Identifier(schema)))
         self.addCleanup(admin.execute, sql.SQL("DROP SCHEMA {} CASCADE").format(sql.Identifier(schema)))
         admin.execute(sql.SQL("SET search_path TO {}").format(sql.Identifier(schema)))
-        admin.execute(MIGRATION.read_text(encoding="utf-8"))
-        admin.execute(MIGRATION_SALARIO.read_text(encoding="utf-8"))
+        aplicar_todas_duas_vezes(admin)
 
         pool = ConnectionPool(
             kwargs={**parametros(), "autocommit": True, "options": f"-c search_path={schema}"},
@@ -280,7 +275,7 @@ class PoolPostgresConcorrenciaTest(unittest.TestCase):
             open=True,
         )
         self.addCleanup(pool.close)
-        repo = _PorChamada(lambda: pool, lambda: CurriculoRepositoryPostgres)
+        repo = _PorChamada(lambda: pool, lambda: CurriculoRepositoryPostgres, 1)
         base = repo.salvar(Curriculo("base", "Base", "# b"))
         adaptado = repo.salvar(Curriculo("adaptado", "A0", "# a0", base_id=base.id))
 
@@ -305,21 +300,21 @@ class PerfilSemValidacao(PerfilBuscaRepositoryMemoria):
     """Como o repositório Postgres: grava sem chamar validar_perfil."""
 
     def salvar(self, perfil):
-        self._perfil = perfil
+        self._perfis[self._pessoa_id] = perfil
 
 
 class ApiValidaPerfilTest(unittest.TestCase):
     def test_api_valida_o_perfil_mesmo_com_repositorio_que_nao_valida(self):
         from unittest import mock
 
-        perfis = PerfilSemValidacao()
-        api = TestClient(criar_app(perfis, CurriculoRepositoryMemoria(), BuscaService([])))
+        perfis = PerfilSemValidacao(1)
+        api = TestClient(criar_app(perfis, CurriculoRepositoryMemoria(1), BuscaService([])))
 
         with mock.patch("src.controller.api.validar_perfil", side_effect=DadoInvalido("inválido")):
             resposta = api.put("/perfil", json=PERFIL)
 
         self.assertEqual(resposta.status_code, 422)
-        self.assertIsNone(perfis._perfil)
+        self.assertEqual(perfis._perfis, {})
 
 
 class PorChamadaTest(unittest.TestCase):
@@ -357,6 +352,38 @@ class PorChamadaTest(unittest.TestCase):
         self.assertIsNot(primeira, segunda)
         self.assertEqual(entregues, [primeira, segunda])
         self.assertEqual(devolvidas, [primeira, segunda])
+
+    def test_com_pessoa_o_repositorio_recebe_a_conexao_e_a_pessoa(self):
+        from contextlib import contextmanager
+
+        from src.controller.api import _PorChamada
+
+        class Pool:
+            @contextmanager
+            def connection(self):
+                yield "conexao"
+
+        class Repo:
+            def __init__(self, conn, pessoa_id):
+                self.conn, self.pessoa_id = conn, pessoa_id
+
+            def quem(self):
+                return self.conn, self.pessoa_id
+
+        self.assertEqual(_PorChamada(lambda: Pool(), lambda: Repo, 7).quem(), ("conexao", 7))
+
+    def test_producao_usa_sempre_a_pessoa_padrao_nos_repositorios_por_pessoa(self):
+        from unittest import mock
+
+        from src.controller import api
+
+        with mock.patch.object(api, "criar_app") as criar:
+            api.criar_app_producao()
+        nomes = ("perfis", "curriculos", "encontradas", "candidaturas", "pedidos_ia")
+        for nome in nomes:
+            with self.subTest(repositorio=nome):
+                self.assertEqual(criar.call_args.kwargs[nome]._pessoa_id, api.PESSOA_PADRAO)
+        self.assertEqual(api.PESSOA_PADRAO, 1)
 
 
 class ProvidersPadraoTest(unittest.TestCase):

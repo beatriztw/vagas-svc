@@ -29,11 +29,11 @@ COMPATIBILIDADE = {
 
 
 def montar(com_base: bool = True, *urls: str):
-    encontradas = VagaEncontradaRepositoryMemoria()
+    encontradas = VagaEncontradaRepositoryMemoria(1)
     encontradas.registrar([VagaExterna("Analista de Dados", "Empresa Teste", "Remotar", u) for u in (urls or (URL,))], "dados")
-    curriculos = CurriculoRepositoryMemoria()
+    curriculos = CurriculoRepositoryMemoria(1)
     base = curriculos.salvar(Curriculo(tipo="base", titulo="Base", conteudo_md="# Base")) if com_base else None
-    app = criar_app(PerfilBuscaRepositoryMemoria(), curriculos, BuscaService([]), encontradas=encontradas)
+    app = criar_app(PerfilBuscaRepositoryMemoria(1), curriculos, BuscaService([]), encontradas=encontradas)
     return TestClient(app, raise_server_exceptions=False), app.state.pedido_ia_service, curriculos, base
 
 
