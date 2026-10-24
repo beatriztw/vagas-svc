@@ -1,6 +1,7 @@
 """Métricas de acurácia da compatibilidade por IA. Funções puras: recebem pedidos e rótulos, devolvem números.
 
-Lê-se assim (ver `calcular`): a faixa da Beatriz é a referência; a IA acerta quando a faixa dela coincide.
+Lê-se assim (ver `calcular`): a faixa que a pessoa deu à vaga (o rótulo) é a referência; a IA acerta quando a faixa dela coincide.
+As métricas são de uma pessoa: os pedidos e rótulos que chegam já são só dela.
 Os cortes 70/40 da faixa são provisórios e estas métricas servem para calibrá-los.
 """
 
@@ -59,10 +60,10 @@ def spearman(xs: Sequence[float], ys: Sequence[float]) -> float | None:
 
 
 def concordancia(pares: Sequence[tuple[str, str]]) -> dict:
-    """`pares` = (faixa_beatriz, faixa_ia). Matriz 3x3 completa `matriz[beatriz][ia]`; taxa = diagonal / n."""
+    """`pares` = (faixa_pessoa, faixa_ia). Matriz 3x3 completa `matriz[faixa_pessoa][faixa_ia]`; taxa = diagonal / n."""
     matriz = {a: {b: 0 for b in FAIXAS} for a in FAIXAS}
-    for beatriz, ia in pares:
-        matriz[getattr(beatriz, "value", beatriz)][getattr(ia, "value", ia)] += 1
+    for faixa_pessoa, ia in pares:
+        matriz[getattr(faixa_pessoa, "value", faixa_pessoa)][getattr(ia, "value", ia)] += 1
     n = len(pares)
     acertos = sum(matriz[f][f] for f in FAIXAS)
     return {
@@ -115,8 +116,8 @@ def calcular(prontos: Sequence[PedidoIA], rotulos: Mapping[str, str], prompt_ver
     """Formato do contrato §11. Só entram prontos de compatibilidade da `prompt_versao`; a nota da vaga é a do
     pronto mais recente (maior id).
 
-    - concordancia_faixa: quantas vezes a faixa da IA bateu com a da Beatriz (taxa) e onde errou (matriz).
-    - correlacao_ordem: Spearman entre a faixa dela e a nota da IA; 1 = mesma ordem das vagas.
+    - concordancia_faixa: quantas vezes a faixa da IA bateu com a da pessoa (taxa) e onde errou (matriz).
+    - correlacao_ordem: Spearman entre a faixa da pessoa e a nota da IA; 1 = mesma ordem das vagas.
     - estabilidade: quanto a nota oscila quando o mesmo pedido é refeito (desvio e amplitude menores = melhor).
     """
     doversao = [p for p in prontos if p.prompt_versao == prompt_versao and p.nota is not None and p.faixa is not None]
