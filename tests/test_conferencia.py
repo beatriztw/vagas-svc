@@ -119,7 +119,7 @@ class FonteFalsa:
 
 class ConferenciaServiceTest(unittest.TestCase):
     def setUp(self):
-        self.repo = VagaEncontradaRepositoryMemoria(relogio=lambda: AGORA)
+        self.repo = VagaEncontradaRepositoryMemoria(1, relogio=lambda: AGORA)
         self.repo.registrar(
             [
                 vaga("Remotar", "https://remotar.com.br/job/1"),
@@ -208,7 +208,7 @@ class LigacaoNaAppTest(unittest.TestCase):
 
         historicos = []
         app = criar_app(
-            PerfilBuscaRepositoryMemoria(), CurriculoRepositoryMemoria(), BuscaService([]),
+            PerfilBuscaRepositoryMemoria(1), CurriculoRepositoryMemoria(1), BuscaService([]),
             # Guarda a coleta agendada sem criar o agendador (nenhuma thread de coleta nos testes).
             agendador=lambda coletar: recebido.update(coletar=coletar),
             conferencia=lambda historico: historicos.append(historico) or Conferencia(),
@@ -222,16 +222,16 @@ class LigacaoNaAppTest(unittest.TestCase):
         self.assertEqual(len(chamadas), 2)
 
     def test_sem_conferencia_nada_e_reconsultado(self):
-        app = criar_app(PerfilBuscaRepositoryMemoria(), CurriculoRepositoryMemoria(), BuscaService([]))
+        app = criar_app(PerfilBuscaRepositoryMemoria(1), CurriculoRepositoryMemoria(1), BuscaService([]))
         with TestClient(app) as cliente:
             self.assertEqual(cliente.get("/saude").status_code, 200)
         self.assertIsNone(app.state.conferencia)
 
     def test_vaga_fechada_na_fonte_avisa_na_candidatura_sem_mudar_o_status(self):
-        encontradas = VagaEncontradaRepositoryMemoria()
+        encontradas = VagaEncontradaRepositoryMemoria(1)
         url = "https://remotar.com.br/job/158648"
         encontradas.registrar([vaga("Remotar", url)], "dados")
-        app = criar_app(PerfilBuscaRepositoryMemoria(), CurriculoRepositoryMemoria(), BuscaService([]), encontradas=encontradas)
+        app = criar_app(PerfilBuscaRepositoryMemoria(1), CurriculoRepositoryMemoria(1), BuscaService([]), encontradas=encontradas)
         candidatura, _ = app.state.candidaturas.marcar_aplicada(url)
 
         encerrada = remotar({**ABERTA_NO_REMOTAR, "expired": True})
