@@ -18,6 +18,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from src.client.armazenamento import Armazenamento
 from src.controller.candidaturas import criar_router_candidaturas
 from src.controller.ia_metricas import criar_router_ia_metricas
+from src.controller.perfil_providers import criar_router_perfil_providers
 from src.controller.pedidos_ia import criar_router_pedidos_ia
 from src.controller.seguranca_json import exigir_json_mesma_origem
 from src.controller.tela import criar_router_tela
@@ -47,6 +48,7 @@ from src.repository.base import (
 from src.repository.candidatura import CandidaturaRepository, CandidaturaRepositoryMemoria, vaga_por_url_em
 from src.repository.pedido_ia import PedidoIARepository, PedidoIARepositoryMemoria
 from src.repository.pessoa import PessoaRepository, PessoaRepositoryMemoria
+from src.repository.pessoa_provider import PessoaProviderRepository, PessoaProviderRepositoryMemoria
 from src.repository.trava import CHAVE_TRAVA_LOTE_IA, ColetaEmAndamento, TravaColeta, TravaColetaPostgres
 from src.service.agendador_coleta import AgendadorColeta
 from src.service.busca_service import BuscaService
@@ -55,6 +57,15 @@ from src.service.coleta_service import ColetaDaPessoa, ColetaService, Repositori
 from src.service.detalhe_service import DetalheService
 from src.service.historico_service import HistoricoService
 from src.service.pedido_ia_service import PedidoIAService
+from src.service.providers_pessoa import (
+    ProvidersDaPessoa,
+    limite_apify as _limite_apify,
+    limite_posts_apify as _limite_posts_apify,
+    lista_env as _lista_env,
+    locais_do_ambiente,
+    novo_remotar,
+    token_apify as _token_apify,
+)
 from src.service.recomendacao_service import RecomendacaoService
 
 
@@ -201,6 +212,7 @@ def criar_app(
     agendador: Callable[[Callable[[], object]], "AgendadorColeta | None"] | None = None,
     pessoas: PessoaRepository | None = None,
     repositorios_da_pessoa: Callable[[int], RepositoriosDaPessoa] | None = None,
+    providers_da_pessoa: Callable[[int], PessoaProviderRepository] | None = None,
 ) -> FastAPI:
     """Sem `encontradas` e `candidaturas`, o histórico da coleta e as candidaturas ficam em memória (testes);
     a produção passa os do Postgres. Sem `detalhe`, a tela não busca o detalhe no provider (testes).
@@ -208,7 +220,8 @@ def criar_app(
     (a mesma do POST /coletas) e devolve o agendador da coleta, que o lifespan inicia depois do
     `ao_subir` e para no shutdown; sem ele (testes), nada é agendado. A coleta roda para cada pessoa de `pessoas`
     com os repositórios de `repositorios_da_pessoa` (a produção passa os do Postgres, um por chamada); sem eles
-    (testes) a única pessoa é a PESSOA_PADRAO, com `perfis` e `encontradas`."""
+    (testes) a única pessoa é a PESSOA_PADRAO, com `perfis` e `encontradas`. `providers_da_pessoa` dá o repositório das
+    fontes de vaga de cada pessoa (sem ele, em memória); pessoa sem fontes usa `busca`, as do ambiente."""
 
     @asynccontextmanager
     async def ciclo_de_vida(app_: FastAPI):
@@ -248,12 +261,18 @@ def criar_app(
             historico_da_pessoa = HistoricoService(repos.vagas, repos.perfis)
         return ia_da_pessoa.enfileirar_lote(historico_da_pessoa.visiveis())
 
+    if providers_da_pessoa is None:
+        fontes_em_memoria = PessoaProviderRepositoryMemoria(PESSOA_PADRAO)
+        providers_da_pessoa = lambda pessoa_id: PessoaProviderRepositoryMemoria(pessoa_id, fontes_em_memoria)  # noqa: E731
+    buscas = ProvidersDaPessoa(busca, providers_da_pessoa)
+
     coleta = ColetaService(
         recomendacao,
         pessoas if pessoas is not None else PessoaRepositoryMemoria([PESSOA_PADRAO]),
         repositorios_da_pessoa or (lambda _: RepositoriosDaPessoa(perfis, encontradas)),
         trava,
         ao_terminar=enfileirar_lote_da_pessoa,
+        buscas=buscas,
     )
     app.state.agendador = agendador(coleta.coletar) if agendador is not None else None
     if candidaturas is None:
@@ -306,7 +325,8 @@ def criar_app(
     app.include_router(criar_router_tela(encontradas, historico, coleta, servico_candidaturas, detalhe, servico_ia, PESSOA_PADRAO))
     app.include_router(criar_router_tela_candidaturas(servico_candidaturas))
     app.include_router(criar_router_tela_ia(app.state.pedido_ia_service))
-    app.include_router(criar_router_tela_perfil(perfis))
+    app.include_router(criar_router_tela_perfil(perfis, providers_da_pessoa(PESSOA_PADRAO)))
+    app.include_router(criar_router_perfil_providers(providers_da_pessoa(PESSOA_PADRAO)))
     app.include_router(criar_router_tela_curriculos(curriculos))
 
     @app.get("/", include_in_schema=False)
@@ -376,7 +396,9 @@ def criar_app(
 
     @app.get("/vagas")
     def buscar_vagas(termo: str = Query(min_length=1)) -> ResultadoJson:
-        resultado = recomendacao.recomendar(termo, perfis.obter())
+        # Os providers da pessoa (ou os do ambiente, se ela não configurou nenhum).
+        _, busca_da_pessoa = buscas.busca(PESSOA_PADRAO)
+        resultado = RecomendacaoService(busca_da_pessoa).recomendar(termo, perfis.obter())
         return ResultadoJson(vagas=[VagaJson.de(v) for v in resultado.vagas], erros=resultado.erros)
 
     @app.post("/coletas")
@@ -474,10 +496,6 @@ def configurar_log() -> None:
     logger.propagate = False
 
 
-def _lista_env(nome: str) -> list[str]:
-    return [p.strip() for p in os.environ.get(nome, "").split(",") if p.strip()]
-
-
 def _providers_latam() -> list:
     """LATAM_PROVIDERS: ausente ou vazia = Himalayas e Remotive; `nenhum` = nenhum; senão a lista separada
     por vírgula (`himalayas`, `remotive`, sem caixa nem acento). Nome desconhecido = valor inválido, que cai
@@ -497,47 +515,6 @@ def _providers_latam() -> list:
     return [classes[n]() for n in dict.fromkeys(nomes)]
 
 
-APIFY_LIMITE_PADRAO = 50
-
-
-def _limite_apify() -> int:
-    """APIFY_LIMITE inválido ou não positivo cai no padrão: um provider opcional não derruba a app."""
-    try:
-        limite = int(os.environ.get("APIFY_LIMITE", APIFY_LIMITE_PADRAO))
-    except ValueError:
-        return APIFY_LIMITE_PADRAO
-    return limite if limite > 0 else APIFY_LIMITE_PADRAO
-
-
-def _local_antigo_apify() -> list[str]:
-    """APIFY_LOCAL, anterior à APIFY_LOCAIS, era um local só e pode ter vírgula ("São Paulo, SP")."""
-    return [local] if (local := os.environ.get("APIFY_LOCAL", "").strip()) else []
-
-
-def _token_apify() -> str | None:
-    """APIFY_TOKEN ou o conteúdo do arquivo em APIFY_TOKEN_FILE (secret do Swarm). Arquivo ausente,
-    ilegível ou vazio = sem token: o LinkedIn fica desligado e a app sobe igual."""
-    if token := os.environ.get("APIFY_TOKEN", "").strip():
-        return token
-    arquivo = os.environ.get("APIFY_TOKEN_FILE", "").strip()
-    if not arquivo:
-        return None
-    try:
-        return Path(arquivo).read_text(encoding="utf-8").strip() or None
-    except (OSError, UnicodeDecodeError):
-        return None
-
-
-def _limite_posts_apify() -> int:
-    """APIFY_POSTS_LIMITE (posts por termo). Ausente, inválido ou não positivo = 0, desligado: o provider é
-    pago e só gasta com uma decisão explícita; valor torto não derruba a app."""
-    try:
-        limite = int(os.environ.get("APIFY_POSTS_LIMITE", "0"))
-    except ValueError:
-        return 0
-    return max(limite, 0)
-
-
 def providers_padrao() -> list:
     """Remotar e Trampos sempre; Himalayas e Remotive (vagas remotas abertas ao Brasil/América Latina) por
     padrão, com opt-out por LATAM_PROVIDERS; Greenhouse, Lever e Ashby só com empresas em
@@ -546,12 +523,9 @@ def providers_padrao() -> list:
     from src.client.ashby import AshbyClient
     from src.client.greenhouse import GreenhouseClient
     from src.client.lever import LeverClient
-    from src.client.gupy import GupyClient
-    from src.client.remotar import RemotarClient
     from src.client.trampos import TramposClient
 
-    # A vaga do Remotar que fechou no Gupy (onde a candidatura acontece) sai como expirada.
-    providers = [RemotarClient(gupy=GupyClient().encerramento), TramposClient()]
+    providers = [novo_remotar(), TramposClient()]
     providers.extend(_providers_latam())
     for classe, env in ((GreenhouseClient, "GREENHOUSE_EMPRESAS"), (LeverClient, "LEVER_EMPRESAS"), (AshbyClient, "ASHBY_EMPRESAS")):
         if empresas := _lista_env(env):
@@ -560,14 +534,12 @@ def providers_padrao() -> list:
         from src.client.apify_linkedin import ApifyLinkedInClient
 
         # Cada busca custa até APIFY_LIMITE vagas por local no Apify (US$ 0,002 cada em out/2026).
-        from src.client.apify_linkedin import LOCAIS_PADRAO
-
         providers.append(
             # APIFY_LOCAIS, ou a antiga APIFY_LOCAL (um local só, inteira: "São Paulo, SP"), vale como foi configurada;
             # as duas vazias caem no padrão (Brasil e América Latina, em inglês, como o LinkedIn
             # entende): sem local, a busca paga traria vagas do mundo todo.
             ApifyLinkedInClient(
-                locais=_lista_env("APIFY_LOCAIS") or _local_antigo_apify() or LOCAIS_PADRAO,
+                locais=locais_do_ambiente(),
                 limite=_limite_apify(),
                 token=token,
             )
@@ -614,6 +586,12 @@ def _pessoas_postgres() -> type:
     from src.repository.pessoa_postgres import PessoaRepositoryPostgres
 
     return PessoaRepositoryPostgres
+
+
+def _providers_postgres() -> type:
+    from src.repository.pessoa_provider_postgres import PessoaProviderRepositoryPostgres
+
+    return PessoaProviderRepositoryPostgres
 
 
 def _coleta_agendada_postgres() -> type:
@@ -669,6 +647,7 @@ def criar_app_producao() -> FastAPI:
         # A coleta roda para todas as pessoas da tabela `pessoa`; o resto do app segue na PESSOA_PADRAO.
         pessoas=_PorChamada(pool, _pessoas_postgres),
         repositorios_da_pessoa=repositorios_da_pessoa,
+        providers_da_pessoa=lambda pessoa_id: _PorChamada(pool, _providers_postgres, pessoa_id),
     )
 
 

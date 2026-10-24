@@ -1,0 +1,41 @@
+{# Fontes de vaga da pessoa. PUT pelo HTMX; o form troca a si mesmo (outerHTML) com o que ficou gravado. #}
+<form id="providers-form" class="perfil-form" method="post" action="/tela/perfil/providers"
+      hx-put="/tela/perfil/providers" hx-target="this" hx-swap="outerHTML" hx-disabled-elt="find button[type=submit]">
+  {% if providers_salvo %}
+  <div class="resumo" role="status">
+    <p><strong>Fontes salvas</strong>. A próxima coleta e a busca ao vivo já usam estas fontes.</p>
+  </div>
+  {% endif %}
+  {% if usa_padrao %}
+  <p class="dica">Usando as fontes padrão do servidor. Marque abaixo para escolher as suas; desmarcando tudo você volta às padrão.</p>
+  {% else %}
+  <p class="dica">Só as fontes marcadas são buscadas. Desmarcando tudo você volta às fontes padrão do servidor.</p>
+  {% endif %}
+
+  {% for l in linhas %}
+  <fieldset class="campo">
+    <legend>
+      <label class="opcao"><input type="checkbox" name="usar" value="{{ l.nome }}"{% if l.usar %} checked{% endif %}> {{ l.rotulo }}</label>
+    </legend>
+    {% if l.empresas is not none %}
+    <label for="f-{{ l.nome }}-empresas">Empresas</label>
+    <textarea id="f-{{ l.nome }}-empresas" name="{{ l.nome }}_empresas" rows="3" spellcheck="false">{{ l.empresas }}</textarea>
+    <p class="dica">Uma por linha, o nome que aparece na página de vagas da empresa (ex.: posthog).</p>
+    {% endif %}
+    {% if l.locais is not none %}
+    <label for="f-{{ l.nome }}-locais">Locais</label>
+    <textarea id="f-{{ l.nome }}-locais" name="{{ l.nome }}_locais" rows="2" spellcheck="false">{{ l.locais }}</textarea>
+    <p class="dica">Um por linha, em inglês (ex.: Brazil, Latin America, United States). Vazio usa os do servidor. O token do Apify fica só no servidor.</p>
+    {% endif %}
+    {% if l.tem_limite %}
+    <label for="f-{{ l.nome }}-limite">Limite</label>
+    <input id="f-{{ l.nome }}-limite" type="number" name="{{ l.nome }}_limite" min="1" max="{{ l.teto }}" step="1" value="{{ l.limite }}">
+    <p class="dica">Máximo {{ l.teto }}. Vazio usa o padrão.</p>
+    {% endif %}
+  </fieldset>
+  {% endfor %}
+
+  <div class="acoes-form">
+    <button type="submit" class="botao botao-primario">Salvar fontes</button>
+  </div>
+</form>

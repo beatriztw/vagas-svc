@@ -10,6 +10,7 @@ from src.repository.pedido_ia import PedidoIARepository
 from src.repository.pessoa import PessoaRepository, PessoaRepositoryMemoria
 from src.repository.trava import TravaColeta, TravaColetaMemoria
 from src.service.busca_service import BuscaService, ResultadoBusca
+from src.service.providers_pessoa import PROVIDERS_DO_AMBIENTE, ProvidersDaPessoa
 from src.service.recomendacao_service import RecomendacaoService
 
 log = logging.getLogger(__name__)
@@ -107,11 +108,6 @@ def termos_da_coleta(termos: list[str]) -> list[str]:
     return list(vistos.values())
 
 
-# Hoje os providers são os do ambiente, iguais para todas as pessoas. Quando cada pessoa tiver os seus, a chave
-# do cache passa a ser a deles (providers + config): só reaproveita a busca de quem usa os mesmos.
-PROVIDERS_DO_AMBIENTE = "ambiente"
-
-
 class ColetaService:
     """Roda a recomendação para cada termo do perfil de cada pessoa e guarda as vagas no histórico dela."""
 
@@ -122,8 +118,11 @@ class ColetaService:
         repositorios: Callable[[int], RepositoriosDaPessoa],
         trava: TravaColeta | None = None,
         ao_terminar: Callable[[ColetaDaPessoa], object] | None = None,
+        buscas: ProvidersDaPessoa | None = None,
     ):
         self.recomendacao = recomendacao
+        # Os providers de cada pessoa. Sem isto (testes), todas usam os da `recomendacao` (o ambiente).
+        self.buscas = buscas
         self.pessoas = pessoas
         # Os repositórios de cada pessoa saem de uma função, não de um objeto: na produção cada chamada pega a
         # própria conexão do pool (uma conexão compartilhada misturaria transações).
@@ -171,15 +170,18 @@ class ColetaService:
         return resultado
 
     def _busca_da_pessoa(self, pessoa_id: int) -> tuple[Hashable, BuscaService]:
-        """Os providers da pessoa e a chave que os identifica no cache. Hoje são os mesmos para todos."""
-        return PROVIDERS_DO_AMBIENTE, self.recomendacao.busca
+        """Os providers da pessoa e a chave que os identifica no cache: `PROVIDERS_DO_AMBIENTE` quando vale o
+        ambiente, senão a config dela (igual para configs iguais)."""
+        if self.buscas is None:
+            return PROVIDERS_DO_AMBIENTE, self.recomendacao.busca
+        return self.buscas.busca(pessoa_id)
 
+    @staticmethod
     def _buscar(
-        self, cache: dict[tuple[Hashable, str], ResultadoBusca], pessoa_id: int, termo: str
+        cache: dict[tuple[Hashable, str], ResultadoBusca], providers: Hashable, busca: BuscaService, termo: str
     ) -> ResultadoBusca:
         """Resultado CRU dos providers para o termo, buscado uma vez por `(providers, termo normalizado)` durante
         a coleta (o Apify é pago). Vem sem filtro de perfil: o filtro é de cada pessoa e se aplica depois."""
-        providers, busca = self._busca_da_pessoa(pessoa_id)
         chave = (providers, chave_do_termo(termo))
         if chave not in cache:
             cache[chave] = busca.buscar(termo)
@@ -201,13 +203,17 @@ class ColetaService:
                 # Sem perfil ou sem termos: pula, e as outras pessoas seguem.
                 puladas.append(pessoa_id)
                 continue
+            # Uma vez por pessoa: a config não muda no meio da coleta dela.
+            providers, busca_da_pessoa = self._busca_da_pessoa(pessoa_id)
             resultado = []
             for termo in termos:
                 # A falha de um provider já vem em `erros` (BuscaService); a coleta segue.
-                busca = self.recomendacao.refinar(self._buscar(cache, pessoa_id, termo), termo, perfil, hoje)
+                busca = self.recomendacao.refinar(
+                    self._buscar(cache, providers, busca_da_pessoa, termo), termo, perfil, hoje
+                )
                 novas = repos.vagas.registrar(busca.vagas, termo)
                 resultado.append(ColetaDoTermo(termo, len(busca.vagas), novas, dict(busca.erros)))
-            coletadas.append(ColetaDaPessoa(pessoa_id, resultado, providers=len(self.recomendacao.busca.clients)))
+            coletadas.append(ColetaDaPessoa(pessoa_id, resultado, providers=len(busca_da_pessoa.clients)))
         if not coletadas:
             if algum_perfil:
                 raise DadoInvalido("O perfil salvo não tem termos de busca: inclua pelo menos um em `termos`")
