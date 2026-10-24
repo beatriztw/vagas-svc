@@ -20,6 +20,7 @@ from html.parser import HTMLParser
 from src.client.remotar import ErroProvider
 from src.client.sanitizar import MAX_CARACTERES_DESCRICAO, html_para_texto
 from src.model.detalhe_vaga import DetalheVaga
+from src.model.situacao_vaga import SituacaoNaFonte
 
 DETALHE_URL = "https://www.linkedin.com/jobs-guest/jobs/api/jobPosting/{id}"
 # A página pública responde a navegador; com o User-Agent do `base` (vagas-svc/0.1) não foi conferida.
@@ -31,8 +32,15 @@ TIMEOUT_DETALHE_SEGUNDOS = 5
 MAX_BYTES_DETALHE = 2_000_000
 ID_DA_VAGA = re.compile(r"[0-9]{1,20}")
 CLASSE_DESCRICAO = "show-more-less-html__markup"
+# A vaga encerrada mostra `<figcaption class="closed-job__flavor--closed">Não aceita mais candidaturas`
+# (conferido em 24/10/2026 em vagas fechadas da página pública; as abertas não têm a classe).
+_FECHADA = re.compile(r"""class=["'][^"']*\bclosed-job__flavor--closed\b""")
 
 HttpGetTexto = Callable[[str], str]
+
+
+class LimiteDeRequisicoes(ErroProvider):
+    """O LinkedIn respondeu 429: a conferência para de consultar o LinkedIn até a próxima."""
 
 
 def get_html_detalhe(url: str) -> str:
@@ -51,6 +59,8 @@ def get_html_detalhe(url: str) -> str:
             charset = resp.headers.get_content_charset() if resp.headers is not None else None
     except urllib.error.HTTPError as erro:
         # 404/410 e 429 também: o LinkedIn não diz com isso que a vaga fechou.
+        if erro.code == 429:
+            raise LimiteDeRequisicoes("HTTP 429") from erro
         raise ErroProvider(f"HTTP {erro.code}") from erro
     except (OSError, http.client.HTTPException, ValueError) as erro:
         raise ErroProvider(type(erro).__name__) from erro
@@ -156,3 +166,25 @@ class LinkedInDetalheClient:
         if not descricao:
             raise ErroProvider("descrição vazia")
         return DetalheVaga(descricao=descricao)
+
+    def situacao(self, id: str) -> SituacaoNaFonte:
+        """Se a vaga `id` ainda aceita candidaturas, para a conferência diária. Só a página dizendo que
+        encerrou é FECHADA (404 do LinkedIn não prova nada); a página normal, com a descrição, é ABERTA;
+        429 é BLOQUEADA; qualquer outra coisa é DESCONHECIDA."""
+        if not isinstance(id, str) or not ID_DA_VAGA.fullmatch(id):
+            raise ValueError("id da vaga do LinkedIn tem que ter só dígitos (até 20)")
+        try:
+            pagina = self._http(DETALHE_URL.format(id=id))
+        except LimiteDeRequisicoes:
+            return SituacaoNaFonte.BLOQUEADA
+        except ErroProvider:
+            return SituacaoNaFonte.DESCONHECIDA
+        if not isinstance(pagina, str):
+            return SituacaoNaFonte.DESCONHECIDA
+        if _FECHADA.search(pagina):
+            return SituacaoNaFonte.FECHADA
+        try:
+            # Página sem o bloco da descrição (login, captcha) levanta: não dá para saber.
+            return SituacaoNaFonte.ABERTA if extrair_descricao(pagina).strip() else SituacaoNaFonte.DESCONHECIDA
+        except ErroProvider:
+            return SituacaoNaFonte.DESCONHECIDA
