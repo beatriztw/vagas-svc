@@ -3,6 +3,7 @@
 import os
 import threading
 import unittest
+from unittest import mock
 from datetime import datetime, timedelta, timezone
 
 from fastapi.testclient import TestClient
@@ -215,8 +216,11 @@ class AppTest(unittest.TestCase):
             self.assertEqual(ordem, ["migrations", "agendador"])
             self.assertEqual(len(threads_do_agendador()), 1)
         self.assertEqual(threads_do_agendador(), [])
-        # A fábrica recebe a MESMA coleta do POST /coletas (com a trava e o lote da IA).
-        self.assertIsInstance(recebido["coletar"].__self__, ColetaService)
+        # A fábrica recebe a MESMA coleta do POST /coletas (com a trava e o lote da IA), agora seguida da
+        # conferência na fonte (sem `conferencia`, como aqui, só a coleta).
+        with mock.patch.object(ColetaService, "coletar", autospec=True, return_value="resultado") as coletar:
+            self.assertEqual(recebido["coletar"](), "resultado")
+        self.assertEqual(coletar.call_count, 1)
 
     def test_config_desligada_sobe_a_app_sem_agendador(self):
         app = self.app(agendador=lambda coletar: AgendadorColeta.da_config(coletar, RegistroColetaAgendadaMemoria(), {"COLETA_HORARIOS": "x"}))
