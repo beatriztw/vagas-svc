@@ -84,7 +84,9 @@ def resumir(resultado) -> str:
     termos = list(resultado.termos)
     com_erro = sum(1 for t in termos if t.erros)
     estado = "falhou" if resultado.falhou else "ok"
-    return f"{estado} termos={len(termos)} novas={resultado.novas} termos_com_erro={com_erro}"
+    resumo = f"{estado} termos={len(termos)} novas={resultado.novas} termos_com_erro={com_erro}"
+    pessoas_com_erro = len(getattr(resultado, "com_erro", []))
+    return f"{resumo} pessoas_com_erro={pessoas_com_erro}" if pessoas_com_erro else resumo
 
 
 class AgendadorColeta:

@@ -54,6 +54,8 @@ def rodar(
             print(linha_do_termo(da_pessoa.pessoa_id, termo), file=saida)
     for pessoa_id in resultado.puladas:
         print(f"pessoa {pessoa_id} | pulada: sem perfil ou sem termos", file=saida)
+    for pessoa_id in resultado.com_erro:
+        print(f"pessoa {pessoa_id} | coleta falhou", file=erro)
     if resultado.falhou:
         print("coleta falhou: todos os providers deram erro em todos os termos", file=erro)
         return 1

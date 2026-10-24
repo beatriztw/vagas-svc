@@ -52,6 +52,8 @@ class ResultadoColeta:
     providers: int
     # Pessoas sem perfil ou sem termos: puladas, a coleta das outras segue.
     puladas: list[int] = field(default_factory=list)
+    # Pessoas cuja coleta deu erro (ex.: banco no meio): as outras seguem; o que já gravou fica.
+    com_erro: list[int] = field(default_factory=list)
 
     @property
     def termos(self) -> list[ColetaDoTermo]:
@@ -191,25 +193,39 @@ class ColetaService:
         cache: dict[tuple[Hashable, str], ResultadoBusca] = {}
         coletadas: list[ColetaDaPessoa] = []
         puladas: list[int] = []
+        com_erro: list[int] = []
+        ultimo_erro: Exception | None = None
         algum_perfil = False
         for pessoa_id in self.pessoas.listar():
-            repos = self.repositorios(pessoa_id)
-            perfil = repos.perfis.obter()
-            termos = termos_da_coleta(perfil.termos) if perfil is not None else []
-            algum_perfil = algum_perfil or perfil is not None
-            if not termos:
-                # Sem perfil ou sem termos: pula, e as outras pessoas seguem.
-                puladas.append(pessoa_id)
+            try:
+                repos = self.repositorios(pessoa_id)
+                perfil = repos.perfis.obter()
+                termos = termos_da_coleta(perfil.termos) if perfil is not None else []
+                algum_perfil = algum_perfil or perfil is not None
+                if not termos:
+                    # Sem perfil ou sem termos: pula, e as outras pessoas seguem.
+                    puladas.append(pessoa_id)
+                    continue
+                resultado = []
+                for termo in termos:
+                    # A falha de um provider já vem em `erros` (BuscaService); a coleta segue.
+                    busca = self.recomendacao.refinar(self._buscar(cache, pessoa_id, termo), termo, perfil, hoje)
+                    novas = repos.vagas.registrar(busca.vagas, termo)
+                    resultado.append(ColetaDoTermo(termo, len(busca.vagas), novas, dict(busca.erros)))
+            except Exception as e:  # noqa: BLE001 - erro de uma pessoa (ex.: banco) não derruba as outras
+                # Só o id e o tipo: a mensagem pode trazer termo ou dado do perfil.
+                log.warning("coleta da pessoa %s falhou: %s", pessoa_id, type(e).__name__)
+                com_erro.append(pessoa_id)
+                ultimo_erro = e
                 continue
-            resultado = []
-            for termo in termos:
-                # A falha de um provider já vem em `erros` (BuscaService); a coleta segue.
-                busca = self.recomendacao.refinar(self._buscar(cache, pessoa_id, termo), termo, perfil, hoje)
-                novas = repos.vagas.registrar(busca.vagas, termo)
-                resultado.append(ColetaDoTermo(termo, len(busca.vagas), novas, dict(busca.erros)))
             coletadas.append(ColetaDaPessoa(pessoa_id, resultado, providers=len(self.recomendacao.busca.clients)))
         if not coletadas:
+            # Ninguém coletou e alguém deu erro (ex.: banco fora para todos): a coleta inteira falhou.
+            if ultimo_erro is not None:
+                raise ultimo_erro
             if algum_perfil:
                 raise DadoInvalido("O perfil salvo não tem termos de busca: inclua pelo menos um em `termos`")
             raise DadoInvalido("Nenhum perfil salvo: salve um perfil com termos (PUT /perfil) antes de coletar")
-        return ResultadoColeta(coletadas, providers=len(self.recomendacao.busca.clients), puladas=puladas)
+        return ResultadoColeta(
+            coletadas, providers=len(self.recomendacao.busca.clients), puladas=puladas, com_erro=com_erro
+        )
