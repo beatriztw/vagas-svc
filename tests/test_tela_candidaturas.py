@@ -344,12 +344,14 @@ class DesfazerTest(unittest.TestCase):
 
 
 class FiacaoTest(unittest.TestCase):
-    def test_router_da_tela_recebe_o_servico_explicito(self):
+    def test_router_da_tela_recebe_o_contexto_da_pessoa_e_nao_o_servico(self):
         import inspect
 
         from src.controller.tela import criar_router_tela
 
-        self.assertIn("candidaturas", inspect.signature(criar_router_tela).parameters)
+        parametros = inspect.signature(criar_router_tela).parameters
+        self.assertIn("contexto_da_pessoa", parametros)
+        self.assertNotIn("candidaturas", parametros)
 
     def test_json_e_tela_usam_o_mesmo_servico(self):
         api, servico = cliente()

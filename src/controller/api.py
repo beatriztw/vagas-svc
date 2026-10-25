@@ -1,4 +1,5 @@
-"""API HTTP do vagas-svc. Sem autenticação: só é exposta na rede interna do Swarm."""
+"""API HTTP do vagas-svc. Sem autenticação: só é exposta na rede interna do Swarm. A pessoa da requisição vem do
+seletor (cookie) ou do cabeçalho `X-Person-Id`, ver `pessoa_selecionada.py`: isso escolhe os dados, não autentica."""
 
 import logging
 import os
@@ -17,15 +18,18 @@ from pydantic import BaseModel, ConfigDict, Field, StrictInt
 
 from src.client.armazenamento import Armazenamento
 from src.controller.candidaturas import criar_router_candidaturas
+from src.controller.contexto_pessoa import ContextoPessoa
 from src.controller.ia_metricas import criar_router_ia_metricas
 from src.controller.perfil_providers import criar_router_perfil_providers
 from src.controller.pedidos_ia import criar_router_pedidos_ia
+from src.controller.pessoa_selecionada import criar_pessoa_da_requisicao
 from src.controller.seguranca_json import exigir_json_mesma_origem
 from src.controller.tela import criar_router_tela
 from src.controller.tela_candidaturas import criar_router_tela_candidaturas
 from src.controller.tela_ia import criar_router_tela_ia
 from src.controller.tela_curriculos import criar_router_tela_curriculos
 from src.controller.tela_perfil import criar_router_tela_perfil
+from src.controller.tela_pessoa import criar_router_tela_pessoa
 from src.controller.tela_seguranca import DIRETORIO_STATIC, caminho_da_tela, eh_htmx, templates
 from src.model.curriculo import Curriculo
 from src.model.erros import DadoInvalido
@@ -70,8 +74,8 @@ from src.service.providers_pessoa import (
 from src.service.recomendacao_service import RecomendacaoService
 
 
-# Em produção a pessoa é sempre esta (a dona dos dados de antes da migration 013). Os repositórios recebem a
-# pessoa no construtor; quando a sessão por pessoa chegar, esta constante sai e a pessoa vem da requisição.
+# A pessoa de uma requisição sem cabeçalho `X-Person-Id` nem cookie do seletor (a dona dos dados de antes da
+# migration 013), e a dos repositórios em memória que não recebem uma fábrica por pessoa (testes).
 PESSOA_PADRAO = 1
 
 
@@ -177,10 +181,20 @@ class ColetaDoTermoJson(BaseModel):
 
 
 class ResultadoColetaJson(BaseModel):
-    # Só a pessoa da requisição (hoje PESSOA_PADRAO), como sempre foi: termo e contagem de uma pessoa não saem
+    # Só a pessoa da requisição, como sempre foi: termo e contagem de uma pessoa não saem
     # na resposta para outra. Cada pessoa vê o resultado das outras só nas contagens somadas do agendador e na CLI.
     termos: list[ColetaDoTermoJson]
     novas: int
+
+
+class _SemRepositorio:
+    """O lugar de um repositório que a fábrica da pessoa não deu (testes): qualquer uso é erro, nunca os dados de outra."""
+
+    def __init__(self, campo: str, pessoa_id: int):
+        self._mensagem = f"sem repositório de {campo} para a pessoa {pessoa_id}"
+
+    def __getattr__(self, nome: str):
+        raise RuntimeError(self._mensagem)
 
 
 def _fabricas_da_requisicao(perfis, curriculos, encontradas) -> FabricasPorPessoa:
@@ -243,7 +257,11 @@ def criar_app(
     pessoa e devolve a conferência na fonte, que roda (em segundo plano, pessoa por pessoa) quando a app sobe e
     depois de cada coleta agendada; sem ela (testes), nenhuma vaga é reconsultada. A coleta roda para cada pessoa
     de `pessoas` com os repositórios de `repositorios_da_pessoa` (a produção passa os do Postgres, um por chamada);
-    sem eles (testes) a única pessoa é a PESSOA_PADRAO, com `perfis` e `encontradas`. `providers_da_pessoa` dá o
+    sem eles (testes) a única pessoa é a PESSOA_PADRAO, com `perfis` e `encontradas`.
+    A pessoa de cada requisição (tela e API JSON) vem de `pessoa_da_requisicao` (cabeçalho, cookie ou padrão) e
+    escolhe os repositórios dentre `repositorios_da_pessoa`, `providers_da_pessoa` e, para candidaturas,
+    `RepositoriosDaPessoa.candidaturas`. Os `perfis`, `curriculos`, `encontradas`... passados direto valem só para
+    a PESSOA_PADRAO: outra pessoa sem fábrica é erro, nunca os dados da errada. `providers_da_pessoa` dá o
     repositório das fontes de vaga de cada pessoa (sem ele, em memória); pessoa sem fontes usa `busca`, as do
     ambiente. `fabricas` dão os repositórios da
     pessoa dona de cada pedido da fila do worker (a fila é de todas as pessoas); sem elas só existe a pessoa da
@@ -268,6 +286,7 @@ def criar_app(
     # Dependência do app: rota mutável nova (JSON) já nasce protegida; /tela e /interno ficam de fora dentro dela.
     app = FastAPI(title="vagas-svc", lifespan=ciclo_de_vida, dependencies=[Depends(exigir_json_mesma_origem)])
     app.state.armazenamento = armazenamento
+    pessoas = pessoas if pessoas is not None else PessoaRepositoryMemoria([PESSOA_PADRAO])
     recomendacao = RecomendacaoService(busca)
     encontradas = encontradas if encontradas is not None else VagaEncontradaRepositoryMemoria(PESSOA_PADRAO)
     # Lista do histórico (JSON e tela) com o perfil salvo aplicado na leitura.
@@ -302,19 +321,18 @@ def criar_app(
 
     coleta = ColetaService(
         recomendacao,
-        pessoas if pessoas is not None else PessoaRepositoryMemoria([PESSOA_PADRAO]),
+        pessoas,
         repositorios_da_pessoa or (lambda _: RepositoriosDaPessoa(perfis, encontradas)),
         trava,
         ao_terminar=enfileirar_lote_da_pessoa,
         buscas=buscas,
     )
-    pessoas_da_coleta = pessoas if pessoas is not None else PessoaRepositoryMemoria([PESSOA_PADRAO])
     if conferencia is None:
         app.state.conferencia = None
     else:
         # Cada pessoa tem o próprio histórico: a conferência roda sobre o de cada uma.
         app.state.conferencia = ConferenciaDasPessoas(
-            pessoas_da_coleta.listar,
+            pessoas.listar,
             lambda pessoa_id: conferencia(
                 repositorios_da_pessoa(pessoa_id).vagas if repositorios_da_pessoa is not None else encontradas
             ),
@@ -333,12 +351,55 @@ def criar_app(
         candidaturas = CandidaturaRepositoryMemoria(PESSOA_PADRAO, vaga_por_url_em(encontradas))
     # Um serviço só, para as rotas JSON e as da tela (na produção, o repositório é o _PorChamada).
     servico_candidaturas = CandidaturaService(candidaturas, encontradas)
-    # Só para os testes alcançarem o serviço; as rotas recebem o serviço explicitamente.
+    # Só para os testes alcançarem o serviço (o da PESSOA_PADRAO); as rotas recebem o contexto da pessoa da requisição.
     app.state.candidaturas = servico_candidaturas
-    app.include_router(criar_router_candidaturas(servico_candidaturas))
+
+    def contexto_de(pessoa_id: int) -> ContextoPessoa:
+        """Os repositórios e serviços da pessoa. Campo que a fábrica não dá vale só para a PESSOA_PADRAO."""
+        dela = repositorios_da_pessoa(pessoa_id) if repositorios_da_pessoa is not None else None
+
+        def pegar(campo: str, padrao):
+            valor = getattr(dela, campo, None) if dela is not None else None
+            if valor is not None:
+                return valor
+            if pessoa_id != PESSOA_PADRAO:
+                # Falha alto só se alguém USAR o que falta (a coleta de todas não precisa de candidaturas).
+                return _SemRepositorio(campo, pessoa_id)
+            return padrao
+
+        perfis_p = pegar("perfis", perfis)
+        vagas_p = pegar("vagas", encontradas)
+        curriculos_p = pegar("curriculos", curriculos)
+        pedidos_p = pegar("pedidos_ia", pedidos_ia)
+        candidaturas_p = pegar("candidaturas", candidaturas)
+        detalhe_p = detalhe.para(vagas_p) if detalhe is not None else DetalheService(vagas_p)
+        return ContextoPessoa(
+            pessoa_id=pessoa_id,
+            perfis=perfis_p,
+            curriculos=curriculos_p,
+            encontradas=vagas_p,
+            pedidos_ia=pedidos_p,
+            providers=providers_da_pessoa(pessoa_id),
+            historico=HistoricoService(vagas_p, perfis_p),
+            candidaturas=CandidaturaService(candidaturas_p, vagas_p),
+            detalhe=detalhe_p,
+            ia=servico_ia.da_pessoa(pedidos_p, vagas_p, perfis_p, curriculos_p, detalhe_p if detalhe is not None else None),
+        )
+
+    # Cabeçalho `X-Person-Id`, cookie do seletor ou a PESSOA_PADRAO (ver `pessoa_selecionada.py`).
+    pessoa_da_requisicao = criar_pessoa_da_requisicao(pessoas, PESSOA_PADRAO)
+    app.state.pessoa_da_requisicao = pessoa_da_requisicao
+
+    def contexto_da_requisicao(pessoa_id: int = Depends(pessoa_da_requisicao)) -> ContextoPessoa:
+        """A dependência de toda rota com dados da pessoa: um contexto NOVO por requisição (na produção os
+        repositórios são `_PorChamada`: nenhuma conexão fica guardada, cada chamada usa uma do pool)."""
+        return contexto_de(pessoa_id)
+
+    app.include_router(criar_router_candidaturas(contexto_da_requisicao))
     app.state.pedido_ia_service = servico_ia
-    app.include_router(criar_router_pedidos_ia(app.state.pedido_ia_service))
-    app.include_router(criar_router_ia_metricas(pedidos_ia))
+    # A fila do worker é de todas as pessoas (Bearer, sem pessoa da requisição); só o rótulo usa o contexto.
+    app.include_router(criar_router_pedidos_ia(app.state.pedido_ia_service, contexto_da_requisicao))
+    app.include_router(criar_router_ia_metricas(contexto_da_requisicao))
 
     def erro_da_tela(request: Request, mensagem: str, status: int):
         """A tela troca HTML: o erro volta como HTML, não como JSON."""
@@ -376,12 +437,13 @@ def criar_app(
         return resposta
 
     app.mount("/static", StaticFiles(directory=DIRETORIO_STATIC), name="static")
-    app.include_router(criar_router_tela(encontradas, historico, coleta, servico_candidaturas, detalhe, servico_ia, PESSOA_PADRAO))
-    app.include_router(criar_router_tela_candidaturas(servico_candidaturas))
-    app.include_router(criar_router_tela_ia(app.state.pedido_ia_service))
-    app.include_router(criar_router_tela_perfil(perfis, providers_da_pessoa(PESSOA_PADRAO)))
-    app.include_router(criar_router_perfil_providers(providers_da_pessoa(PESSOA_PADRAO)))
-    app.include_router(criar_router_tela_curriculos(curriculos))
+    app.include_router(criar_router_tela(coleta, contexto_da_requisicao))
+    app.include_router(criar_router_tela_candidaturas(contexto_da_requisicao))
+    app.include_router(criar_router_tela_ia(contexto_da_requisicao))
+    app.include_router(criar_router_tela_perfil(contexto_da_requisicao))
+    app.include_router(criar_router_perfil_providers(contexto_da_requisicao))
+    app.include_router(criar_router_tela_curriculos(contexto_da_requisicao))
+    app.include_router(criar_router_tela_pessoa(pessoas))
 
     @app.get("/", include_in_schema=False)
     def raiz() -> RedirectResponse:
@@ -399,39 +461,39 @@ def criar_app(
         return {"ok": True}
 
     @app.get("/perfil")
-    def obter_perfil() -> PerfilJson:
-        perfil = perfis.obter()
+    def obter_perfil(ctx: ContextoPessoa = Depends(contexto_da_requisicao)) -> PerfilJson:
+        perfil = ctx.perfis.obter()
         if perfil is None:
             raise HTTPException(404, "Nenhum perfil salvo")
         return PerfilJson.de(perfil)
 
     @app.put("/perfil")
-    def salvar_perfil(corpo: PerfilJson) -> PerfilJson:
+    def salvar_perfil(corpo: PerfilJson, ctx: ContextoPessoa = Depends(contexto_da_requisicao)) -> PerfilJson:
         # Valida aqui também: um repositório que não valide ainda devolve 422, não 500.
-        perfis.salvar(validar_perfil(corpo.para_perfil()))
-        return PerfilJson.de(perfis.obter())
+        ctx.perfis.salvar(validar_perfil(corpo.para_perfil()))
+        return PerfilJson.de(ctx.perfis.obter())
 
     @app.get("/curriculos/base")
-    def obter_base() -> CurriculoJson:
-        base = curriculos.obter_base()
+    def obter_base(ctx: ContextoPessoa = Depends(contexto_da_requisicao)) -> CurriculoJson:
+        base = ctx.curriculos.obter_base()
         if base is None:
             raise HTTPException(404, "Nenhum currículo base salvo")
         return CurriculoJson.de(base)
 
     @app.put("/curriculos/base")
-    def nova_base(corpo: NovaBase) -> CurriculoJson:
-        salvo = curriculos.salvar(Curriculo(tipo="base", **corpo.model_dump()))
+    def nova_base(corpo: NovaBase, ctx: ContextoPessoa = Depends(contexto_da_requisicao)) -> CurriculoJson:
+        salvo = ctx.curriculos.salvar(Curriculo(tipo="base", **corpo.model_dump()))
         return CurriculoJson.de(salvo)
 
     @app.get("/curriculos/adaptados")
-    def listar_adaptados() -> list[CurriculoJson]:
-        return [CurriculoJson.de(c) for c in curriculos.listar_adaptados()]
+    def listar_adaptados(ctx: ContextoPessoa = Depends(contexto_da_requisicao)) -> list[CurriculoJson]:
+        return [CurriculoJson.de(c) for c in ctx.curriculos.listar_adaptados()]
 
     @app.post("/curriculos/adaptados", status_code=201)
-    def novo_adaptado(corpo: NovoAdaptado) -> CurriculoJson:
+    def novo_adaptado(corpo: NovoAdaptado, ctx: ContextoPessoa = Depends(contexto_da_requisicao)) -> CurriculoJson:
         # Do worker (com `pedido_id`): a pessoa é a dona do pedido. Sem ele: a da requisição.
         curriculos_da_pessoa = (
-            curriculos
+            ctx.curriculos
             if corpo.pedido_id is None
             else servico_ia.curriculos_do_pedido(corpo.pedido_id, corpo.vaga_url)
         )
@@ -455,17 +517,18 @@ def criar_app(
         return CurriculoJson.de(salvo)
 
     @app.get("/vagas")
-    def buscar_vagas(termo: str = Query(min_length=1)) -> ResultadoJson:
+    def buscar_vagas(ctx: ContextoPessoa = Depends(contexto_da_requisicao), termo: str = Query(min_length=1)) -> ResultadoJson:
         # Os providers da pessoa (ou os do ambiente, se ela não configurou nenhum).
-        _, busca_da_pessoa = buscas.busca(PESSOA_PADRAO)
-        resultado = RecomendacaoService(busca_da_pessoa).recomendar(termo, perfis.obter())
+        _, busca_da_pessoa = buscas.busca(ctx.pessoa_id)
+        resultado = RecomendacaoService(busca_da_pessoa).recomendar(termo, ctx.perfis.obter())
         return ResultadoJson(vagas=[VagaJson.de(v) for v in resultado.vagas], erros=resultado.erros)
 
     @app.post("/coletas")
-    def coletar() -> ResultadoColetaJson:
+    def coletar(ctx: ContextoPessoa = Depends(contexto_da_requisicao)) -> ResultadoColetaJson:
+        # Coleta de TODAS as pessoas (como a agendada); a resposta é só a da pessoa da requisição.
         # Sem perfil ou sem termos: DadoInvalido do serviço, 422; outra coleta rodando: 409.
         resultado = coleta.coletar()
-        da_pessoa = resultado.da_pessoa(PESSOA_PADRAO)
+        da_pessoa = resultado.da_pessoa(ctx.pessoa_id)
         return ResultadoColetaJson(
             termos=[ColetaDoTermoJson(**vars(t)) for t in da_pessoa.termos],
             novas=da_pessoa.novas,
@@ -473,17 +536,18 @@ def criar_app(
 
     @app.get("/vagas/encontradas")
     def listar_encontradas(
+        ctx: ContextoPessoa = Depends(contexto_da_requisicao),
         novas: bool = True,
         limite: int = Query(default=50, ge=1, le=MAX_LIMITE_VAGAS),
         q: str | None = Query(default=None, max_length=MAX_TAMANHO_BUSCA),
         deslocamento: int = Query(default=0, ge=0, le=MAX_DESLOCAMENTO_VAGAS),
     ) -> list[VagaEncontradaJson]:
-        vagas = historico.listar(somente_novas=novas, limite=limite, q=q, deslocamento=deslocamento)
+        vagas = ctx.historico.listar(somente_novas=novas, limite=limite, q=q, deslocamento=deslocamento)
         return [VagaEncontradaJson.de(v) for v in vagas]
 
     @app.post("/vagas/vistas")
-    def marcar_vistas(corpo: VagasVistas) -> VistasJson:
-        return VistasJson(marcadas=encontradas.marcar_vistas(corpo.urls))
+    def marcar_vistas(corpo: VagasVistas, ctx: ContextoPessoa = Depends(contexto_da_requisicao)) -> VistasJson:
+        return VistasJson(marcadas=ctx.encontradas.marcar_vistas(corpo.urls))
 
     return app
 
@@ -683,6 +747,7 @@ def criar_app_producao() -> FastAPI:
             vagas=_PorChamada(pool, _encontradas_postgres, pessoa_id),
             curriculos=_PorChamada(pool, _curriculos_postgres, pessoa_id),
             pedidos_ia=_PorChamada(pool, _pedidos_ia_postgres, pessoa_id),
+            candidaturas=_PorChamada(pool, _candidaturas_postgres, pessoa_id),
         )
 
     # Pedido do worker: os repositórios da pessoa do pedido, também uma conexão do pool por chamada.
@@ -711,7 +776,9 @@ def criar_app_producao() -> FastAPI:
         ao_subir=_migrar,
         # Coleta às 08:00 e 18:00 de Brasília (COLETA_HORARIOS; vazia ou inválida desliga).
         agendador=lambda coletar: AgendadorColeta.da_config(coletar, _PorChamada(pool, _coleta_agendada_postgres)),
-        # A coleta roda para todas as pessoas da tabela `pessoa`; o resto do app segue na PESSOA_PADRAO.
+        # A coleta roda para todas as pessoas da tabela `pessoa`; as rotas usam a pessoa da requisição (cabeçalho,
+        # cookie do seletor ou PESSOA_PADRAO). Os `_PorChamada(..., PESSOA_PADRAO)` acima só servem à PESSOA_PADRAO
+        # (repositórios sem fábrica) e à fila do worker, que é de todas.
         pessoas=_PorChamada(pool, _pessoas_postgres),
         repositorios_da_pessoa=repositorios_da_pessoa,
         providers_da_pessoa=lambda pessoa_id: _PorChamada(pool, _providers_postgres, pessoa_id),

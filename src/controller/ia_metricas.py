@@ -1,17 +1,22 @@
 """`GET /ia/metricas`: agregados da acurácia da compatibilidade (sem vaga, currículo nem texto da IA)."""
 
-from fastapi import APIRouter, Query, Response
+from collections.abc import Callable
 
+from fastapi import APIRouter, Depends, Query, Response
+
+from src.controller.contexto_pessoa import ContextoPessoa
 from src.model.erros import DadoInvalido
-from src.repository.pedido_ia import PedidoIARepository
 from src.service import metricas_ia
 
 
-def criar_router_ia_metricas(pedidos: PedidoIARepository) -> APIRouter:
+def criar_router_ia_metricas(contexto_da_pessoa: Callable[..., ContextoPessoa]) -> APIRouter:
     router = APIRouter()
 
     @router.get("/ia/metricas")
-    def metricas(response: Response, prompt_versao: str | None = Query(default=None)) -> dict:
+    def metricas(
+        response: Response, ctx: ContextoPessoa = Depends(contexto_da_pessoa), prompt_versao: str | None = Query(default=None)
+    ) -> dict:
+        pedidos = ctx.pedidos_ia
         response.headers["Cache-Control"] = "no-store"
         if prompt_versao is not None and not metricas_ia.PADRAO_VERSAO.fullmatch(prompt_versao):
             raise DadoInvalido("prompt_versao: use o formato compatibilidade-vN")

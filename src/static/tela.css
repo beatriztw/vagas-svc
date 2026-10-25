@@ -36,6 +36,10 @@ a:hover { color: #0A3F3A; }
   justify-content: space-between;
   gap: 16px;
 }
+.topo-acoes { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
+.seletor-pessoa { display: flex; align-items: center; gap: 8px; margin: 0; }
+.seletor-pessoa label { font-size: 13px; font-weight: 500; color: #34413F; }
+.seletor-pessoa select { max-width: 220px; }
 .marca { display: flex; align-items: center; gap: 12px; }
 .marca-nome { font-weight: 700; font-size: 18px; letter-spacing: -0.01em; }
 .logo {

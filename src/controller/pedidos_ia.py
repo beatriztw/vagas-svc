@@ -7,6 +7,7 @@ nunca loga `resultado`, `erro`, currículo nem descrição.
 
 import hmac
 import os
+from collections.abc import Callable
 from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
@@ -14,6 +15,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field, StrictInt, model_validator
 
 from src.controller.candidaturas import exigir_json
+from src.controller.contexto_pessoa import ContextoPessoa
 from src.model.erros import DadoInvalido
 from src.model.pedido_ia import Faixa, PedidoEmConflito, PedidoInexistente
 from src.service.pedido_ia_service import PedidoIAService
@@ -84,7 +86,9 @@ def _json(status: int, conteudo: dict) -> JSONResponse:
     return JSONResponse(status_code=status, content=conteudo, headers=SEM_CACHE)
 
 
-def criar_router_pedidos_ia(servico: PedidoIAService) -> APIRouter:
+def criar_router_pedidos_ia(servico: PedidoIAService, contexto_da_pessoa: Callable[..., ContextoPessoa]) -> APIRouter:
+    """`servico` é o do worker (a fila de todas as pessoas, sem pessoa da requisição). O rótulo é da pessoa da
+    requisição e usa o serviço dela."""
     router = APIRouter()
     # Primeiro a autenticação: sem token, nada do corpo é lido.
     protegidas = [Depends(exigir_worker_ia), Depends(exigir_json)]
@@ -112,8 +116,8 @@ def criar_router_pedidos_ia(servico: PedidoIAService) -> APIRouter:
         return _json(200, {"id": pedido.id, "estado": pedido.estado.value})
 
     @router.put("/vagas/rotulo-ia", dependencies=[Depends(exigir_json)])
-    def rotular(corpo: RotuloJson) -> dict:
-        faixa = servico.rotular(corpo.vaga_url, corpo.faixa)
+    def rotular(corpo: RotuloJson, ctx: ContextoPessoa = Depends(contexto_da_pessoa)) -> dict:
+        faixa = ctx.ia.rotular(corpo.vaga_url, corpo.faixa)
         return {"vaga_url": corpo.vaga_url, "faixa": faixa.value if faixa else None}
 
     return router
