@@ -1,5 +1,6 @@
 {# Uma candidatura. O status é só o menu, na cor do status (sem chip repetindo o mesmo texto); embaixo, desde quando.
-   Contexto: `c` e o de `contexto_linha` (status_andamento, status_encerradas, agora). #}
+   Contexto: `c` e o de `contexto_linha` (status_andamento, status_encerradas, agora). Toda mudança troca o bloco
+   #aplicadas inteiro, porque a linha pode mudar de grupo; dentro das encerradas, a seção volta aberta. #}
 {% from "tela/_macros.html" import classe_status %}
 {%- set saiu_do_ar = c.expirada_em is not none and c.expirada_em <= agora and not c.status.encerrada %}
 <tr id="candidatura-{{ c.id }}"{% if c.status.encerrada %} class="encerrada"{% endif %}>
@@ -9,7 +10,8 @@
   <td>
     <div class="status-candidatura">
       <select name="status" class="status-menu {{ classe_status(c.status) }}" aria-label="Status de {{ c.titulo }}"
-              hx-patch="/tela/candidaturas/{{ c.id }}" hx-trigger="change" hx-target="closest tr" hx-swap="outerHTML">
+              hx-patch="/tela/candidaturas/{{ c.id }}" hx-trigger="change" hx-target="#aplicadas" hx-swap="outerHTML"
+              {%- if c.status.encerrada %} hx-vals='{"encerradas_aberta": "1"}'{% endif %}>
         <optgroup label="Em andamento">
           {% for s in status_andamento %}<option value="{{ s.value }}"{% if s == c.status %} selected{% endif %}>{{ s.rotulo }}</option>{% endfor %}
         </optgroup>
@@ -22,7 +24,7 @@
       {# Só avisa: quem marca é a pessoa. #}
       <span class="aviso-saiu" role="status">A vaga saiu do ar.
         <button type="button" class="botao-link" hx-patch="/tela/candidaturas/{{ c.id }}" hx-vals='{"status": "vaga_encerrada"}'
-                hx-target="closest tr" hx-swap="outerHTML">Marcar como encerrada</button>
+                hx-target="#aplicadas" hx-swap="outerHTML">Marcar como encerrada</button>
       </span>
       {% endif %}
     </div>

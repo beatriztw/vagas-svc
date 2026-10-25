@@ -34,28 +34,73 @@ def cliente(*vagas):
 
 
 class AjustesDaTabelaTest(unittest.TestCase):
-    """Encerradas no fim, "Ocultar encerradas", "desde" e o aviso da vaga que saiu do ar."""
+    """Encerradas na seção recolhida, "desde" e o aviso da vaga que saiu do ar."""
 
     def linhas(self, html):
         return re.findall(r'<tr id="candidatura-(\d+)"( class="encerrada")?>', html)
 
-    def test_encerradas_vao_para_o_fim_e_ganham_a_opcao_de_ocultar(self):
+    def test_encerradas_vao_para_a_secao_recolhida_embaixo(self):
         api, servico = cliente()
         a, _ = servico.marcar_aplicada(URL_A)
         b, _ = servico.marcar_aplicada(URL_B)  # a mais recente: sem encerrar, vem primeiro
         html = api.get("/tela/candidaturas", headers=HX).text
         self.assertEqual(self.linhas(html), [(str(b.id), ""), (str(a.id), "")])
-        self.assertNotIn("ocultar-encerradas", html)
+        self.assertNotIn('id="encerradas"', html)
 
         servico.mudar_status(b.id, "vaga_encerrada")
         html = api.get("/tela/candidaturas", headers=HX).text
 
-        self.assertEqual(self.linhas(html), [(str(a.id), ""), (str(b.id), ' class="encerrada"')])
-        self.assertIn("Ocultar encerradas (1)", html)
-        self.assertRegex(html, r'<label id="ocultar-encerradas-rotulo"[^>]*hx-preserve="true"')
-        self.assertIn('<input type="checkbox" id="ocultar-encerradas">', html)
-        css = api.get("/static/tela.css").text
-        self.assertIn("#aplicadas:has(#ocultar-encerradas:checked) tr.encerrada { display: none; }", css)
+        principal, recolhida = html.split('<details id="encerradas"')
+        self.assertEqual(self.linhas(principal), [(str(a.id), "")])
+        self.assertEqual(self.linhas(recolhida), [(str(b.id), ' class="encerrada"')])
+        self.assertTrue(recolhida.startswith(' class="encerradas">'))  # fechada: sem `open`
+        self.assertIn("<summary>Encerradas (1)</summary>", recolhida)
+        self.assertIn("2 candidaturas", html)  # o contador segue contando todas
+        self.assertNotIn("ocultar-encerradas", html)
+
+    def test_os_quatro_status_encerrados_vao_para_a_secao(self):
+        api, servico = cliente()
+        c, _ = servico.marcar_aplicada(URL_A)
+        for status in ("vaga_encerrada", "recusada", "sem_resposta", "proposta_aceita"):
+            with self.subTest(status=status):
+                servico.mudar_status(c.id, status)
+                principal, recolhida = api.get("/tela/candidaturas", headers=HX).text.split('<details id="encerradas"')
+                self.assertEqual(self.linhas(principal), [])
+                self.assertIn("Nenhuma candidatura em andamento", principal)
+                self.assertEqual(self.linhas(recolhida), [(str(c.id), ' class="encerrada"')])
+
+    def test_patch_que_encerra_move_a_linha_e_deixa_a_secao_fechada(self):
+        api, servico = cliente()
+        c, _ = servico.marcar_aplicada(URL_A)
+
+        html = api.patch(f"/tela/candidaturas/{c.id}", data={"status": "recusada"}, headers=HX).text
+
+        self.assertTrue(html.lstrip().startswith('<div id="aplicadas">'))
+        principal, recolhida = html.split('<details id="encerradas"')
+        self.assertEqual(self.linhas(principal), [])
+        self.assertTrue(recolhida.startswith(' class="encerradas">'))
+        self.assertEqual(self.linhas(recolhida), [(str(c.id), ' class="encerrada"')])
+
+    def test_mudanca_de_dentro_das_encerradas_volta_com_a_secao_aberta(self):
+        api, servico = cliente()
+        a, _ = servico.marcar_aplicada(URL_A)
+        b, _ = servico.marcar_aplicada(URL_B)
+        servico.mudar_status(a.id, "recusada")
+        servico.mudar_status(b.id, "sem_resposta")
+
+        html = api.get("/tela/candidaturas", headers=HX).text
+        # O menu de uma encerrada avisa que veio de dentro da seção; o de uma em andamento, não.
+        self.assertRegex(html, rf'hx-patch="/tela/candidaturas/{a.id}"[^>]*hx-vals=\'{{"encerradas_aberta": "1"}}\'')
+
+        html = api.patch(f"/tela/candidaturas/{a.id}", data={"status": "vaga_encerrada", "encerradas_aberta": "1"}, headers=HX).text
+        self.assertIn('<details id="encerradas" class="encerradas" open>', html)
+
+        # Voltou a andar: sobe para a tabela principal e o menu perde o aviso.
+        html = api.patch(f"/tela/candidaturas/{a.id}", data={"status": "em_analise", "encerradas_aberta": "1"}, headers=HX).text
+        principal, recolhida = html.split('<details id="encerradas"')
+        self.assertEqual(self.linhas(principal), [(str(a.id), "")])
+        self.assertEqual(self.linhas(recolhida), [(str(b.id), ' class="encerrada"')])
+        self.assertNotRegex(principal, r'encerradas_aberta')
 
     def test_mostra_desde_quando_esta_no_status(self):
         api, servico = cliente()
@@ -138,7 +183,7 @@ class ListagemTest(unittest.TestCase):
         self.assertRegex(
             html,
             rf'<select name="status"[^>]*hx-patch="/tela/candidaturas/{c.id}"[^>]*hx-trigger="change"'
-            r'[^>]*hx-target="closest tr"[^>]*hx-swap="outerHTML"',
+            r'[^>]*hx-target="#aplicadas"[^>]*hx-swap="outerHTML"',
         )
         opcoes = re.findall(r'<option value="([^"]+)"( selected)?>([^<]+)</option>', html)
         self.assertEqual([(v, r) for v, _, r in opcoes], [(s.value, s.rotulo) for s in StatusCandidatura])
@@ -198,11 +243,12 @@ class MudarStatusTest(unittest.TestCase):
         self.api, self.servico = cliente()
         self.c, _ = self.servico.marcar_aplicada(URL_A)
 
-    def test_patch_muda_e_devolve_a_linha(self):
+    def test_patch_muda_e_devolve_o_bloco(self):
         resposta = self.api.patch(f"/tela/candidaturas/{self.c.id}", data={"status": "em_analise"}, headers=HX)
 
         self.assertEqual(resposta.status_code, 200)
-        self.assertTrue(resposta.text.lstrip().startswith(f'<tr id="candidatura-{self.c.id}">'))
+        self.assertTrue(resposta.text.lstrip().startswith('<div id="aplicadas">'))
+        self.assertIn(f'<tr id="candidatura-{self.c.id}">', resposta.text)
         self.assertNotIn("<html", resposta.text)
         self.assertIn("st-analise", resposta.text)
         self.assertRegex(resposta.text, r'<option value="em_analise" selected>')
