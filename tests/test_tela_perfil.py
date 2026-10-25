@@ -4,7 +4,7 @@ import re
 import unittest
 from html import unescape
 
-from fastapi.testclient import TestClient
+from tests.sessao import ClienteLogado
 
 from src.controller.api import criar_app
 from src.model.perfil import Perfil
@@ -20,7 +20,7 @@ def cliente(perfil=None):
     if perfil is not None:
         perfis.salvar(perfil)
     app = criar_app(perfis, CurriculoRepositoryMemoria(1), BuscaService([]))
-    return TestClient(app), perfis
+    return ClienteLogado(app), perfis
 
 
 def textarea(html, nome):
@@ -218,7 +218,7 @@ class SalvarTest(unittest.TestCase):
             "dados",
         )
         perfis = PerfilBuscaRepositoryMemoria(1)
-        api = TestClient(criar_app(perfis, CurriculoRepositoryMemoria(1), BuscaService([]), encontradas=encontradas))
+        api = ClienteLogado(criar_app(perfis, CurriculoRepositoryMemoria(1), BuscaService([]), encontradas=encontradas))
 
         api.put("/tela/perfil", data={"termos": "dados", "excluir": "vendas"}, headers=HX)
         html = api.get("/tela").text

@@ -89,14 +89,14 @@ O estado (perfil de busca e currículos) fica num Postgres. O schema está em `m
 
 - `perfil_busca`: uma linha por pessoa (chave `pessoa_id`), gravada por upsert. Os CHECK de `modalidades` e `niveis` espelham `Modalidade` e `Nivel` de `src/model/vaga.py`.
 - `curriculo`: `tipo` é `base` ou `adaptado`; adaptado sempre aponta para uma base (`base_id`). A base vigente é a base mais recente; as anteriores ficam como histórico.
-- `013_pessoa.sql` cria `pessoa` e põe `pessoa_id` em tudo o que é de uma pessoa (vagas, candidaturas, pedidos e rótulos de IA, currículos, perfil e pausa do lote): o que já existia fica na pessoa 1, a chave de `vaga_encontrada` passa a ser `(pessoa_id, url)` e chaves estrangeiras compostas impedem uma pessoa de usar a vaga de outra. Os repositórios recebem a pessoa no construtor e todo SQL filtra por ela (a fila do worker de IA lê todas), mas por enquanto a pessoa é sempre a 1 (`PESSOA_PADRAO` em `src/controller/api.py`), sem mudança na API nem na tela.
+- `013_pessoa.sql` cria `pessoa` e põe `pessoa_id` em tudo o que é de uma pessoa (vagas, candidaturas, pedidos e rótulos de IA, currículos, perfil e pausa do lote): o que já existia fica na pessoa 1, a chave de `vaga_encontrada` passa a ser `(pessoa_id, url)` e chaves estrangeiras compostas impedem uma pessoa de usar a vaga de outra. Os repositórios recebem a pessoa no construtor e todo SQL filtra por ela (a fila do worker de IA lê todas), e a pessoa de cada requisição é a da sessão (ver "Login e pessoas"). `016_sessao.sql` acrescenta `pessoa.senha_hash`, a tabela `sessao` (guarda só o sha256 do token) e o índice único do nome de exibição (sem diferenciar caixa).
 - `014_pedido_ia_rodizio.sql` só cria dois índices parciais em `pedido_ia` (idempotente): o do último lote reivindicado de cada pessoa, que o rodízio da cota do `proximo` consulta, e o do teto diário global do lote (ver "Lote" na seção de IA).
 
 `src/repository/conexao.py` conecta com as variáveis `PGHOST`, `PGPORT` (padrão 5432), `PGDATABASE`, `PGUSER` e a senha de `PGPASSWORD` ou do arquivo apontado por `PGPASSWORD_FILE` (no Swarm, `/run/secrets/vagas_db_password`).
 
 ## API HTTP
 
-`src/controller/api.py` expõe a API com FastAPI (porta 8000, sem autenticação: só para a rede interna). Localmente:
+`src/controller/api.py` expõe a API com FastAPI (porta 8000). Toda rota exige o login de uma pessoa (ver "Login e pessoas"), menos `/saude`, `/static`, `/login`, `/logout`, `/pedidos-ia/*` (Bearer do worker) e a documentação gerada pelo FastAPI. Localmente:
 
 ```bash
 uvicorn src.controller.api:app --reload
@@ -108,14 +108,40 @@ A app de produção lê o Postgres pelas variáveis `PG*` (`PGHOST`, `PGPORT`, `
 
 | Método e rota | O que faz |
 |---|---|
-| `GET /saude` | `{"ok": true}` |
+| `GET /saude` | `{"ok": true}` (a única rota da API sem login) |
 | `GET /perfil` | perfil de busca salvo (404 se não houver) |
 | `PUT /perfil` | salva o perfil; modalidades e níveis com os valores dos enums (`"Remoto"`, `"Júnior"`), senão 422 |
 | `GET /curriculos/base` | currículo base vigente (404 se não houver) |
 | `PUT /curriculos/base` | `{titulo, conteudo_md, arquivo_s3?}`: cria uma nova versão da base |
 | `GET /curriculos/adaptados` | lista os currículos adaptados |
-| `POST /curriculos/adaptados` | `{titulo, conteudo_md, vaga_url, base_id?, pedido_id?}`: sem `base_id` usa a base vigente (409 se não houver base). O worker manda também o `pedido_id` (ver "Currículo adaptado do worker"): a pessoa é a do pedido; sem ele vale a pessoa da requisição |
+| `POST /curriculos/adaptados` | `{titulo, conteudo_md, vaga_url, base_id?, pedido_id?}`: sem `base_id` usa a base vigente (409 se não houver base). O worker (Bearer) manda também o `pedido_id` (ver "Currículo adaptado do worker"): a pessoa é a do pedido; uma pessoa logada grava nos currículos dela |
 | `GET /vagas?termo=...` | busca nos providers (o Remotar, cuja busca é frouxa, corta título sem nenhuma palavra do termo), aplica o perfil: exclui termos do título, só remotas se a modalidade for só Remoto, corta vagas mais antigas que `publicada_desde_dias`, corta nível fora de `niveis` quando o título diz o nível, mantém só a cidade de `localidades` ou remotas (vaga sem local fica) e ordena pela relevância do título (fração das palavras do termo que ele tem), desempatando pelas `skills` que aparecem no título; devolve `{vagas, erros}` |
+
+## Login e pessoas
+
+Toda rota de `/tela` e da API JSON exige a sessão de uma pessoa, e cada requisição lê e grava **só os dados dela**: a pessoa vem do cookie (`pessoa_da_requisicao`), nunca de parâmetro, cabeçalho ou corpo. Ficam de fora `/saude`, `/static`, `/login`, `/logout`, `/pedidos-ia/*` (Bearer do worker, ver "Token do worker") e `/`, `/docs`, `/redoc`, `/openapi.json` (só o esquema da API). `POST /curriculos/adaptados` aceita a sessão ou o Bearer do worker. A regra é uma dependência do app (`src/controller/sessao.py`), então rota nova já nasce com login; `tests/test_login.py` percorre `app.routes` e falha se alguma rota (fora a lista explícita de exceções) responder sem sessão.
+
+**Cadastro (só pela linha de comando; não existe tela de cadastro):**
+
+```bash
+python -m src.controller.pessoa criar --nome "Fulana"   # pede a senha duas vezes (getpass)
+python -m src.controller.pessoa senha --id 1            # define ou troca a senha da pessoa 1
+```
+
+A senha tem de 10 a 128 caracteres e **nunca é impressa, nem o hash** (a saída é só o id). O nome de exibição é o login e é único sem diferenciar caixa. A migration 016 deixa a pessoa 1 **sem senha, e pessoa sem senha não entra**: depois do deploy rode `senha --id 1`. Trocar a senha encerra as sessões abertas da pessoa. Na imagem: `docker exec -it <container vagas> python -m src.controller.pessoa senha --id 1`.
+
+**Senha.** `hashlib.scrypt` (stdlib), `n=2**14, r=8, p=1`, sal aleatório de 16 bytes por senha, formato `scrypt$n$r$p$salt_b64$hash_b64` em `pessoa.senha_hash` (os parâmetros ficam no próprio hash: subir o custo não invalida as senhas gravadas), comparação com `hmac.compare_digest`. Nome inexistente, pessoa sem senha e hash torto gastam o mesmo scrypt de uma senha errada, e a mensagem é a mesma ("Nome ou senha incorretos."): nem a resposta nem o tempo dizem se o nome existe.
+
+**Sessão.** Token `secrets.token_urlsafe(32)` no cookie `vagas_sessao`: `HttpOnly`, `SameSite=Strict`, `Path=/`, `Max-Age` de 30 dias. O banco (`sessao`, migration 016) guarda só o **sha256** do token, nunca o token; sessão expirada é sem sessão (expiração fixa, sem renovar a cada uso) e as vencidas são apagadas a cada login. Logout (`POST /logout`, botão "Sair" no cabeçalho) apaga a linha e o cookie. Trocar de pessoa é sair e entrar.
+
+| Variável | Padrão | O que faz |
+|---|---|---|
+| `SESSAO_COOKIE_SECURE` | desligado | `1`/`true`/`sim` marca o cookie `Secure` (ligue atrás de HTTPS; na LAN em http um cookie `Secure` nunca voltaria). Valor inválido cai no padrão |
+| `SESSAO_DIAS` | `30` | validade da sessão, de 1 a 365. Valor inválido cai no padrão |
+
+**Força bruta.** No máximo 10 tentativas por nome (sem diferenciar caixa) em 15 minutos; passou disso, `429` com `Retry-After`, sem conferir a senha (nem a certa entra durante o bloqueio). A contagem é **em memória do processo**: reiniciar a app a zera e, com mais de uma réplica, cada uma conta a sua; a app roda numa réplica só. O custo é que quem erra o nome de outra pessoa 10 vezes a tranca por 15 minutos (o limite vale também para nomes que não existem, para não revelar quais existem).
+
+**CSRF do login.** `GET /login` mostra o formulário e `POST /login` e `POST /logout` são formulários comuns: **não exigem `HX-Request`** (funcionam sem JavaScript), mas exigem `Origin` igual ao host ou, sem `Origin`, `Sec-Fetch-Site: same-origin`, senão `403` (o navegador manda `Origin` em todo POST). Sem isso um site qualquer poderia entrar com a conta de quem ataca (login CSRF), que o `SameSite=Strict` não cobre porque o login não depende de cookie. A coleta agendada e a CLI (`python -m src.controller.coleta`) continuam globais, sem sessão, para todas as pessoas; `POST /coletas` e o botão da tela disparam a coleta de todas e devolvem só o resultado da pessoa da sessão.
 
 ## Coleta
 
@@ -178,7 +204,7 @@ As vagas em que a pessoa aplicou ficam na tabela `candidatura` de `migrations/00
 
 - A lista da tela é a do histórico pelo perfil (seção "Histórico pelo perfil"): a mesma leitura da rota JSON, com o mesmo contador.
 - Esqueleto: header, lista, detalhe e "Vagas aplicadas" em estado vazio; "Coletar agora" e "Meu perfil" já ativos. Lista, busca, coleta e candidaturas entram nos PRs seguintes só preenchendo os partials.
-- `src/controller/tela_seguranca.py` guarda o que as rotas de `/tela` compartilham: o `Jinja2Templates` (autoescape ligado), o filtro `url_segura` (só `http`/`https` com host vira `href`) e a dependência de CSRF das rotas que mudam estado (`HX-Request: true` e `Origin` igual ao host, ou, sem `Origin`, `Sec-Fetch-Site: same-origin`; senão 403).
+- `src/controller/tela_seguranca.py` guarda o que as rotas de `/tela` compartilham: o `Jinja2Templates` (autoescape ligado), o filtro `url_segura` (só `http`/`https` com host vira `href`) e a dependência de CSRF das rotas que mudam estado (`HX-Request: true` e `Origin` igual ao host, ou, sem `Origin`, `Sec-Fetch-Site: same-origin`; senão 403). Toda rota de `/tela` exige sessão: sem ela, `303` para `/login` (com HTMX, `401` com `HX-Redirect: /login`).
 - Respostas de `/tela` e `/static` levam `Content-Security-Policy: default-src 'self'; ...`, `X-Content-Type-Options: nosniff` e `Referrer-Policy: same-origin`; `/tela` também `Cache-Control: no-store`. Por isso não há JS nem CSS inline.
 - `DadoInvalido` em rota de `/tela` vira 422 com o partial `_erro.html`; nas rotas JSON continua `{"detail": ...}`. Qualquer outro erro é 500.
 
@@ -257,15 +283,16 @@ As rotas `/pedidos-ia/*` não aparecem no `/docs`. Respondem com `Cache-Control:
 
 ### Currículo adaptado do worker (`pedido_id`)
 
-O `POST /curriculos/adaptados` não tem Bearer nem pessoa na requisição além da padrão, e o worker atende pedidos de todas as pessoas. Por isso o worker passa a mandar o `id` do pedido que está atendendo:
+O worker não tem sessão de pessoa, e atende pedidos de todas. Por isso o `POST /curriculos/adaptados` aceita **a sessão OU o Bearer do worker** (`Authorization: Bearer <token>`, o mesmo de `/pedidos-ia/*`), e o worker manda o `id` do pedido que está atendendo:
 
 ```json
 {"titulo": "...", "conteudo_md": "...", "vaga_url": "...", "base_id": 3, "pedido_id": 12}
 ```
 
-- **Mudança no worker**: incluir `pedido_id` (o `id` que veio no `POST /pedidos-ia/proximo`) em todo `POST /curriculos/adaptados`. É o único ponto do worker que muda. O campo é opcional para não quebrar o worker atual: sem ele o currículo vai para a pessoa da requisição (hoje a pessoa 1), o que errará assim que existir um pedido de outra pessoa.
-- Com `pedido_id` o servidor tira a pessoa do pedido e grava o adaptado nela, com a base dela (`base_id`, se vier, tem de ser base dessa pessoa: senão `404`).
-- `422` se o pedido não existe, se é de outra `vaga_url`, se não é de currículo ou se não está `rodando` (a rota é aberta; sem isso qualquer id gravaria na pessoa dona dele).
+- **Mudança no worker**: mandar o header `Authorization: Bearer <token>` (o que ele já manda no resto) e o `pedido_id` (o `id` que veio no `POST /pedidos-ia/proximo`) em todo `POST /curriculos/adaptados`. Sem o Bearer a rota responde `401` (sem sessão de pessoa). Com Bearer, o cookie nunca é olhado: token errado é `401` mesmo com sessão válida.
+- Com Bearer o `pedido_id` é obrigatório (`422` sem ele: o worker não tem pessoa). O servidor tira a pessoa do pedido e grava o adaptado nela, com a base dela (`base_id`, se vier, tem de ser base dessa pessoa: senão `404`).
+- Uma pessoa logada (sem Bearer) grava nos currículos dela; se mandar `pedido_id`, o pedido tem de ser DELA (de outra pessoa é `422`, igual a um id que não existe).
+- `422` se o pedido não existe, se é de outra `vaga_url`, se não é de currículo ou se não está `rodando`.
 
 ### Currículo em PDF (ATS)
 
@@ -294,7 +321,7 @@ Além do clique da pessoa, a compatibilidade roda em lote, uma vaga por vez, pel
 
 `/pedidos-ia/*` exige `Authorization: Bearer <token>`. O token vem do arquivo em `VAGAS_IA_TOKEN_FILE` (no Swarm, `/run/secrets/vagas_ia_token`) ou, na falta dele, de `VAGAS_IA_TOKEN`; a comparação usa `hmac.compare_digest`. Sem token configurado (ausente, ilegível ou vazio) as rotas respondem `503` e a app continua de pé; token ausente ou errado é `401` com `WWW-Authenticate: Bearer`.
 
-Por que Bearer, se o resto da API é aberto: no compose do claude-pi o `vagas` está em mais de uma rede e a tela é publicada na LAN, e estas rotas entregam o currículo e o perfil e aceitam escrita. Abertas, qualquer um na rede poderia reivindicar pedidos ou gravar resultados e envenenar as métricas. O `GET /curriculos/base` aberto é uma dívida que já existe, não um padrão a copiar. O worker lê o mesmo secret; o service `claude` (sandbox) não o recebe.
+Por que Bearer e não a sessão: a fila é de todas as pessoas e o worker não é uma pessoa. No compose do claude-pi o `vagas` está em mais de uma rede e a tela é publicada na LAN, e estas rotas entregam o currículo e o perfil e aceitam escrita: sem o token, qualquer um na rede poderia reivindicar pedidos ou gravar resultados e envenenar as métricas. O worker lê o mesmo secret; o service `claude` (sandbox) não o recebe. O resto da API agora exige o login da pessoa (o antigo `GET /curriculos/base` aberto deixou de ser uma dívida).
 
 ## Testes
 

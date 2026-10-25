@@ -334,7 +334,7 @@ class PedidoIAPostgresTest(unittest.TestCase):
         self.assertEqual(self.repo.urls_ativas("curriculo"), {URL_A})
 
     def test_api_ponta_a_ponta_pelo_pool(self):
-        from fastapi.testclient import TestClient
+        from tests.sessao import ClienteLogado
 
         from src.controller.api import _PorChamada, criar_app
         from src.model.curriculo import Curriculo
@@ -358,7 +358,7 @@ class PedidoIAPostgresTest(unittest.TestCase):
             encontradas=_PorChamada(lambda: pool, lambda: VagaEncontradaRepositoryPostgres, 1),
             pedidos_ia=_PorChamada(lambda: pool, lambda: PedidoIARepositoryPostgres, 1),
         )
-        api = TestClient(app, raise_server_exceptions=False)
+        api = ClienteLogado(app, raise_server_exceptions=False)
         auth = {"Authorization": "Bearer tok"}
         with mock.patch.dict(os.environ, {"VAGAS_IA_TOKEN": "tok"}):
             pedido, _ = app.state.pedido_ia_service.pedir(URL_A, "compatibilidade")

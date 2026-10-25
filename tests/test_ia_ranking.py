@@ -8,7 +8,7 @@ import unittest
 from datetime import date
 from urllib.parse import parse_qs, quote, urlsplit
 
-from fastapi.testclient import TestClient
+from tests.sessao import ClienteLogado
 
 from src.controller.api import criar_app
 from src.model.curriculo import Curriculo
@@ -186,7 +186,7 @@ class TelaTest(unittest.TestCase):
             self.perfis, self.curriculos, BuscaService([]), encontradas=self.encontradas, pedidos_ia=self.pedidos
         )
         self.servico = self.app.state.pedido_ia_service
-        self.cliente = TestClient(self.app)
+        self.cliente = ClienteLogado(self.app)
 
     def avaliar(self, notas: dict):
         for url, n in notas.items():

@@ -16,7 +16,7 @@ from datetime import date
 from html import unescape
 from unittest.mock import patch
 
-from fastapi.testclient import TestClient
+from tests.sessao import ClienteLogado
 
 from src.client.apify_linkedin import ApifyLinkedInClient
 from src.client.apify_linkedin_posts import ApifyLinkedInPostsClient
@@ -548,7 +548,7 @@ class ApiJsonTest(unittest.TestCase):
             BuscaService([self.ambiente]),
             providers_da_pessoa=lambda pessoa_id: PessoaProviderRepositoryMemoria(pessoa_id, self.fontes),
         )
-        self.api = TestClient(self.app)
+        self.api = ClienteLogado(self.app)
 
     def put(self, corpo, headers=JSON):
         return self.api.put("/perfil/providers", content=json.dumps(corpo), headers=headers)
@@ -641,7 +641,7 @@ class TelaTest(unittest.TestCase):
             BuscaService([]),
             providers_da_pessoa=lambda pessoa_id: PessoaProviderRepositoryMemoria(pessoa_id, self.fontes),
         )
-        self.api = TestClient(app)
+        self.api = ClienteLogado(app)
 
     def put(self, dados, headers=HX):
         return self.api.put("/tela/perfil/providers", data=dados, headers=headers)

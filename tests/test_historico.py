@@ -7,7 +7,7 @@ import os
 import unittest
 from datetime import date
 
-from fastapi.testclient import TestClient
+from tests.sessao import ClienteLogado
 
 from src.controller.api import criar_app
 from src.model.erros import DadoInvalido
@@ -274,7 +274,7 @@ class ApiHistoricoTest(unittest.TestCase):
     def setUp(self):
         self.repo = VagaEncontradaRepositoryMemoria(1)
         self.repo.registrar(vagas_do_conjunto(), "termo")
-        self.api = TestClient(
+        self.api = ClienteLogado(
             criar_app(PerfilBuscaRepositoryMemoria(1), CurriculoRepositoryMemoria(1), BuscaService([]), encontradas=self.repo)
         )
 
@@ -333,7 +333,7 @@ class ApiHistoricoTest(unittest.TestCase):
                 raise ValueError("config")
 
         for classe, status in ((Invalido, 422), (Quebrado, 500)):
-            api = TestClient(
+            api = ClienteLogado(
                 criar_app(PerfilBuscaRepositoryMemoria(1), CurriculoRepositoryMemoria(1), BuscaService([]), encontradas=classe(1)),
                 raise_server_exceptions=False,
             )

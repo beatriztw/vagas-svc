@@ -8,7 +8,7 @@ import threading
 import unittest
 from urllib.parse import parse_qs, quote, urlsplit
 
-from fastapi.testclient import TestClient
+from tests.sessao import ClienteLogado
 
 from src.client.base import ProviderClient
 from src.controller.api import criar_app
@@ -29,7 +29,7 @@ def selos(texto: str) -> list[str]:
     return [c.attrs["data-url"] for c in pagina.cards() if re.search(r"\bnova\b", c.texto)]
 
 
-def mutacao(cliente: TestClient, caminho: str, **dados):
+def mutacao(cliente: ClienteLogado, caminho: str, **dados):
     return cliente.post(caminho, data=dados, headers=MUTACAO)
 
 
@@ -375,7 +375,7 @@ class ColetaPelaTelaTest(unittest.TestCase):
         provider = ProviderBloqueado()
         provider.soltar.set()
         app, repo = app_de_coleta(provider)
-        cliente = TestClient(app, raise_server_exceptions=False)
+        cliente = ClienteLogado(app, raise_server_exceptions=False)
 
         resposta = mutacao(cliente, "/tela/coletas")
 
@@ -391,7 +391,7 @@ class ColetaPelaTelaTest(unittest.TestCase):
         provider = ProviderBloqueado()
         provider.soltar.set()
         app, _ = app_de_coleta(provider)
-        cliente = TestClient(app, raise_server_exceptions=False)
+        cliente = ClienteLogado(app, raise_server_exceptions=False)
         mutacao(cliente, "/tela/coletas")
 
         resposta = mutacao(cliente, "/tela/coletas")
@@ -407,7 +407,7 @@ class ColetaPelaTelaTest(unittest.TestCase):
         )
         provider.soltar.set()
         app, _ = app_de_coleta(provider)
-        cliente = TestClient(app, raise_server_exceptions=False)
+        cliente = ClienteLogado(app, raise_server_exceptions=False)
 
         resposta = mutacao(cliente, "/tela/coletas", q="java", novas="1")
 
@@ -416,7 +416,7 @@ class ColetaPelaTelaTest(unittest.TestCase):
 
     def test_todos_os_providers_com_erro_aparece_no_resumo(self):
         app, _ = app_de_coleta(ProviderQuebrado())
-        cliente = TestClient(app, raise_server_exceptions=False)
+        cliente = ClienteLogado(app, raise_server_exceptions=False)
 
         resposta = mutacao(cliente, "/tela/coletas")
 
@@ -431,7 +431,7 @@ class ColetaPelaTelaTest(unittest.TestCase):
                 provider = ProviderBloqueado()
                 provider.soltar.set()
                 app, _ = app_de_coleta(provider, termos=termos)
-                cliente = TestClient(app, raise_server_exceptions=False)
+                cliente = ClienteLogado(app, raise_server_exceptions=False)
 
                 resposta = mutacao(cliente, "/tela/coletas")
 
@@ -446,7 +446,7 @@ class ColetaPelaTelaTest(unittest.TestCase):
         provider = ProviderBloqueado()
         provider.soltar.set()
         app, _ = app_de_coleta(provider)
-        cliente = TestClient(app, raise_server_exceptions=False)
+        cliente = ClienteLogado(app, raise_server_exceptions=False)
 
         self.assertEqual(mutacao(cliente, "/tela/coletas", novas="talvez").status_code, 422)
         self.assertEqual(mutacao(cliente, "/tela/coletas", q="x" * 201).status_code, 422)
@@ -457,14 +457,14 @@ class ColetaPelaTelaTest(unittest.TestCase):
         app, repo = app_de_coleta(provider)
         resposta = {}
         primeira = threading.Thread(
-            target=lambda: resposta.update(r=mutacao(TestClient(app, raise_server_exceptions=False), "/tela/coletas"))
+            target=lambda: resposta.update(r=mutacao(ClienteLogado(app, raise_server_exceptions=False), "/tela/coletas"))
         )
         primeira.start()
         self.addCleanup(primeira.join, ESPERA)
         self.addCleanup(provider.soltar.set)
         self.assertTrue(provider.comecou.wait(ESPERA))
 
-        segunda = mutacao(TestClient(app, raise_server_exceptions=False), "/tela/coletas")
+        segunda = mutacao(ClienteLogado(app, raise_server_exceptions=False), "/tela/coletas")
 
         self.assertEqual(segunda.status_code, 409)
         self.assertTrue(segunda.headers["content-type"].startswith("text/html"))
@@ -481,13 +481,13 @@ class ColetaPelaTelaTest(unittest.TestCase):
         provider = ProviderBloqueado()
         app, _ = app_de_coleta(provider)
         resposta = {}
-        primeira = threading.Thread(target=lambda: resposta.update(r=TestClient(app).post("/coletas", json={})))
+        primeira = threading.Thread(target=lambda: resposta.update(r=ClienteLogado(app).post("/coletas", json={})))
         primeira.start()
         self.addCleanup(primeira.join, ESPERA)
         self.addCleanup(provider.soltar.set)
         self.assertTrue(provider.comecou.wait(ESPERA))
 
-        segunda = mutacao(TestClient(app, raise_server_exceptions=False), "/tela/coletas")
+        segunda = mutacao(ClienteLogado(app, raise_server_exceptions=False), "/tela/coletas")
 
         self.assertEqual(segunda.status_code, 409)
         provider.soltar.set()
@@ -497,12 +497,12 @@ class ColetaPelaTelaTest(unittest.TestCase):
     def test_409_sem_htmx_e_a_pagina_de_erro_e_na_api_continua_json(self):
         provider = ProviderBloqueado()
         app, _ = app_de_coleta(provider)
-        primeira = threading.Thread(target=lambda: TestClient(app).post("/coletas", json={}))
+        primeira = threading.Thread(target=lambda: ClienteLogado(app).post("/coletas", json={}))
         primeira.start()
         self.addCleanup(primeira.join, ESPERA)
         self.addCleanup(provider.soltar.set)
         self.assertTrue(provider.comecou.wait(ESPERA))
-        cliente = TestClient(app, raise_server_exceptions=False)
+        cliente = ClienteLogado(app, raise_server_exceptions=False)
 
         api = cliente.post("/coletas", json={})
         self.assertEqual((api.status_code, api.json()), (409, {"detail": "coleta em andamento"}))
@@ -518,7 +518,7 @@ class ColetaPelaTelaTest(unittest.TestCase):
         provider = ProviderBloqueado()
         provider.soltar.set()
         app, _ = app_de_coleta(provider, encontradas=FalhaDoBanco(1))
-        cliente = TestClient(app, raise_server_exceptions=False)
+        cliente = ClienteLogado(app, raise_server_exceptions=False)
 
         self.assertEqual(mutacao(cliente, "/tela/coletas").status_code, 500)
         self.assertEqual(mutacao(cliente, "/tela/coletas").status_code, 500)  # nunca 409
@@ -527,7 +527,7 @@ class ColetaPelaTelaTest(unittest.TestCase):
         provider = ProviderBloqueado()
         provider.soltar.set()
         app, repo = app_de_coleta(provider)
-        cliente = TestClient(app, raise_server_exceptions=False)
+        cliente = ClienteLogado(app, raise_server_exceptions=False)
 
         for cabecalhos in ({"Origin": "http://testserver"}, {"HX-Request": "true", "Origin": "http://evil.test"}, {}):
             with self.subTest(cabecalhos=cabecalhos):

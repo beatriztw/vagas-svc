@@ -6,7 +6,7 @@ import unittest
 from unittest import mock
 from datetime import datetime, timedelta, timezone
 
-from fastapi.testclient import TestClient
+from tests.sessao import ClienteLogado
 
 from src.controller.api import criar_app
 from src.model.erros import DadoInvalido
@@ -195,7 +195,7 @@ class AppTest(unittest.TestCase):
 
     def test_criar_app_sem_agendador_nao_inicia_thread(self):
         app = self.app()
-        with TestClient(app) as cliente:
+        with ClienteLogado(app) as cliente:
             self.assertEqual(cliente.get("/saude").status_code, 200)
             self.assertIsNone(app.state.agendador)
             self.assertEqual(threads_do_agendador(), [])
@@ -212,7 +212,7 @@ class AppTest(unittest.TestCase):
         agendador = app.state.agendador
         iniciar = agendador.iniciar
         agendador.iniciar = lambda: (ordem.append("agendador"), iniciar())
-        with TestClient(app):
+        with ClienteLogado(app):
             self.assertEqual(ordem, ["migrations", "agendador"])
             self.assertEqual(len(threads_do_agendador()), 1)
         self.assertEqual(threads_do_agendador(), [])
@@ -224,7 +224,7 @@ class AppTest(unittest.TestCase):
 
     def test_config_desligada_sobe_a_app_sem_agendador(self):
         app = self.app(agendador=lambda coletar: AgendadorColeta.da_config(coletar, RegistroColetaAgendadaMemoria(), {"COLETA_HORARIOS": "x"}))
-        with TestClient(app) as cliente:
+        with ClienteLogado(app) as cliente:
             self.assertEqual(cliente.get("/saude").status_code, 200)
             self.assertEqual(threads_do_agendador(), [])
 

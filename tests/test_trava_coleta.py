@@ -8,7 +8,7 @@ import os
 import threading
 import unittest
 
-from fastapi.testclient import TestClient
+from tests.sessao import ClienteLogado
 
 from src.client.base import ProviderClient
 from src.controller.api import criar_app
@@ -137,13 +137,13 @@ class ApiTravaTest(unittest.TestCase):
         perfis = perfis_com("python")
         api = criar_app(perfis, CurriculoRepositoryMemoria(1), BuscaService([provider]))
         resposta = {}
-        primeira = threading.Thread(target=lambda: resposta.update(r=TestClient(api).post("/coletas", json={})))
+        primeira = threading.Thread(target=lambda: resposta.update(r=ClienteLogado(api).post("/coletas", json={})))
         primeira.start()
         self.addCleanup(primeira.join, ESPERA)
         self.addCleanup(provider.soltar.set)
         self.assertTrue(provider.comecou.wait(ESPERA))
 
-        segunda = TestClient(api).post("/coletas", json={})
+        segunda = ClienteLogado(api).post("/coletas", json={})
 
         self.assertEqual(segunda.status_code, 409)
         self.assertEqual(segunda.json(), {"detail": "coleta em andamento"})
@@ -152,7 +152,7 @@ class ApiTravaTest(unittest.TestCase):
         self.assertEqual(resposta["r"].status_code, 200)
         self.assertEqual(resposta["r"].json()["novas"], 1)
         self.assertEqual(provider.chamadas, 1, "só a primeira coleta chamou o provider")
-        self.assertEqual(TestClient(api).post("/coletas", json={}).status_code, 200)  # liberou
+        self.assertEqual(ClienteLogado(api).post("/coletas", json={}).status_code, 200)  # liberou
 
     def test_trava_compartilhada_entre_dois_apps(self):
         # Como a API e a tela/cron: a trava injetada vale para todos que a recebem.
@@ -160,7 +160,7 @@ class ApiTravaTest(unittest.TestCase):
         perfis = perfis_com("python")
         provider = ProviderBloqueado()
         provider.soltar.set()
-        api = TestClient(criar_app(perfis, CurriculoRepositoryMemoria(1), BuscaService([provider]), trava=trava))
+        api = ClienteLogado(criar_app(perfis, CurriculoRepositoryMemoria(1), BuscaService([provider]), trava=trava))
 
         with trava.segurar():
             self.assertEqual(api.post("/coletas", json={}).status_code, 409)
@@ -174,7 +174,7 @@ class ApiTravaTest(unittest.TestCase):
 
         provider = ProviderBloqueado()
         provider.soltar.set()
-        api = TestClient(
+        api = ClienteLogado(
             criar_app(perfis_com("python"), CurriculoRepositoryMemoria(1), BuscaService([provider]), encontradas=FalhaDoBanco(1)),
             raise_server_exceptions=False,
         )
@@ -319,7 +319,7 @@ class TravaPostgresTest(unittest.TestCase):
         self.addCleanup(pool.close)
         provider = ProviderBloqueado()
         provider.soltar.set()
-        api = TestClient(
+        api = ClienteLogado(
             criar_app(
                 _PorChamada(lambda: pool, lambda: PerfilBuscaRepositoryPostgres, 1),
                 _PorChamada(lambda: pool, lambda: CurriculoRepositoryPostgres, 1),

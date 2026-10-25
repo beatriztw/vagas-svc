@@ -10,7 +10,7 @@ import uuid
 from datetime import date, datetime
 from pathlib import Path
 
-from fastapi.testclient import TestClient
+from tests.sessao import ClienteLogado
 
 from src.controller.api import criar_app
 from src.controller.coleta import rodar
@@ -331,7 +331,7 @@ class ApiColetaTest(unittest.TestCase):
         self.perfis = PerfilBuscaRepositoryMemoria(1)
         self.client = ClientPorTermo("A", {"python": [vaga("u1"), vaga("u2")], "django": [vaga("u1")]})
         busca = BuscaService([ClientQuebrado(), self.client])
-        self.api = TestClient(criar_app(self.perfis, CurriculoRepositoryMemoria(1), busca))
+        self.api = ClienteLogado(criar_app(self.perfis, CurriculoRepositoryMemoria(1), busca))
 
     def test_coleta_sem_perfil_e_422(self):
         resposta = self.api.post("/coletas", json={})
@@ -395,7 +395,7 @@ class ApiColetaErroDoServidorTest(unittest.TestCase):
     def test_value_error_do_repositorio_na_coleta_vira_500(self):
         perfis = PerfilBuscaRepositoryMemoria(1)
         perfis.salvar(Perfil(termos=["python"]))
-        api = TestClient(
+        api = ClienteLogado(
             criar_app(perfis, CurriculoRepositoryMemoria(1), BuscaService([ClientFixo("A", [vaga("u1")])]), encontradas=FalhaDoBanco(1)),
             raise_server_exceptions=False,
         )
@@ -427,7 +427,7 @@ class ApiColetaPostgresTest(unittest.TestCase):
         )
         self.addCleanup(pool.close)
         client = ClientPorTermo("A", {"python": [vaga("u1"), vaga("u2")], "django": [vaga("u1")]})
-        api = TestClient(
+        api = ClienteLogado(
             criar_app(
                 _PorChamada(lambda: pool, lambda: PerfilBuscaRepositoryPostgres, 1),
                 _PorChamada(lambda: pool, lambda: CurriculoRepositoryPostgres, 1),

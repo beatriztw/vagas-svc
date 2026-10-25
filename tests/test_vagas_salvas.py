@@ -9,7 +9,7 @@ import time
 import unittest
 from datetime import datetime, timedelta, timezone
 
-from fastapi.testclient import TestClient
+from tests.sessao import ClienteLogado
 
 from src.controller.api import criar_app
 from src.controller.tela import id_salvar
@@ -111,7 +111,7 @@ class Tela:
         perfis = PerfilBuscaRepositoryMemoria(1)
         if perfil is not None:
             perfis.salvar(perfil)
-        self.cliente = TestClient(criar_app(perfis, CurriculoRepositoryMemoria(1), BuscaService([]), encontradas=self.repo))
+        self.cliente = ClienteLogado(criar_app(perfis, CurriculoRepositoryMemoria(1), BuscaService([]), encontradas=self.repo))
 
     def salvar(self, i: int, salvar: str = "1"):
         return self.cliente.post("/tela/vagas/salva", data={"url": url(i), "salvar": salvar}, headers=HX)

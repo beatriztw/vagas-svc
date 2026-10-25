@@ -12,6 +12,8 @@ from unittest import mock
 
 from fastapi.testclient import TestClient
 
+from tests.sessao import ClienteLogado
+
 from src.client.linkedin_detalhe import LimiteDeRequisicoes, LinkedInDetalheClient, get_html_detalhe
 from src.client.remotar import ErroProvider, RemotarClient, VagaNaoEncontrada
 from src.controller.api import criar_app
@@ -238,7 +240,7 @@ class LigacaoNaAppTest(unittest.TestCase):
         encerrada = remotar({**ABERTA_NO_REMOTAR, "expired": True})
         ConferenciaService(encontradas, encerrada, None, dormir=lambda s: None).conferir()
 
-        html = TestClient(app).get("/tela/candidaturas", headers={"HX-Request": "true"}).text
+        html = ClienteLogado(app).get("/tela/candidaturas", headers={"HX-Request": "true"}).text
         self.assertIn("A vaga saiu do ar.", html)
         self.assertEqual(app.state.candidaturas.obter(candidatura.id).status.value, "enviada")
 

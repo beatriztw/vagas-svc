@@ -22,7 +22,7 @@ from pathlib import Path
 from unittest import mock
 from urllib.parse import parse_qs, quote, urlsplit
 
-from fastapi.testclient import TestClient
+from tests.sessao import ClienteLogado
 
 from src.client.remotar import ErroProvider, RemotarClient, VagaNaoEncontrada, get_json_detalhe
 from src.controller.api import criar_app
@@ -464,7 +464,7 @@ def montar_tela(provider=None, vagas=None):
     repo.registrar(vagas or [vaga_remotar(123)], "dados")
     servico = DetalheService(repo, provider)
     app = criar_app(PerfilBuscaRepositoryMemoria(1), CurriculoRepositoryMemoria(1), BuscaService([]), encontradas=repo, detalhe=servico)
-    return TestClient(app), repo, app
+    return ClienteLogado(app), repo, app
 
 
 URL_VAGA = "https://remotar.com.br/job/123"
@@ -532,7 +532,7 @@ class TelaNaoBloqueiaTest(unittest.TestCase):
         repo.registrar([vaga_remotar(123)], "dados")
         app = criar_app(PerfilBuscaRepositoryMemoria(1), CurriculoRepositoryMemoria(1), BuscaService([]), encontradas=repo)
         with mock.patch("urllib.request.urlopen", side_effect=AssertionError("foi para a rede")):
-            cliente = TestClient(app)
+            cliente = ClienteLogado(app)
             self.assertEqual(cliente.get(URL_DETALHE, headers=HX).status_code, 200)
             self.assertEqual(cliente.get(URL_SECOES, headers=HX).status_code, 200)
 
@@ -629,7 +629,7 @@ class TelaExpiradaTest(unittest.TestCase):
         repo.registrar([vaga_remotar(123, expirada_em=prazo, detalhe=DETALHE_COMPLETO)], "dados")
         servico = DetalheService(repo, ProviderProibido(), agora=lambda: relogio["agora"])
         app = criar_app(PerfilBuscaRepositoryMemoria(1), CurriculoRepositoryMemoria(1), BuscaService([]), encontradas=repo, detalhe=servico)
-        cliente = TestClient(app)
+        cliente = ClienteLogado(app)
 
         hoje = cliente.get("/tela")
         self.assertEqual(len(Pagina(hoje.text).cards()), 1)

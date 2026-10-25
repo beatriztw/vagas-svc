@@ -8,7 +8,7 @@ import os
 import unittest
 from datetime import date
 
-from fastapi.testclient import TestClient
+from tests.sessao import ClienteLogado
 
 from src.controller.api import PESSOA_PADRAO, criar_app
 from src.controller.coleta import rodar
@@ -67,9 +67,9 @@ class Banco:
     def urls(self, pessoa_id: int) -> set[str]:
         return {v.url for v in self.vagas[pessoa_id].listar(somente_novas=False, limite=100)}
 
-    def app(self, *providers, com_pedidos: bool = True) -> TestClient:
+    def app(self, *providers, com_pedidos: bool = True) -> ClienteLogado:
         padrao = PESSOA_PADRAO
-        return TestClient(
+        return ClienteLogado(
             criar_app(
                 self.perfis[padrao],
                 self.curriculos[padrao],
@@ -250,7 +250,7 @@ class ErroDeUmaPessoaTest(unittest.TestCase):
         # A pessoa da requisição (1) cai no meio; a 2 coleta. A resposta não pode dizer "0 novas" como se fosse sucesso.
         self.banco.vagas[1] = BancoFora(1)
         self.banco.vagas[2] = VagaEncontradaRepositoryMemoria(2)
-        cliente = TestClient(self.banco.app(self.client).app, raise_server_exceptions=False)
+        cliente = ClienteLogado(self.banco.app(self.client).app, raise_server_exceptions=False)
 
         resposta = cliente.post("/coletas", json={})
 

@@ -4,7 +4,7 @@ import re
 import unittest
 from pathlib import Path
 
-from fastapi.testclient import TestClient
+from tests.sessao import ClienteLogado
 
 from src.controller.api import criar_app
 from src.repository.base import CurriculoRepositoryMemoria, PerfilBuscaRepositoryMemoria
@@ -13,8 +13,8 @@ from src.service.busca_service import BuscaService
 STATIC = Path(__file__).resolve().parent.parent / "src" / "static"
 
 
-def cliente() -> TestClient:
-    return TestClient(criar_app(PerfilBuscaRepositoryMemoria(1), CurriculoRepositoryMemoria(1), BuscaService([])))
+def cliente() -> ClienteLogado:
+    return ClienteLogado(criar_app(PerfilBuscaRepositoryMemoria(1), CurriculoRepositoryMemoria(1), BuscaService([])))
 
 
 class TelaMobileTest(unittest.TestCase):

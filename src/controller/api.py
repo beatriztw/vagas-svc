@@ -1,4 +1,4 @@
-"""API HTTP do vagas-svc. Sem autenticação: só é exposta na rede interna do Swarm."""
+"""API HTTP do vagas-svc. Toda rota exige a sessão de uma pessoa (cookie), menos as listadas em `sessao.py`."""
 
 import logging
 import os
@@ -17,10 +17,13 @@ from pydantic import BaseModel, ConfigDict, Field, StrictInt
 
 from src.client.armazenamento import Armazenamento
 from src.controller.candidaturas import criar_router_candidaturas
+from src.controller.contexto_pessoa import ContextoPessoa
 from src.controller.ia_metricas import criar_router_ia_metricas
+from src.controller.login import criar_router_login
 from src.controller.perfil_providers import criar_router_perfil_providers
 from src.controller.pedidos_ia import criar_router_pedidos_ia
 from src.controller.seguranca_json import exigir_json_mesma_origem
+from src.controller.sessao import SemSessao, exigir_sessao, pessoa_logada, resposta_sem_sessao, veio_do_worker
 from src.controller.tela import criar_router_tela
 from src.controller.tela_candidaturas import criar_router_tela_candidaturas
 from src.controller.tela_ia import criar_router_tela_ia
@@ -48,9 +51,11 @@ from src.repository.base import (
 from src.repository.candidatura import CandidaturaRepository, CandidaturaRepositoryMemoria, vaga_por_url_em
 from src.repository.pedido_ia import PedidoIARepository, PedidoIARepositoryMemoria
 from src.repository.pessoa import PessoaRepository, PessoaRepositoryMemoria
+from src.repository.sessao import SessaoRepository, SessaoRepositoryMemoria
 from src.repository.pessoa_provider import PessoaProviderRepository, PessoaProviderRepositoryMemoria
 from src.repository.trava import CHAVE_TRAVA_LOTE_IA, ColetaEmAndamento, TravaColeta, TravaColetaPostgres
 from src.service.agendador_coleta import AgendadorColeta
+from src.service.autenticacao import Autenticacao
 from src.service.conferencia_service import ConferenciaDasPessoas, ConferenciaService
 from src.service.busca_service import BuscaService
 from src.service.candidatura_service import CandidaturaService
@@ -70,8 +75,8 @@ from src.service.providers_pessoa import (
 from src.service.recomendacao_service import RecomendacaoService
 
 
-# Em produção a pessoa é sempre esta (a dona dos dados de antes da migration 013). Os repositórios recebem a
-# pessoa no construtor; quando a sessão por pessoa chegar, esta constante sai e a pessoa vem da requisição.
+# A pessoa dos testes e dos repositórios em memória que não recebem uma fábrica por pessoa (a dona dos dados de antes
+# da migration 013). Em produção NENHUMA rota a usa: a pessoa vem da sessão (`pessoa_da_requisicao`).
 PESSOA_PADRAO = 1
 
 
@@ -177,10 +182,20 @@ class ColetaDoTermoJson(BaseModel):
 
 
 class ResultadoColetaJson(BaseModel):
-    # Só a pessoa da requisição (hoje PESSOA_PADRAO), como sempre foi: termo e contagem de uma pessoa não saem
+    # Só a pessoa da sessão, como sempre foi: termo e contagem de uma pessoa não saem
     # na resposta para outra. Cada pessoa vê o resultado das outras só nas contagens somadas do agendador e na CLI.
     termos: list[ColetaDoTermoJson]
     novas: int
+
+
+class _SemRepositorio:
+    """O lugar de um repositório que a fábrica da pessoa não deu (testes): qualquer uso é erro, nunca os dados de outra."""
+
+    def __init__(self, campo: str, pessoa_id: int):
+        self._mensagem = f"sem repositório de {campo} para a pessoa {pessoa_id}"
+
+    def __getattr__(self, nome: str):
+        raise RuntimeError(self._mensagem)
 
 
 def _fabricas_da_requisicao(perfis, curriculos, encontradas) -> FabricasPorPessoa:
@@ -234,6 +249,8 @@ def criar_app(
     providers_da_pessoa: Callable[[int], PessoaProviderRepository] | None = None,
     fabricas: FabricasPorPessoa | None = None,
     conferencia: Callable[[VagaEncontradaRepository], ConferenciaService] | None = None,
+    sessoes: SessaoRepository | None = None,
+    autenticacao: Autenticacao | None = None,
 ) -> FastAPI:
     """Sem `encontradas` e `candidaturas`, o histórico da coleta e as candidaturas ficam em memória (testes);
     a produção passa os do Postgres. Sem `detalhe`, a tela não busca o detalhe no provider (testes).
@@ -247,7 +264,13 @@ def criar_app(
     repositório das fontes de vaga de cada pessoa (sem ele, em memória); pessoa sem fontes usa `busca`, as do
     ambiente. `fabricas` dão os repositórios da
     pessoa dona de cada pedido da fila do worker (a fila é de todas as pessoas); sem elas só existe a pessoa da
-    requisição, e um pedido de outra pessoa é erro em vez de ler os dados da errada."""
+    requisição, e um pedido de outra pessoa é erro em vez de ler os dados da errada.
+
+    Login: `pessoas` e `sessoes` dão o `Autenticacao` (`autenticacao` o substitui, p.ex. com outro relógio). Sem
+    `sessoes`, só com `pessoas` em memória. Toda rota (fora as isentas de `sessao.py`) exige a sessão, e os
+    repositórios da requisição são os da pessoa dela: `repositorios_da_pessoa`, `providers_da_pessoa` e, para
+    candidaturas, `RepositoriosDaPessoa.candidaturas`. Os `perfis`, `curriculos`, `encontradas`... passados direto
+    valem só para a PESSOA_PADRAO: a sessão de outra pessoa sem fábrica é erro, nunca os dados da errada."""
 
     @asynccontextmanager
     async def ciclo_de_vida(app_: FastAPI):
@@ -266,12 +289,23 @@ def criar_app(
                 agendado.parar()
 
     # Dependência do app: rota mutável nova (JSON) já nasce protegida; /tela e /interno ficam de fora dentro dela.
-    app = FastAPI(title="vagas-svc", lifespan=ciclo_de_vida, dependencies=[Depends(exigir_json_mesma_origem)])
+    # A sessão vem primeiro: sem ela a resposta é 401/redirect, não o 415/403 do CSRF.
+    app = FastAPI(
+        title="vagas-svc",
+        lifespan=ciclo_de_vida,
+        dependencies=[Depends(exigir_sessao), Depends(exigir_json_mesma_origem)],
+    )
     app.state.armazenamento = armazenamento
+    pessoas = pessoas if pessoas is not None else PessoaRepositoryMemoria([PESSOA_PADRAO])
+    if autenticacao is None:
+        if sessoes is None:
+            if not isinstance(pessoas, PessoaRepositoryMemoria):
+                raise ValueError("criar_app: com `pessoas` fora da memória, passe também `sessoes`")
+            sessoes = SessaoRepositoryMemoria(pessoas)
+        autenticacao = Autenticacao(pessoas, sessoes)
+    app.state.autenticacao = autenticacao
     recomendacao = RecomendacaoService(busca)
     encontradas = encontradas if encontradas is not None else VagaEncontradaRepositoryMemoria(PESSOA_PADRAO)
-    # Lista do histórico (JSON e tela) com o perfil salvo aplicado na leitura.
-    historico = HistoricoService(encontradas, perfis)
     if pedidos_ia is None:
         pedidos_ia = PedidoIARepositoryMemoria(PESSOA_PADRAO, vaga_por_url_em(encontradas))
     # Um serviço só para as rotas do worker, as da tela e as métricas.
@@ -281,43 +315,76 @@ def criar_app(
     servico_ia = PedidoIAService(
         pedidos_ia, encontradas, perfis, curriculos, trava_lote=trava_lote_ia, detalhe=detalhe, fabricas=fabricas
     )
-    # Toda coleta (API, tela, CLI) termina mandando, para cada pessoa coletada, as vagas dela sem nota para a fila da
-    # IA em lote. Falha de uma pessoa só vai para o log (ColetaService).
-    def enfileirar_lote_da_pessoa(coletada: ColetaDaPessoa) -> int:
-        if repositorios_da_pessoa is None:
-            ia_da_pessoa, historico_da_pessoa = servico_ia, historico
-        else:
-            repos = repositorios_da_pessoa(coletada.pessoa_id)
-            ia_da_pessoa = PedidoIAService(
-                repos.pedidos_ia, repos.vagas, repos.perfis, repos.curriculos, trava_lote=trava_lote_ia, detalhe=detalhe,
-                fabricas=fabricas,
-            )
-            historico_da_pessoa = HistoricoService(repos.vagas, repos.perfis)
-        return ia_da_pessoa.enfileirar_lote(historico_da_pessoa.visiveis())
-
     if providers_da_pessoa is None:
         fontes_em_memoria = PessoaProviderRepositoryMemoria(PESSOA_PADRAO)
         providers_da_pessoa = lambda pessoa_id: PessoaProviderRepositoryMemoria(pessoa_id, fontes_em_memoria)  # noqa: E731
     buscas = ProvidersDaPessoa(busca, providers_da_pessoa)
+    if candidaturas is None:
+        candidaturas = CandidaturaRepositoryMemoria(PESSOA_PADRAO, vaga_por_url_em(encontradas))
+    # Um serviço só, para as rotas JSON e as da tela (na produção, o repositório é o _PorChamada).
+    servico_candidaturas = CandidaturaService(candidaturas, encontradas)
+    # Só para os testes alcançarem o serviço; as rotas recebem o contexto da pessoa da sessão.
+    app.state.candidaturas = servico_candidaturas
+
+    def contexto_de(pessoa_id: int, nome_exibicao: str = "") -> ContextoPessoa:
+        """Os repositórios e serviços da pessoa. Campo que a fábrica não dá vale só para a PESSOA_PADRAO."""
+        dela = repositorios_da_pessoa(pessoa_id) if repositorios_da_pessoa is not None else None
+
+        def pegar(campo: str, padrao):
+            valor = getattr(dela, campo, None) if dela is not None else None
+            if valor is not None:
+                return valor
+            if pessoa_id != PESSOA_PADRAO:
+                # Falha alto só se alguém USAR o que falta (a coleta de todas não precisa de candidaturas).
+                return _SemRepositorio(campo, pessoa_id)
+            return padrao
+
+        perfis_p = pegar("perfis", perfis)
+        vagas_p = pegar("vagas", encontradas)
+        curriculos_p = pegar("curriculos", curriculos)
+        pedidos_p = pegar("pedidos_ia", pedidos_ia)
+        candidaturas_p = pegar("candidaturas", candidaturas)
+        detalhe_p = detalhe.para(vagas_p) if detalhe is not None else DetalheService(vagas_p)
+        return ContextoPessoa(
+            pessoa_id=pessoa_id,
+            nome_exibicao=nome_exibicao,
+            perfis=perfis_p,
+            curriculos=curriculos_p,
+            encontradas=vagas_p,
+            pedidos_ia=pedidos_p,
+            providers=providers_da_pessoa(pessoa_id),
+            historico=HistoricoService(vagas_p, perfis_p),
+            candidaturas=CandidaturaService(candidaturas_p, vagas_p),
+            detalhe=detalhe_p,
+            ia=servico_ia.da_pessoa(pedidos_p, vagas_p, perfis_p, curriculos_p, detalhe_p if detalhe is not None else None),
+        )
+
+    def contexto_da_requisicao(request: Request) -> ContextoPessoa:
+        """A dependência de toda rota com dados: o contexto da pessoa da SESSÃO (nunca de parâmetro da requisição)."""
+        pessoa = pessoa_logada(request)
+        return contexto_de(pessoa.id, pessoa.nome_exibicao)
+
+    # Toda coleta (API, tela, CLI) termina mandando, para cada pessoa coletada, as vagas dela sem nota para a fila da
+    # IA em lote. Falha de uma pessoa só vai para o log (ColetaService). Roda sem sessão (agendador, CLI).
+    def enfileirar_lote_da_pessoa(coletada: ColetaDaPessoa) -> int:
+        da_coletada = contexto_de(coletada.pessoa_id)
+        return da_coletada.ia.enfileirar_lote(da_coletada.historico.visiveis())
 
     coleta = ColetaService(
         recomendacao,
-        pessoas if pessoas is not None else PessoaRepositoryMemoria([PESSOA_PADRAO]),
+        pessoas,
         repositorios_da_pessoa or (lambda _: RepositoriosDaPessoa(perfis, encontradas)),
         trava,
         ao_terminar=enfileirar_lote_da_pessoa,
         buscas=buscas,
     )
-    pessoas_da_coleta = pessoas if pessoas is not None else PessoaRepositoryMemoria([PESSOA_PADRAO])
     if conferencia is None:
         app.state.conferencia = None
     else:
-        # Cada pessoa tem o próprio histórico: a conferência roda sobre o de cada uma.
+        # Cada pessoa tem o próprio histórico: a conferência roda sobre o de cada uma, em segundo plano e sem sessão.
         app.state.conferencia = ConferenciaDasPessoas(
-            pessoas_da_coleta.listar,
-            lambda pessoa_id: conferencia(
-                repositorios_da_pessoa(pessoa_id).vagas if repositorios_da_pessoa is not None else encontradas
-            ),
+            pessoas.listar,
+            lambda pessoa_id: conferencia(contexto_de(pessoa_id).encontradas),
         )
 
     def coletar_e_conferir():
@@ -329,16 +396,15 @@ def criar_app(
                 app.state.conferencia.conferir_em_segundo_plano()
 
     app.state.agendador = agendador(coletar_e_conferir) if agendador is not None else None
-    if candidaturas is None:
-        candidaturas = CandidaturaRepositoryMemoria(PESSOA_PADRAO, vaga_por_url_em(encontradas))
-    # Um serviço só, para as rotas JSON e as da tela (na produção, o repositório é o _PorChamada).
-    servico_candidaturas = CandidaturaService(candidaturas, encontradas)
-    # Só para os testes alcançarem o serviço; as rotas recebem o serviço explicitamente.
-    app.state.candidaturas = servico_candidaturas
-    app.include_router(criar_router_candidaturas(servico_candidaturas))
+    app.include_router(criar_router_candidaturas(contexto_da_requisicao))
     app.state.pedido_ia_service = servico_ia
-    app.include_router(criar_router_pedidos_ia(app.state.pedido_ia_service))
-    app.include_router(criar_router_ia_metricas(pedidos_ia))
+    app.include_router(criar_router_pedidos_ia(app.state.pedido_ia_service, contexto_da_requisicao))
+    app.include_router(criar_router_ia_metricas(contexto_da_requisicao))
+    app.include_router(criar_router_login())
+
+    @app.exception_handler(SemSessao)
+    def sem_sessao(request: Request, erro: SemSessao):
+        return resposta_sem_sessao(request, erro)
 
     def erro_da_tela(request: Request, mensagem: str, status: int):
         """A tela troca HTML: o erro volta como HTML, não como JSON."""
@@ -367,21 +433,21 @@ def criar_app(
     async def cabecalhos_da_tela(request: Request, chamar):
         resposta = await chamar(request)
         caminho = request.url.path
-        if caminho_da_tela(caminho) or caminho == "/static" or caminho.startswith("/static/"):
+        if caminho_da_tela(caminho) or caminho in ("/login", "/logout") or caminho == "/static" or caminho.startswith("/static/"):
             resposta.headers["Content-Security-Policy"] = CSP
             resposta.headers["X-Content-Type-Options"] = "nosniff"
             resposta.headers["Referrer-Policy"] = "same-origin"
-        if caminho_da_tela(caminho):
+        if caminho_da_tela(caminho) or caminho in ("/login", "/logout"):
             resposta.headers["Cache-Control"] = "no-store"
         return resposta
 
     app.mount("/static", StaticFiles(directory=DIRETORIO_STATIC), name="static")
-    app.include_router(criar_router_tela(encontradas, historico, coleta, servico_candidaturas, detalhe, servico_ia, PESSOA_PADRAO))
-    app.include_router(criar_router_tela_candidaturas(servico_candidaturas))
-    app.include_router(criar_router_tela_ia(app.state.pedido_ia_service))
-    app.include_router(criar_router_tela_perfil(perfis, providers_da_pessoa(PESSOA_PADRAO)))
-    app.include_router(criar_router_perfil_providers(providers_da_pessoa(PESSOA_PADRAO)))
-    app.include_router(criar_router_tela_curriculos(curriculos))
+    app.include_router(criar_router_tela(coleta, contexto_da_requisicao))
+    app.include_router(criar_router_tela_candidaturas(contexto_da_requisicao))
+    app.include_router(criar_router_tela_ia(contexto_da_requisicao))
+    app.include_router(criar_router_tela_perfil(contexto_da_requisicao))
+    app.include_router(criar_router_perfil_providers(contexto_da_requisicao))
+    app.include_router(criar_router_tela_curriculos(contexto_da_requisicao))
 
     @app.get("/", include_in_schema=False)
     def raiz() -> RedirectResponse:
@@ -399,42 +465,50 @@ def criar_app(
         return {"ok": True}
 
     @app.get("/perfil")
-    def obter_perfil() -> PerfilJson:
-        perfil = perfis.obter()
+    def obter_perfil(ctx: ContextoPessoa = Depends(contexto_da_requisicao)) -> PerfilJson:
+        perfil = ctx.perfis.obter()
         if perfil is None:
             raise HTTPException(404, "Nenhum perfil salvo")
         return PerfilJson.de(perfil)
 
     @app.put("/perfil")
-    def salvar_perfil(corpo: PerfilJson) -> PerfilJson:
+    def salvar_perfil(corpo: PerfilJson, ctx: ContextoPessoa = Depends(contexto_da_requisicao)) -> PerfilJson:
         # Valida aqui também: um repositório que não valide ainda devolve 422, não 500.
-        perfis.salvar(validar_perfil(corpo.para_perfil()))
-        return PerfilJson.de(perfis.obter())
+        ctx.perfis.salvar(validar_perfil(corpo.para_perfil()))
+        return PerfilJson.de(ctx.perfis.obter())
 
     @app.get("/curriculos/base")
-    def obter_base() -> CurriculoJson:
-        base = curriculos.obter_base()
+    def obter_base(ctx: ContextoPessoa = Depends(contexto_da_requisicao)) -> CurriculoJson:
+        base = ctx.curriculos.obter_base()
         if base is None:
             raise HTTPException(404, "Nenhum currículo base salvo")
         return CurriculoJson.de(base)
 
     @app.put("/curriculos/base")
-    def nova_base(corpo: NovaBase) -> CurriculoJson:
-        salvo = curriculos.salvar(Curriculo(tipo="base", **corpo.model_dump()))
+    def nova_base(corpo: NovaBase, ctx: ContextoPessoa = Depends(contexto_da_requisicao)) -> CurriculoJson:
+        salvo = ctx.curriculos.salvar(Curriculo(tipo="base", **corpo.model_dump()))
         return CurriculoJson.de(salvo)
 
     @app.get("/curriculos/adaptados")
-    def listar_adaptados() -> list[CurriculoJson]:
-        return [CurriculoJson.de(c) for c in curriculos.listar_adaptados()]
+    def listar_adaptados(ctx: ContextoPessoa = Depends(contexto_da_requisicao)) -> list[CurriculoJson]:
+        return [CurriculoJson.de(c) for c in ctx.curriculos.listar_adaptados()]
 
     @app.post("/curriculos/adaptados", status_code=201)
-    def novo_adaptado(corpo: NovoAdaptado) -> CurriculoJson:
-        # Do worker (com `pedido_id`): a pessoa é a dona do pedido. Sem ele: a da requisição.
-        curriculos_da_pessoa = (
-            curriculos
-            if corpo.pedido_id is None
-            else servico_ia.curriculos_do_pedido(corpo.pedido_id, corpo.vaga_url)
-        )
+    def novo_adaptado(corpo: NovoAdaptado, request: Request) -> CurriculoJson:
+        # Duas portas (ver `exigir_sessao`). Worker (Bearer): a pessoa é a dona do pedido, e `pedido_id` é obrigatório.
+        # Pessoa logada: os currículos dela; se vier `pedido_id`, o pedido tem que ser dela.
+        if veio_do_worker(request):
+            if corpo.pedido_id is None:
+                raise DadoInvalido("pedido_id: obrigatório para o worker")
+            curriculos_da_pessoa = servico_ia.curriculos_do_pedido(corpo.pedido_id, corpo.vaga_url)
+        else:
+            pessoa = pessoa_logada(request)
+            ctx = contexto_de(pessoa.id, pessoa.nome_exibicao)
+            curriculos_da_pessoa = (
+                ctx.curriculos
+                if corpo.pedido_id is None
+                else servico_ia.curriculos_do_pedido(corpo.pedido_id, corpo.vaga_url, pessoa_id=pessoa.id)
+            )
         if corpo.base_id is None:
             base = curriculos_da_pessoa.obter_base()
             if base is None:
@@ -455,17 +529,18 @@ def criar_app(
         return CurriculoJson.de(salvo)
 
     @app.get("/vagas")
-    def buscar_vagas(termo: str = Query(min_length=1)) -> ResultadoJson:
+    def buscar_vagas(ctx: ContextoPessoa = Depends(contexto_da_requisicao), termo: str = Query(min_length=1)) -> ResultadoJson:
         # Os providers da pessoa (ou os do ambiente, se ela não configurou nenhum).
-        _, busca_da_pessoa = buscas.busca(PESSOA_PADRAO)
-        resultado = RecomendacaoService(busca_da_pessoa).recomendar(termo, perfis.obter())
+        _, busca_da_pessoa = buscas.busca(ctx.pessoa_id)
+        resultado = RecomendacaoService(busca_da_pessoa).recomendar(termo, ctx.perfis.obter())
         return ResultadoJson(vagas=[VagaJson.de(v) for v in resultado.vagas], erros=resultado.erros)
 
     @app.post("/coletas")
-    def coletar() -> ResultadoColetaJson:
+    def coletar(ctx: ContextoPessoa = Depends(contexto_da_requisicao)) -> ResultadoColetaJson:
+        # Coleta de TODAS as pessoas (como a agendada); a resposta é só a da pessoa da sessão.
         # Sem perfil ou sem termos: DadoInvalido do serviço, 422; outra coleta rodando: 409.
         resultado = coleta.coletar()
-        da_pessoa = resultado.da_pessoa(PESSOA_PADRAO)
+        da_pessoa = resultado.da_pessoa(ctx.pessoa_id)
         return ResultadoColetaJson(
             termos=[ColetaDoTermoJson(**vars(t)) for t in da_pessoa.termos],
             novas=da_pessoa.novas,
@@ -473,17 +548,18 @@ def criar_app(
 
     @app.get("/vagas/encontradas")
     def listar_encontradas(
+        ctx: ContextoPessoa = Depends(contexto_da_requisicao),
         novas: bool = True,
         limite: int = Query(default=50, ge=1, le=MAX_LIMITE_VAGAS),
         q: str | None = Query(default=None, max_length=MAX_TAMANHO_BUSCA),
         deslocamento: int = Query(default=0, ge=0, le=MAX_DESLOCAMENTO_VAGAS),
     ) -> list[VagaEncontradaJson]:
-        vagas = historico.listar(somente_novas=novas, limite=limite, q=q, deslocamento=deslocamento)
+        vagas = ctx.historico.listar(somente_novas=novas, limite=limite, q=q, deslocamento=deslocamento)
         return [VagaEncontradaJson.de(v) for v in vagas]
 
     @app.post("/vagas/vistas")
-    def marcar_vistas(corpo: VagasVistas) -> VistasJson:
-        return VistasJson(marcadas=encontradas.marcar_vistas(corpo.urls))
+    def marcar_vistas(corpo: VagasVistas, ctx: ContextoPessoa = Depends(contexto_da_requisicao)) -> VistasJson:
+        return VistasJson(marcadas=ctx.encontradas.marcar_vistas(corpo.urls))
 
     return app
 
@@ -654,6 +730,12 @@ def _providers_postgres() -> type:
     return PessoaProviderRepositoryPostgres
 
 
+def _sessoes_postgres() -> type:
+    from src.repository.sessao_postgres import SessaoRepositoryPostgres
+
+    return SessaoRepositoryPostgres
+
+
 def _coleta_agendada_postgres() -> type:
     from src.repository.coleta_agendada import RegistroColetaAgendadaPostgres
 
@@ -683,6 +765,7 @@ def criar_app_producao() -> FastAPI:
             vagas=_PorChamada(pool, _encontradas_postgres, pessoa_id),
             curriculos=_PorChamada(pool, _curriculos_postgres, pessoa_id),
             pedidos_ia=_PorChamada(pool, _pedidos_ia_postgres, pessoa_id),
+            candidaturas=_PorChamada(pool, _candidaturas_postgres, pessoa_id),
         )
 
     # Pedido do worker: os repositórios da pessoa do pedido, também uma conexão do pool por chamada.
@@ -711,8 +794,10 @@ def criar_app_producao() -> FastAPI:
         ao_subir=_migrar,
         # Coleta às 08:00 e 18:00 de Brasília (COLETA_HORARIOS; vazia ou inválida desliga).
         agendador=lambda coletar: AgendadorColeta.da_config(coletar, _PorChamada(pool, _coleta_agendada_postgres)),
-        # A coleta roda para todas as pessoas da tabela `pessoa`; o resto do app segue na PESSOA_PADRAO.
+        # A coleta roda para todas as pessoas da tabela `pessoa`; as rotas usam a pessoa da sessão
+        # (os `_PorChamada(..., PESSOA_PADRAO)` acima só servem à fila do worker, que é de todas).
         pessoas=_PorChamada(pool, _pessoas_postgres),
+        sessoes=_PorChamada(pool, _sessoes_postgres),
         repositorios_da_pessoa=repositorios_da_pessoa,
         providers_da_pessoa=lambda pessoa_id: _PorChamada(pool, _providers_postgres, pessoa_id),
         # Reconsulta na fonte (Remotar e LinkedIn) as vagas no ar: a encerrada some da busca e a coleta não vê.

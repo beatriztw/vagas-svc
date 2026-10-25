@@ -8,7 +8,7 @@ import unittest
 from dataclasses import replace
 from datetime import datetime, timezone
 
-from fastapi.testclient import TestClient
+from tests.sessao import ClienteLogado
 
 from src.controller.api import criar_app
 from src.controller.tela_candidaturas import data_curta
@@ -30,7 +30,7 @@ def cliente(*vagas):
     encontradas = VagaEncontradaRepositoryMemoria(1)
     encontradas.registrar(list(vagas) or [vaga(URL_A), vaga(URL_B, "Engenheira", "Beta")], "dados")
     app = criar_app(PerfilBuscaRepositoryMemoria(1), CurriculoRepositoryMemoria(1), BuscaService([]), encontradas=encontradas)
-    return TestClient(app), app.state.candidaturas
+    return ClienteLogado(app), app.state.candidaturas
 
 
 class AjustesDaTabelaTest(unittest.TestCase):
@@ -344,12 +344,14 @@ class DesfazerTest(unittest.TestCase):
 
 
 class FiacaoTest(unittest.TestCase):
-    def test_router_da_tela_recebe_o_servico_explicito(self):
+    def test_router_da_tela_recebe_o_contexto_da_pessoa_e_nao_o_servico(self):
         import inspect
 
         from src.controller.tela import criar_router_tela
 
-        self.assertIn("candidaturas", inspect.signature(criar_router_tela).parameters)
+        parametros = inspect.signature(criar_router_tela).parameters
+        self.assertIn("contexto_da_pessoa", parametros)
+        self.assertNotIn("candidaturas", parametros)
 
     def test_json_e_tela_usam_o_mesmo_servico(self):
         api, servico = cliente()
