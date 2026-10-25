@@ -7,6 +7,8 @@ from fastapi import HTTPException, Request
 from src.controller.tela_seguranca import caminho_da_tela
 
 PREFIXO_INTERNO = "/interno"
+# Formulários HTML normais, com a proteção própria de `exigir_mesma_origem` (ver `login.py`).
+FORMULARIOS_DE_LOGIN = frozenset({"/login", "/logout"})
 METODOS_SEGUROS = frozenset({"GET", "HEAD", "OPTIONS"})
 
 
@@ -45,10 +47,10 @@ def exigir_json(request: Request) -> None:
 
 def exigir_json_mesma_origem(request: Request) -> None:
     """Dependência do app inteiro: aplica `exigir_json` a toda rota que muda estado, fora de
-    `/tela` (proteção própria do HTMX) e `/interno` (Bearer)."""
+    `/tela` (proteção própria do HTMX), `/interno` (Bearer) e o login/logout (formulário com Origin)."""
     if request.method in METODOS_SEGUROS:
         return
     caminho = request.url.path
-    if caminho_da_tela(caminho) or caminho_interno(caminho):
+    if caminho_da_tela(caminho) or caminho_interno(caminho) or caminho in FORMULARIOS_DE_LOGIN:
         return
     exigir_json(request)

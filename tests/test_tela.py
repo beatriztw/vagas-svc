@@ -6,7 +6,7 @@ import unittest
 from pathlib import Path
 
 from fastapi import Depends, Request
-from fastapi.testclient import TestClient
+from tests.sessao import ClienteLogado
 
 from src.controller.api import criar_app
 from src.controller.tela_seguranca import estatico, exigir_mutacao_da_tela, renderizar, templates, url_segura
@@ -23,14 +23,14 @@ README_STATIC = RAIZ / "src" / "static" / "README.md"
 VAGA = VagaExterna("Analista de Dados", "Empresa Teste", "Remotar", "https://exemplo.test/vaga/1", remoto=True)
 
 
-def criar_cliente(encontradas=None, **kwargs) -> tuple[TestClient, object]:
+def criar_cliente(encontradas=None, **kwargs) -> tuple[ClienteLogado, object]:
     app = criar_app(
         PerfilBuscaRepositoryMemoria(1),
         CurriculoRepositoryMemoria(1),
         BuscaService([]),
         encontradas=encontradas,
     )
-    return TestClient(app, **kwargs), app
+    return ClienteLogado(app, **kwargs), app
 
 
 class PaginaTest(unittest.TestCase):
@@ -228,7 +228,7 @@ class RotasDeTesteTest(unittest.TestCase):
         def dado_invalido_json():
             raise DadoInvalido("campo inválido")
 
-        self.cliente = TestClient(app, raise_server_exceptions=False)
+        self.cliente = ClienteLogado(app, raise_server_exceptions=False)
 
     # Partial x página inteira
 

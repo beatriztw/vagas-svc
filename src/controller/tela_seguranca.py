@@ -92,15 +92,12 @@ def renderizar(
     )
 
 
-def exigir_mutacao_da_tela(request: Request) -> None:
-    """Dependência das rotas que mudam estado em `/tela`: só chamadas do HTMX da mesma origem.
+def exigir_mesma_origem(request: Request) -> None:
+    """`Origin` igual ao host da requisição ou, sem `Origin`, `Sec-Fetch-Site: same-origin`; senão 403.
 
-    Exige `HX-Request: true` (um formulário de outro site não consegue mandar o cabeçalho sem
-    preflight de CORS) e `Origin` igual ao host da requisição ou, sem `Origin`, `Sec-Fetch-Site:
-    same-origin`. Qualquer outra combinação é 403.
+    É a metade da proteção que não depende do HTMX: vale também para o formulário normal do login e do logout
+    (o navegador manda `Origin` em todo POST, inclusive de formulário).
     """
-    if not eh_htmx(request):
-        raise HTTPException(403, "Requisição não permitida")
     origem = request.headers.get("Origin")
     if origem is not None:
         host = request.headers.get("Host", "")
@@ -113,6 +110,18 @@ def exigir_mutacao_da_tela(request: Request) -> None:
         return
     if request.headers.get("Sec-Fetch-Site", "").lower() != "same-origin":
         raise HTTPException(403, "Origem não permitida")
+
+
+def exigir_mutacao_da_tela(request: Request) -> None:
+    """Dependência das rotas que mudam estado em `/tela`: só chamadas do HTMX da mesma origem.
+
+    Exige `HX-Request: true` (um formulário de outro site não consegue mandar o cabeçalho sem
+    preflight de CORS) e `Origin` igual ao host da requisição ou, sem `Origin`, `Sec-Fetch-Site:
+    same-origin`. Qualquer outra combinação é 403.
+    """
+    if not eh_htmx(request):
+        raise HTTPException(403, "Requisição não permitida")
+    exigir_mesma_origem(request)
 
 
 def resposta_de_erro(request: Request, mensagem: str, status_code: int):

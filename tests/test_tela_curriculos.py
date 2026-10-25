@@ -7,7 +7,7 @@ import os
 import unittest
 from urllib.parse import parse_qs, urlsplit
 
-from fastapi.testclient import TestClient
+from tests.sessao import ClienteLogado
 
 from src.controller.api import criar_app
 from src.controller.tela_curriculos import nome_do_arquivo
@@ -26,7 +26,7 @@ def montar(*urls: str):
     encontradas.registrar([VagaExterna("Analista de Dados", "Empresa Teste", "Remotar", u) for u in urls or (URL,)], "dados")
     curriculos = CurriculoRepositoryMemoria(1)
     app = criar_app(PerfilBuscaRepositoryMemoria(1), curriculos, BuscaService([]), encontradas=encontradas)
-    return TestClient(app, raise_server_exceptions=False), curriculos
+    return ClienteLogado(app, raise_server_exceptions=False), curriculos
 
 
 def com_base(curriculos) -> Curriculo:

@@ -2,7 +2,7 @@
 
 import unittest
 
-from fastapi.testclient import TestClient
+from tests.sessao import ClienteLogado
 
 from src.controller.api import criar_app
 from src.repository.base import CurriculoRepositoryMemoria, PerfilBuscaRepositoryMemoria
@@ -16,7 +16,7 @@ class CsrfJsonTest(unittest.TestCase):
     def setUp(self):
         self.perfis = PerfilBuscaRepositoryMemoria(1)
         self.app = criar_app(self.perfis, CurriculoRepositoryMemoria(1), BuscaService([]))
-        self.api = TestClient(self.app)
+        self.api = ClienteLogado(self.app)
 
     def salvar(self, headers):
         return self.api.put("/perfil", content='{"termos": ["python"]}', headers=headers)

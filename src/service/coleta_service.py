@@ -6,6 +6,7 @@ from datetime import date
 from src.client.base import palavras, radical
 from src.model.erros import DadoInvalido
 from src.repository.base import CurriculoRepository, PerfilBuscaRepository, VagaEncontradaRepository
+from src.repository.candidatura import CandidaturaRepository
 from src.repository.pedido_ia import PedidoIARepository
 from src.repository.pessoa import PessoaRepository, PessoaRepositoryMemoria
 from src.repository.trava import TravaColeta, TravaColetaMemoria
@@ -81,12 +82,14 @@ class ResultadoColeta:
 @dataclass
 class RepositoriosDaPessoa:
     """Os repositórios de UMA pessoa. Na produção são `_PorChamada`: cada chamada pega a própria conexão do pool.
-    `curriculos` e `pedidos_ia` só servem a quem enfileira o lote da IA; a coleta usa `perfis` e `vagas`."""
+    `curriculos` e `pedidos_ia` só servem a quem enfileira o lote da IA; a coleta usa `perfis` e `vagas`;
+    `candidaturas` serve às rotas da pessoa da sessão."""
 
     perfis: PerfilBuscaRepository
     vagas: VagaEncontradaRepository
     curriculos: CurriculoRepository | None = None
     pedidos_ia: PedidoIARepository | None = None
+    candidaturas: CandidaturaRepository | None = None
 
 
 def chave_do_termo(termo: str) -> str:

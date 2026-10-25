@@ -6,7 +6,7 @@ from html.parser import HTMLParser
 from pathlib import Path
 from urllib.parse import quote
 
-from fastapi.testclient import TestClient
+from tests.sessao import ClienteLogado
 
 from src.controller.api import criar_app
 from src.model.vaga_externa import VagaExterna
@@ -71,12 +71,12 @@ def vaga(i: int | str, titulo: str | None = None, **campos) -> VagaExterna:
     return VagaExterna(titulo or f"Analista {i}", "Empresa Teste", "Remotar", f"https://exemplo.test/vaga/{i}", **campos)
 
 
-def criar(vagas: list[VagaExterna]) -> tuple[TestClient, VagaEncontradaRepositoryMemoria]:
+def criar(vagas: list[VagaExterna]) -> tuple[ClienteLogado, VagaEncontradaRepositoryMemoria]:
     repo = VagaEncontradaRepositoryMemoria(1)
     if vagas:
         repo.registrar(vagas, "teste")
     app = criar_app(PerfilBuscaRepositoryMemoria(1), CurriculoRepositoryMemoria(1), BuscaService([]), encontradas=repo)
-    return TestClient(app, raise_server_exceptions=False), repo
+    return ClienteLogado(app, raise_server_exceptions=False), repo
 
 
 def sem_selecao(texto: str) -> str:

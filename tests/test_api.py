@@ -3,7 +3,7 @@ import unittest
 import uuid
 from datetime import date
 
-from fastapi.testclient import TestClient
+from tests.sessao import ClienteLogado
 
 from src.controller.api import criar_app
 from src.model.erros import DadoInvalido
@@ -38,7 +38,7 @@ class ApiTest(unittest.TestCase):
             VagaExterna("Dev Python presencial", "X", "A", "u3", remoto=False),
         ]
         busca = BuscaService([ClientQuebrado(), ClientFixo("A", self.vagas)])
-        self.api = TestClient(criar_app(self.perfis, self.curriculos, busca))
+        self.api = ClienteLogado(criar_app(self.perfis, self.curriculos, busca))
 
     def test_saude(self):
         resposta = self.api.get("/saude")
@@ -190,7 +190,7 @@ class FalhaDeConfiguracao(PerfilBuscaRepositoryMemoria):
 
 class ApiErrosDoServidorTest(unittest.TestCase):
     def test_value_error_que_nao_e_validacao_vira_500(self):
-        api = TestClient(
+        api = ClienteLogado(
             criar_app(FalhaDeConfiguracao(1), CurriculoRepositoryMemoria(1), BuscaService([])),
             raise_server_exceptions=False,
         )
@@ -200,7 +200,7 @@ class ApiErrosDoServidorTest(unittest.TestCase):
 
 class ApiErrosDoRepositorioTest(unittest.TestCase):
     def test_value_error_do_repositorio_vira_422(self):
-        api = TestClient(criar_app(ValueErrorDoRepositorio(1), CurriculoRepositoryMemoria(1), BuscaService([])))
+        api = ClienteLogado(criar_app(ValueErrorDoRepositorio(1), CurriculoRepositoryMemoria(1), BuscaService([])))
 
         resposta = api.put("/perfil", json=PERFIL)
 
@@ -225,7 +225,7 @@ class ApiPostgresTest(unittest.TestCase):
         self.addCleanup(conn.execute, sql.SQL("DROP SCHEMA {} CASCADE").format(sql.Identifier(schema)))
         conn.execute(sql.SQL("SET search_path TO {}").format(sql.Identifier(schema)))
         aplicar_todas_duas_vezes(conn)
-        self.api = TestClient(
+        self.api = ClienteLogado(
             criar_app(PerfilBuscaRepositoryPostgres(conn, 1), CurriculoRepositoryPostgres(conn, 1), BuscaService([]))
         )
 
@@ -308,7 +308,7 @@ class ApiValidaPerfilTest(unittest.TestCase):
         from unittest import mock
 
         perfis = PerfilSemValidacao(1)
-        api = TestClient(criar_app(perfis, CurriculoRepositoryMemoria(1), BuscaService([])))
+        api = ClienteLogado(criar_app(perfis, CurriculoRepositoryMemoria(1), BuscaService([])))
 
         with mock.patch("src.controller.api.validar_perfil", side_effect=DadoInvalido("inválido")):
             resposta = api.put("/perfil", json=PERFIL)

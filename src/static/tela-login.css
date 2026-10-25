@@ -1,0 +1,18 @@
+/* Login e o cabeçalho com a pessoa logada. */
+.topo-acoes { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
+.topo-pessoa { font-weight: 600; overflow-wrap: anywhere; }
+.form-sair { margin: 0; }
+a.botao { display: inline-flex; align-items: center; text-decoration: none; }
+
+.login { max-width: 380px; width: 100%; margin: 24px auto 0; padding: 24px; background: #FFFFFF; border: 1px solid var(--borda); border-radius: var(--raio-lg); }
+.login h1 { margin: 0 0 16px; font-size: 22px; letter-spacing: -0.01em; }
+.login .campo { display: flex; flex-direction: column; gap: 6px; margin: 0 0 16px; }
+.login label { font-size: 13px; font-weight: 500; color: #34413F; }
+.login input[type="text"], .login input[type="password"] {
+  min-height: 44px;
+  padding: 0 12px;
+  border: 1px solid var(--borda-campo);
+  border-radius: var(--raio-sm);
+  font: inherit;
+}
+.login .botao { width: 100%; }

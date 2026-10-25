@@ -7,7 +7,7 @@ import io
 import unittest
 from unittest import mock
 
-from fastapi.testclient import TestClient
+from tests.sessao import ClienteLogado
 
 from src.controller.api import criar_app
 from src.controller.coleta import enfileirar_lote, rodar
@@ -50,7 +50,7 @@ class Montagem:
                 encontradas=self.encontradas,
                 pedidos_ia=self.pedidos,
             )
-        self.cliente = TestClient(self.app)
+        self.cliente = ClienteLogado(self.app)
 
     def lote(self) -> set[str]:
         return {

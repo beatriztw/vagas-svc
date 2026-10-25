@@ -11,6 +11,7 @@
 <link rel="stylesheet" href="{{ "tela-detalhe.css"|estatico }}">
 <link rel="stylesheet" href="{{ "tela-curriculo.css"|estatico }}">
 <link rel="stylesheet" href="{{ "tela-mobile.css"|estatico }}">
+<link rel="stylesheet" href="{{ "tela-login.css"|estatico }}">
 <script src="{{ "htmx.min.js"|estatico }}" defer></script>
 <script src="{{ "tela.js"|estatico }}" defer></script>
 <script src="{{ "tela-mobile.js"|estatico }}" defer></script>
@@ -24,7 +25,15 @@
       </span>
       <span class="marca-nome">vagas-svc</span>
     </div>
-    <a class="botao" href="/tela/perfil">Meu perfil</a>
+    {% if request.state.pessoa %}
+    <div class="topo-acoes">
+      <a class="botao" href="/tela/perfil">Meu perfil</a>
+      <span class="topo-pessoa">{{ request.state.pessoa.nome_exibicao }}</span>
+      <form class="form-sair" method="post" action="/logout">
+        <button type="submit" class="botao">Sair</button>
+      </form>
+    </div>
+    {% endif %}
   </div>
 </header>
 {% block aviso %}<div id="aviso" class="erro" role="alert" hidden></div>{% endblock %}

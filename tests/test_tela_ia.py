@@ -5,7 +5,7 @@ Vagas, currículos e resultados inventados e escritos à mão (não são respost
 
 import unittest
 
-from fastapi.testclient import TestClient
+from tests.sessao import ClienteLogado
 
 from src.controller.api import criar_app
 from src.model.curriculo import Curriculo
@@ -34,7 +34,7 @@ def montar(com_base: bool = True, *urls: str):
     curriculos = CurriculoRepositoryMemoria(1)
     base = curriculos.salvar(Curriculo(tipo="base", titulo="Base", conteudo_md="# Base")) if com_base else None
     app = criar_app(PerfilBuscaRepositoryMemoria(1), curriculos, BuscaService([]), encontradas=encontradas)
-    return TestClient(app, raise_server_exceptions=False), app.state.pedido_ia_service, curriculos, base
+    return ClienteLogado(app, raise_server_exceptions=False), app.state.pedido_ia_service, curriculos, base
 
 
 def pedir(api, tipo="compatibilidade", url=URL):

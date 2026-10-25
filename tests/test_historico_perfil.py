@@ -9,7 +9,7 @@ from datetime import date
 from unittest import mock
 from urllib.parse import quote
 
-from fastapi.testclient import TestClient
+from tests.sessao import ClienteLogado
 
 from src.controller.api import criar_app
 from src.model.perfil import Perfil
@@ -197,7 +197,7 @@ class ApiETelaComPerfilTest(unittest.TestCase):
         self.repo.registrar(DEPOIS, "assistente administrativo")
         self.perfis = PerfilBuscaRepositoryMemoria(1)
         app = criar_app(self.perfis, CurriculoRepositoryMemoria(1), BuscaService([]), encontradas=self.repo)
-        self.cliente = TestClient(app, raise_server_exceptions=False)
+        self.cliente = ClienteLogado(app, raise_server_exceptions=False)
 
     def json(self, consulta: str = "") -> list[str]:
         resposta = self.cliente.get(f"/vagas/encontradas?novas=false&{consulta}")

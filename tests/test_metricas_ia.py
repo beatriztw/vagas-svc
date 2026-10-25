@@ -5,7 +5,7 @@ Pedidos e notas daqui são inventados e escritos à mão.
 
 import unittest
 
-from fastapi.testclient import TestClient
+from tests.sessao import ClienteLogado
 
 from src.controller.api import criar_app
 from src.model.pedido_ia import EstadoPedidoIA, Faixa, PedidoIA, TipoPedidoIA
@@ -107,7 +107,7 @@ class FuncoesPurasTest(unittest.TestCase):
 class RotaMetricasTest(unittest.TestCase):
     def setUp(self):
         self.repo = PedidoIARepositoryMemoria(1)
-        self.client = TestClient(criar_app(
+        self.client = ClienteLogado(criar_app(
             PerfilBuscaRepositoryMemoria(1), CurriculoRepositoryMemoria(1), BuscaService([]), pedidos_ia=self.repo
         ))
 

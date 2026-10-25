@@ -11,7 +11,7 @@ from pathlib import Path
 from unittest import mock
 from urllib.parse import quote
 
-from fastapi.testclient import TestClient
+from tests.sessao import ClienteLogado
 
 from src.client.apify_linkedin import ApifyLinkedInClient
 from src.client.linkedin_detalhe import LinkedInDetalheClient, extrair_descricao, get_html_detalhe
@@ -269,7 +269,7 @@ class TelaLinkedinTest(unittest.TestCase):
         repo.registrar([vaga_linkedin()], "dados")
         servico = DetalheService(repo, ProviderProibido(), linkedin=provider)
         app = criar_app(PerfilBuscaRepositoryMemoria(1), CurriculoRepositoryMemoria(1), BuscaService([]), encontradas=repo, detalhe=servico)
-        return TestClient(app), repo
+        return ClienteLogado(app), repo
 
     def test_vaga_do_linkedin_sem_detalhe_traz_o_carregador_sem_chamar_o_provider(self):
         cliente_tela, _ = self.montar(ProviderProibido())

@@ -13,7 +13,7 @@ from datetime import datetime
 from pathlib import Path
 from unittest import mock
 
-from fastapi.testclient import TestClient
+from tests.sessao import ClienteLogado
 
 from src.controller.api import criar_app
 from src.model.candidatura import STATUS_PADRAO, Candidatura, CandidaturaComVaga, StatusCandidatura
@@ -307,7 +307,7 @@ def api_com_memoria(candidaturas=None, **kwargs):
         encontradas=encontradas,
         candidaturas=candidaturas,
     )
-    return TestClient(app, **kwargs)
+    return ClienteLogado(app, **kwargs)
 
 
 class ApiCandidaturaTest(unittest.TestCase):
@@ -479,7 +479,7 @@ class ApiCandidaturaPostgresTest(unittest.TestCase):
         conn, schema = _schema_descartavel(self, "teste_api_candidatura")
         VagaEncontradaRepositoryPostgres(conn, 1).registrar([vaga(URL_A, "Dev Python", "Alfa")], "python")
         pool = _pool(self, schema)
-        api = TestClient(
+        api = ClienteLogado(
             criar_app(
                 _PorChamada(lambda: pool, lambda: PerfilBuscaRepositoryPostgres, 1),
                 _PorChamada(lambda: pool, lambda: CurriculoRepositoryPostgres, 1),

@@ -6,7 +6,7 @@ a IA adaptaria só pelo título. As vagas e os detalhes daqui são escritos à m
 
 import unittest
 
-from fastapi.testclient import TestClient
+from tests.sessao import ClienteLogado
 
 from src.client.remotar import ErroProvider
 from src.controller.api import criar_app
@@ -45,7 +45,7 @@ class Montagem:
             PerfilBuscaRepositoryMemoria(1), curriculos, BuscaService([]), encontradas=self.encontradas, detalhe=detalhe
         )
         self.servico = self.app.state.pedido_ia_service
-        self.cliente = TestClient(self.app)
+        self.cliente = ClienteLogado(self.app)
 
 
 class PedirCurriculoTest(unittest.TestCase):

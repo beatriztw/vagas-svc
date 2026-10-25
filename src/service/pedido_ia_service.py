@@ -3,6 +3,7 @@
 O log traz só id, tipo, estado e tentativa: nunca resultado, erro, currículo nem descrição.
 """
 
+import copy
 import json
 import logging
 import os
@@ -135,6 +136,27 @@ class PedidoIAService:
         # a mesma contagem do teto diário e cada uma criaria até o teto. Produção usa a do Postgres.
         self.trava_lote = trava_lote if trava_lote is not None else TravaColetaMemoria()
 
+    def da_pessoa(
+        self,
+        pedidos: PedidoIARepository,
+        encontradas: VagaEncontradaRepository,
+        perfis: PerfilBuscaRepository,
+        curriculos: CurriculoRepository,
+        detalhe: DetalheService | None,
+    ) -> "PedidoIAService":
+        """O mesmo serviço (teto do lote, relógio, trava, fábricas) com os repositórios de OUTRA pessoa: a da
+        sessão da requisição. É uma cópia rasa, então a configuração e o que os testes trocaram na instância
+        de origem valem para ela."""
+        copia = copy.copy(self)
+        copia.pedidos, copia.encontradas, copia.perfis, copia.curriculos, copia.detalhe = (
+            pedidos,
+            encontradas,
+            perfis,
+            curriculos,
+            detalhe,
+        )
+        return copia
+
     def pedir(self, vaga_url: str, tipo: TipoPedidoIA | str) -> tuple[PedidoIA, bool]:
         """(pedido, criado). Já havendo um ativo para (vaga, tipo), devolve o ativo com criado=False."""
         tipo = validar_tipo(tipo)
@@ -174,16 +196,18 @@ class PedidoIAService:
             raise ValueError("pedido sem pessoa_id")
         return self.fabricas.encontradas(pessoa_id), self.fabricas.perfis(pessoa_id), self.fabricas.curriculos(pessoa_id)
 
-    def curriculos_do_pedido(self, pedido_id: int, vaga_url: str) -> CurriculoRepository:
+    def curriculos_do_pedido(self, pedido_id: int, vaga_url: str, pessoa_id: int | None = None) -> CurriculoRepository:
         """O repositório de currículos da pessoa dona do pedido, para o worker gravar o adaptado dela.
 
         É o `POST /curriculos/adaptados` com `pedido_id`: o servidor tira a pessoa do pedido (o worker não
         escolhe). Pedido inexistente, que não é de currículo, que não está rodando ou de outra vaga é
-        `DadoInvalido`. Rodando porque a rota não exige o Bearer do worker: sem isso qualquer id gravaria
-        currículo na pessoa dona dele.
+        `DadoInvalido`. Só em andamento: sem isso um id qualquer gravaria currículo na pessoa dona dele.
+
+        Com `pessoa_id` (chamada de uma pessoa logada, não do worker) o pedido tem que ser DELA: o de outra
+        pessoa é "não encontrado", igual a um id que não existe.
         """
         pedido = self.pedidos.obter_da_fila(pedido_id)
-        if pedido is None:
+        if pedido is None or (pessoa_id is not None and pedido.pessoa_id != pessoa_id):
             raise DadoInvalido("pedido_id: pedido não encontrado")
         if pedido.tipo != TipoPedidoIA.CURRICULO or pedido.estado != EstadoPedidoIA.RODANDO:
             raise DadoInvalido("pedido_id: não é um pedido de currículo em andamento")

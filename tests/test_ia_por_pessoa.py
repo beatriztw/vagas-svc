@@ -9,7 +9,7 @@ import unittest
 from datetime import datetime, timedelta, timezone
 from unittest import mock
 
-from fastapi.testclient import TestClient
+from tests.sessao import ClienteLogado
 
 from src.controller.api import criar_app
 from src.model.curriculo import Curriculo
@@ -82,7 +82,7 @@ class DuasPessoasEmMemoria:
             pedidos_ia=self.pedidos[1],
             fabricas=self.fabricas,
         )
-        self.cliente = TestClient(self.app)
+        self.cliente = ClienteLogado(self.app)
 
     def servico_da_pessoa(self, pessoa: int, max_lote_por_dia=None) -> PedidoIAService:
         return PedidoIAService(
@@ -153,7 +153,7 @@ class PayloadDoWorkerTest(ComToken):
         app = criar_app(m.perfis[1], m.curriculos[1], BuscaService([]), encontradas=m.vagas[1], pedidos_ia=m.pedidos[1])
         m.pedidos[2].criar(URL, "compatibilidade")
 
-        resposta = TestClient(app, raise_server_exceptions=False).post("/pedidos-ia/proximo", json={}, headers=AUTH)
+        resposta = ClienteLogado(app, raise_server_exceptions=False).post("/pedidos-ia/proximo", json={}, headers=AUTH)
 
         self.assertEqual(resposta.status_code, 500)
 
@@ -209,7 +209,7 @@ class PostAdaptadoComPedidoTest(ComToken):
     def test_com_pedido_id_grava_na_pessoa_do_pedido_com_a_base_dela(self):
         pedido = self.pedido_da_pessoa_2()
 
-        resposta = self.m.cliente.post("/curriculos/adaptados", json=self.corpo(pedido_id=pedido.id))
+        resposta = self.m.cliente.post("/curriculos/adaptados", json=self.corpo(pedido_id=pedido.id), headers=AUTH)
 
         self.assertEqual(resposta.status_code, 201, resposta.text)
         salvo = resposta.json()
@@ -229,7 +229,7 @@ class PostAdaptadoComPedidoTest(ComToken):
         pedido = self.pedido_da_pessoa_2()
 
         resposta = self.m.cliente.post(
-            "/curriculos/adaptados", json=self.corpo(pedido_id=pedido.id, base_id=self.m.base[1].id)
+            "/curriculos/adaptados", json=self.corpo(pedido_id=pedido.id, base_id=self.m.base[1].id), headers=AUTH
         )
 
         self.assertEqual(resposta.status_code, 404, resposta.text)
@@ -250,14 +250,14 @@ class PostAdaptadoComPedidoTest(ComToken):
         }
         for nome, corpo in casos.items():
             with self.subTest(nome):
-                self.assertEqual(self.m.cliente.post("/curriculos/adaptados", json=corpo).status_code, 422)
+                self.assertEqual(self.m.cliente.post("/curriculos/adaptados", json=corpo, headers=AUTH).status_code, 422)
         self.assertEqual(self.m.curriculos[1].listar_adaptados() + self.m.curriculos[2].listar_adaptados(), [])
 
     def test_pedido_que_nao_esta_rodando_e_422(self):
         pedido = self.pedido_da_pessoa_2()
         self.m.pedidos[2].falhar(pedido.id, 1, "deu ruim")
 
-        self.assertEqual(self.m.cliente.post("/curriculos/adaptados", json=self.corpo(pedido_id=pedido.id)).status_code, 422)
+        self.assertEqual(self.m.cliente.post("/curriculos/adaptados", json=self.corpo(pedido_id=pedido.id), headers=AUTH).status_code, 422)
         self.assertEqual(self.m.curriculos[2].listar_adaptados(), [])
 
 
@@ -450,7 +450,7 @@ class RodizioPostgresTest(ContratoRodizio, unittest.TestCase):
             pedidos_ia=_PorChamada(lambda: pool, lambda: PedidoIARepositoryPostgres, 1),
             fabricas=fabricas,
         )
-        api = TestClient(app, raise_server_exceptions=False)
+        api = ClienteLogado(app, raise_server_exceptions=False)
         pedido, _ = self.repos[2].pedidos.criar(URLS[0], "curriculo")
 
         with mock.patch.dict(os.environ, {"VAGAS_IA_TOKEN": TOKEN}):
@@ -460,7 +460,7 @@ class RodizioPostgresTest(ContratoRodizio, unittest.TestCase):
             self.assertEqual(recebido["perfil"]["termos"], ["data engineer"])
 
             corpo = {"titulo": "Adaptado", "conteudo_md": "# a", "vaga_url": URLS[0], "pedido_id": pedido.id}
-            salvo = api.post("/curriculos/adaptados", json=corpo)
+            salvo = api.post("/curriculos/adaptados", json=corpo, headers=AUTH)
             self.assertEqual(salvo.status_code, 201, salvo.text)
             dona = self.conn.execute("SELECT pessoa_id FROM curriculo WHERE id = %s", (salvo.json()["id"],)).fetchone()[0]
             self.assertEqual(dona, 2)

@@ -7,7 +7,7 @@ import unittest
 from dataclasses import replace
 from datetime import datetime, timezone
 
-from fastapi.testclient import TestClient
+from tests.sessao import ClienteLogado
 
 from src.controller.api import criar_app
 from src.model.vaga_externa import VagaExterna
@@ -28,7 +28,7 @@ def montar(*vagas: VagaExterna):
     encontradas = VagaEncontradaRepositoryMemoria(1)
     encontradas.registrar(list(vagas) or [VagaExterna("Analista de Dados", "Empresa Teste", "Remotar", URL)], "dados")
     app = criar_app(PerfilBuscaRepositoryMemoria(1), CurriculoRepositoryMemoria(1), BuscaService([]), encontradas=encontradas)
-    return TestClient(app, raise_server_exceptions=False), app.state.candidaturas
+    return ClienteLogado(app, raise_server_exceptions=False), app.state.candidaturas
 
 
 def formulario(pagina: Pagina):
