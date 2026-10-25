@@ -1,7 +1,7 @@
 """Coleta pela linha de comando, sem a API (para rodar no cron): `python -m src.controller.coleta`.
 
 Lê o Postgres pelas mesmas variáveis PG* da API e busca nos providers de produção
-(`providers_padrao`), para todas as pessoas com perfil e termos. Imprime uma linha por pessoa e termo
+(`providers_padrao`, ou os de `pessoa_provider` da pessoa que os configurou), para todas as pessoas com perfil e termos. Imprime uma linha por pessoa e termo
 (`pessoa 2 | python: 20 encontradas, 3 novas | erros: ...`, sempre o id, nunca o nome) e, por pessoa,
 quantas vagas foram para a fila da IA em lote; pessoa sem perfil ou sem termos sai como `pulada`. Sai com
 0; sai com 1 se a coleta inteira falhar (nenhuma pessoa com perfil e termos, banco fora do ar, todos os
@@ -76,6 +76,7 @@ def main() -> int:
     from src.repository.trava import CHAVE_TRAVA_LOTE_IA, TravaColetaPostgres
     from src.repository.pedido_ia_postgres import PedidoIARepositoryPostgres
     from src.repository.pessoa_postgres import PessoaRepositoryPostgres
+    from src.repository.pessoa_provider_postgres import PessoaProviderRepositoryPostgres
     from src.repository.postgres import (
         CurriculoRepositoryPostgres,
         PerfilBuscaRepositoryPostgres,
@@ -85,6 +86,7 @@ def main() -> int:
     from src.service.coleta_service import RepositoriosDaPessoa
     from src.service.historico_service import HistoricoService
     from src.service.pedido_ia_service import PedidoIAService
+    from src.service.providers_pessoa import ProvidersDaPessoa
     from src.service.recomendacao_service import RecomendacaoService
 
     # Processo de uma thread só, uma chamada de repositório por vez: uma conexão basta para todas as pessoas.
@@ -110,11 +112,14 @@ def main() -> int:
         )
         return enfileirar_lote(ia, HistoricoService(repos.vagas, repos.perfis))
 
+    ambiente = BuscaService(providers_padrao())
     servico = ColetaService(
-        RecomendacaoService(BuscaService(providers_padrao())),
+        RecomendacaoService(ambiente),
         PessoaRepositoryPostgres(conn),
         repositorios,
         TravaColetaPostgres(),
+        # Os providers de cada pessoa (tabela pessoa_provider); sem eles, os do ambiente.
+        buscas=ProvidersDaPessoa(ambiente, lambda pessoa_id: PessoaProviderRepositoryPostgres(conn, pessoa_id)),
     )
     try:
         return rodar(lambda: servico, sys.stdout, sys.stderr, pos_coleta=lote_da_pessoa)
