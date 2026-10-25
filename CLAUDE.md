@@ -23,6 +23,13 @@ escreve código e para o review automático.
 
 ## Banco
 - Uma conexão do pool por chamada. Conexão compartilhada entre requisições mistura transações e perde gravações.
+- Todo dado é de uma pessoa (`pessoa_id`): o repositório recebe a pessoa no construtor e toda consulta filtra e grava por ela. Nenhuma vaga é compartilhada: a mesma URL de duas pessoas são duas linhas. Só a fila do worker de IA, a coleta agendada e a conferência leem todas as pessoas.
+- Tabela nova que aponta para vaga usa a chave composta `(pessoa_id, vaga_url)`; nunca só a URL.
+- Teste de repositório ou rota nova tem duas pessoas com a mesma URL e confere que uma não enxerga a outra.
+
+## Sessão
+- A pessoa da requisição vem só da sessão (`pessoa_da_requisicao`), nunca de parâmetro, corpo ou cabeçalho. Rota nova nasce protegida pela dependência do app; isenção só na lista explícita de `src/controller/sessao.py`.
+- Senha, hash e token de sessão nunca vão para log, resposta, commit ou PR. O banco guarda só o hash do token.
 
 ## Testes
 - Todo teste novo falha sem a mudança que ele cobre.
@@ -34,4 +41,4 @@ escreve código e para o review automático.
 - Local do LinkedIn em inglês (`Brazil`, `Latin America`) é de propósito: com `Brasil` a busca sai sem local (conferido em 12/10/2026).
 
 ## Dados pessoais
-- O repositório é público: currículo, telefone, e-mail e qualquer dado da Beatriz nunca entram em código, fixture, commit ou PR.
+- O repositório é público: currículo, telefone, e-mail, nome e qualquer dado da Beatriz ou de outra pessoa cadastrada nunca entram em código, fixture, commit ou PR. Log e saída da CLI identificam a pessoa só pelo id.
