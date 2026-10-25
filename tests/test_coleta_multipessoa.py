@@ -250,7 +250,7 @@ class ErroDeUmaPessoaTest(unittest.TestCase):
         # A pessoa da requisição (1) cai no meio; a 2 coleta. A resposta não pode dizer "0 novas" como se fosse sucesso.
         self.banco.vagas[1] = BancoFora(1)
         self.banco.vagas[2] = VagaEncontradaRepositoryMemoria(2)
-        cliente = TestClient(self.banco.app(self.client).app, raise_server_exceptions=False)
+        cliente = ClienteLogado(self.banco.app(self.client).app, raise_server_exceptions=False)
 
         resposta = cliente.post("/coletas", json={})
 
