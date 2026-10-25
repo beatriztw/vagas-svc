@@ -65,7 +65,7 @@ class PosColetaTest(unittest.TestCase):
         perfis, vagas = PerfilBuscaRepositoryMemoria(1), VagaEncontradaRepositoryMemoria(1)
         perfis.salvar(Perfil(termos=["python"]))
         vistos = []
-        servico = ColetaService(
+        servico = ColetaService.de_uma_pessoa(
             RecomendacaoService(BuscaService([ClientPorTermo("A", {"python": [vaga("u1")]})])),
             perfis,
             vagas,
@@ -81,7 +81,7 @@ class PosColetaTest(unittest.TestCase):
         def quebra(_):
             raise RuntimeError("fila fora do ar")
 
-        servico = ColetaService(
+        servico = ColetaService.de_uma_pessoa(
             RecomendacaoService(BuscaService([ClientPorTermo("A", {"python": [vaga("u1")]})])),
             perfis,
             vagas,
@@ -110,7 +110,7 @@ class PosColetaTest(unittest.TestCase):
     def _servico(self, providers):
         perfis, vagas = PerfilBuscaRepositoryMemoria(1), VagaEncontradaRepositoryMemoria(1)
         perfis.salvar(Perfil(termos=["python", "sql"]))
-        return ColetaService(RecomendacaoService(BuscaService(providers)), perfis, vagas)
+        return ColetaService.de_uma_pessoa(RecomendacaoService(BuscaService(providers)), perfis, vagas)
 
     def test_cli_imprime_a_fila_depois_das_linhas_dos_termos_no_stream_dado(self):
         class IA:
@@ -124,11 +124,11 @@ class PosColetaTest(unittest.TestCase):
         saida, erro = io.StringIO(), io.StringIO()
         servico = self._servico([ClientPorTermo("A", {"python": [vaga("u1")], "sql": [vaga("u2")]})])
 
-        codigo = rodar(lambda: servico, saida, erro, pos_coleta=lambda: enfileirar_lote(IA(), Historico()))
+        codigo = rodar(lambda: servico, saida, erro, pos_coleta=lambda _: enfileirar_lote(IA(), Historico()))
 
         self.assertEqual(codigo, 0)
         linhas = saida.getvalue().splitlines()
-        self.assertEqual(linhas[-1], "ia: 3 vagas na fila")
+        self.assertEqual(linhas[-1], "pessoa 1 | ia: 3 vagas na fila")
         self.assertEqual(len(linhas), 3)  # dois termos e, por último, a fila
         self.assertEqual(erro.getvalue(), "")
 
@@ -137,19 +137,19 @@ class PosColetaTest(unittest.TestCase):
         saida, erro = io.StringIO(), io.StringIO()
         servico = self._servico([ClientQuebrado()])
 
-        self.assertEqual(rodar(lambda: servico, saida, erro, pos_coleta=lambda: chamadas.append(1) or 1), 1)
+        self.assertEqual(rodar(lambda: servico, saida, erro, pos_coleta=lambda p: chamadas.append(p) or 1), 1)
         self.assertEqual(chamadas, [])
         self.assertNotIn("ia:", saida.getvalue())
 
     def test_lote_que_falha_vai_para_o_stderr_e_a_cli_sai_com_0(self):
-        def quebra():
+        def quebra(_):
             raise RuntimeError("banco fora")
 
         saida, erro = io.StringIO(), io.StringIO()
         servico = self._servico([ClientPorTermo("A", {"python": [vaga("u1")]})])
 
         self.assertEqual(rodar(lambda: servico, saida, erro, pos_coleta=quebra), 0)
-        self.assertEqual(erro.getvalue().strip(), "ia: lote falhou: RuntimeError")
+        self.assertEqual(erro.getvalue().strip(), "pessoa 1 | ia: lote falhou: RuntimeError")
 
     def test_servico_nao_chama_o_pos_coleta_quando_a_coleta_falhou(self):
         chamadas = []

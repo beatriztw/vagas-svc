@@ -19,7 +19,7 @@ from src.model.situacao_vaga import SituacaoNaFonte
 from src.model.vaga_externa import VagaExterna
 from src.repository.base import CurriculoRepositoryMemoria, PerfilBuscaRepositoryMemoria, VagaEncontradaRepositoryMemoria
 from src.service.busca_service import BuscaService
-from src.service.conferencia_service import ConferenciaService
+from src.service.conferencia_service import ConferenciaDasPessoas, ConferenciaService
 
 AGORA = datetime(2026, 10, 24, 12, 0, tzinfo=timezone.utc)
 ABERTA_NO_REMOTAR = {"id": 1, "title": "Analista", "active": True, "expired": False, "expires": False}
@@ -200,11 +200,11 @@ class LigacaoNaAppTest(unittest.TestCase):
     """A conferência roda quando a app sobe e depois de cada coleta agendada (mesmo se a coleta falhar)."""
 
     def test_roda_na_subida_e_depois_da_coleta_agendada(self):
-        chamadas, recebido = [], {}
+        chamadas, recebido = threading.Semaphore(0), {}
 
         class Conferencia:
-            def conferir_em_segundo_plano(self):
-                chamadas.append(1)
+            def conferir(self):
+                chamadas.release()
 
         historicos = []
         app = criar_app(
@@ -213,13 +213,14 @@ class LigacaoNaAppTest(unittest.TestCase):
             agendador=lambda coletar: recebido.update(coletar=coletar),
             conferencia=lambda historico: historicos.append(historico) or Conferencia(),
         )
-        self.assertEqual(len(historicos), 1)  # recebe o histórico da app (o mesmo da coleta)
         with TestClient(app):
-            self.assertEqual(len(chamadas), 1)
+            self.assertTrue(chamadas.acquire(timeout=5))
+        self.assertEqual(len(historicos), 1)  # o histórico da única pessoa (o mesmo da coleta)
         # Sem perfil a coleta levanta (DadoInvalido); a conferência roda assim mesmo.
         with self.assertRaises(Exception):
             recebido["coletar"]()
-        self.assertEqual(len(chamadas), 2)
+        self.assertTrue(chamadas.acquire(timeout=5))
+        self.assertEqual(len(historicos), 1)  # a conferência da pessoa é reaproveitada
 
     def test_sem_conferencia_nada_e_reconsultado(self):
         app = criar_app(PerfilBuscaRepositoryMemoria(1), CurriculoRepositoryMemoria(1), BuscaService([]))
@@ -240,6 +241,40 @@ class LigacaoNaAppTest(unittest.TestCase):
         html = TestClient(app).get("/tela/candidaturas", headers={"HX-Request": "true"}).text
         self.assertIn("A vaga saiu do ar.", html)
         self.assertEqual(app.state.candidaturas.obter(candidatura.id).status.value, "enviada")
+
+
+class ConferenciaDasPessoasTest(unittest.TestCase):
+    """Cada pessoa tem as próprias vagas: a mesma URL fechada na fonte sai do histórico de cada uma."""
+
+    def setUp(self):
+        self.url = "https://remotar.com.br/job/7"
+        self.vagas = {p: VagaEncontradaRepositoryMemoria(p, relogio=lambda: AGORA) for p in (1, 2)}
+        self.vagas[2].registrar([vaga("Remotar", self.url)], "dados")
+        self.vagas[2].registrar([vaga("Remotar", "https://remotar.com.br/job/8")], "dados")
+        self.fonte = FonteFalsa({"7": SituacaoNaFonte.FECHADA})
+
+    def conferencia(self, quebrada=()):
+        def da_pessoa(pessoa_id):
+            if pessoa_id in quebrada:
+                raise RuntimeError("banco fora")
+            return ConferenciaService(self.vagas[pessoa_id], self.fonte, None, dormir=lambda s: None)
+
+        return ConferenciaDasPessoas(lambda: [1, 2], da_pessoa)
+
+    def no_ar(self, pessoa_id):
+        return {v.url for v in self.vagas[pessoa_id].listar_recentes(somente_novas=False, teto=100)}
+
+    def test_confere_o_historico_de_cada_pessoa(self):
+        resultados = self.conferencia().conferir()
+
+        self.assertEqual(self.no_ar(2), {"https://remotar.com.br/job/8"})  # a fechada saiu do histórico da pessoa 2
+        self.assertEqual(resultados[2].fechadas, 1)
+
+    def test_falha_numa_pessoa_nao_para_as_outras(self):
+        resultados = self.conferencia(quebrada={1}).conferir()
+
+        self.assertNotIn(1, resultados)
+        self.assertEqual(self.no_ar(2), {"https://remotar.com.br/job/8"})
 
 
 if __name__ == "__main__":

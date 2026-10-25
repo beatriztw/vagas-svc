@@ -67,7 +67,7 @@ class Coletas:
 def coleta_real(*providers) -> ColetaService:
     perfis = PerfilBuscaRepositoryMemoria(1)
     perfis.salvar(Perfil(termos=["python"]))
-    return ColetaService(RecomendacaoService(BuscaService(list(providers))), perfis, VagaEncontradaRepositoryMemoria(1))
+    return ColetaService.de_uma_pessoa(RecomendacaoService(BuscaService(list(providers))), perfis, VagaEncontradaRepositoryMemoria(1))
 
 
 class HorariosTest(unittest.TestCase):

@@ -112,3 +112,44 @@ class ConferenciaService:
         thread = threading.Thread(target=rodar, name="conferencia", daemon=True)
         thread.start()
         return thread
+
+
+class ConferenciaDasPessoas:
+    """A conferência do histórico de cada pessoa, uma depois da outra, numa thread só: cada pessoa tem as
+    próprias vagas, então a vaga fechada de uma pessoa só some quando o histórico DELA é conferido."""
+
+    def __init__(self, pessoas: Callable[[], list[int]], conferencia_da_pessoa: Callable[[int], ConferenciaService]):
+        self._pessoas = pessoas
+        self._conferencia_da_pessoa = conferencia_da_pessoa
+        # Uma conferência de cada pessoa guardada: a trava de cada uma segue valendo entre as rodadas.
+        self._por_pessoa: dict[int, ConferenciaService] = {}
+        self._trava = threading.Lock()
+
+    def conferir(self) -> dict[int, ResultadoConferencia | None] | None:
+        """O resultado de cada pessoa; None se outra rodada já está em andamento. Falha numa pessoa (inclusive
+        do banco) vai para o log, com o id, e não para as outras."""
+        if not self._trava.acquire(blocking=False):
+            return None
+        try:
+            resultados: dict[int, ResultadoConferencia | None] = {}
+            for pessoa_id in self._pessoas():
+                try:
+                    if pessoa_id not in self._por_pessoa:
+                        self._por_pessoa[pessoa_id] = self._conferencia_da_pessoa(pessoa_id)
+                    resultados[pessoa_id] = self._por_pessoa[pessoa_id].conferir()
+                except Exception as e:  # noqa: BLE001 - uma pessoa não para a conferência das outras
+                    log.warning("conferência da pessoa %s falhou (%s)", pessoa_id, type(e).__name__)
+            return resultados
+        finally:
+            self._trava.release()
+
+    def conferir_em_segundo_plano(self) -> threading.Thread:
+        def rodar():
+            try:
+                self.conferir()
+            except Exception as e:  # noqa: BLE001 - banco fora ao listar as pessoas: fica para a próxima
+                log.warning("conferência falhou (%s)", type(e).__name__)
+
+        thread = threading.Thread(target=rodar, name="conferencia", daemon=True)
+        thread.start()
+        return thread

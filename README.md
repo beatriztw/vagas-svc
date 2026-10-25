@@ -48,6 +48,26 @@ O `ApifyLinkedInPostsClient` (plataforma `LinkedIn (posts)`) usa o mesmo token e
 
 Custo dos posts (plano Free, out/2026): US$ 0,002 por post, US$ 0,00005 por run e US$ 0,001 por consulta sem resultado. Com 6 termos e 2 coletas por dia: 6 × `APIFY_POSTS_LIMITE` × 2 × 30 = 360 posts por mês para cada post por termo, ou seja **~US$ 0,72/mês com `APIFY_POSTS_LIMITE=1`** (até ~US$ 0,38 a mais se as consultas vierem vazias). O crédito Free é de US$ 5/mês e ~US$ 4,30 já ficam com o LinkedIn de vagas (`APIFY_LIMITE=6`): ligar os posts com 1 por termo pede baixar `APIFY_LIMITE` para 5 antes, senão o crédito acaba no fim do mês. Para ligar: `APIFY_POSTS_LIMITE=1` (e `APIFY_LIMITE=5`) no serviço.
 
+### Por pessoa
+
+Os providers acima são o **padrão do servidor** (variáveis de ambiente). Cada pessoa pode ter os seus na tabela `pessoa_provider` (`migrations/015_pessoa_provider.sql`: `pessoa_id`, `provider`, `config` JSONB). **Tabela vazia para a pessoa = vale o ambiente** (o comportamento de antes; a migration não grava seed). Com pelo menos um provider gravado, valem **só** os dela.
+
+| `provider` | `config` |
+|---|---|
+| `remotar`, `trampos` | `{}` |
+| `greenhouse`, `lever`, `ashby` | `{"empresas": ["slug", ...]}`: obrigatória, até 200, sem vazios, repetidos saem; slug só com letras, números, `-`, `_` e `.` |
+| `himalayas` | `{"limite": 1..20}` (opcional; padrão 20) |
+| `remotive` | `{"limite": 1..100}` (opcional; padrão 100) |
+| `linkedin` | `{"locais": [até 5, em inglês], "limite": 1..APIFY_LIMITE_MAX}`; ausentes valem `APIFY_LOCAIS` e `APIFY_LIMITE` (este nunca acima do teto) |
+| `linkedin_posts` | `{"limite": 1..APIFY_POSTS_LIMITE_MAX}`; ausente = 1 |
+
+- Validação **antes** de gravar (`DadoInvalido`, 422; nada é gravado): provider desconhecido, chave desconhecida na config, tipo errado, lista vazia ou acima do teto.
+- **Segredo nunca na tabela**: `APIFY_TOKEN`/`APIFY_TOKEN_FILE` seguem só no ambiente. Sem token, o LinkedIn da pessoa fica desligado e aparece em `erros` da busca (`APIFY_TOKEN não definido`).
+- **Teto de custo do Apify**: `limite` por pessoa, no máximo `APIFY_LIMITE_MAX` (padrão = 50, o `APIFY_LIMITE_PADRAO`) para o LinkedIn e `APIFY_POSTS_LIMITE_MAX` (padrão 5) para os posts, e no máximo 5 locais (o Apify cobra `limite` por local). Config acima do teto é recusada; se o teto baixar depois, a config gravada é cortada no teto ao buscar. Valor inválido dessas variáveis cai no padrão, sem derrubar a app.
+- **Cache da coleta**: a busca de um termo vale por `(config efetiva, termo)`. Duas pessoas com a mesma config (padrões já preenchidos) compartilham a busca; configs diferentes buscam cada uma, e quem usa o ambiente só compartilha com quem usa o ambiente.
+- `GET/PUT /perfil/providers` (corpo `{"providers": [{"provider": "ashby", "config": {"empresas": ["posthog"]}}]}`; o `PUT` substitui tudo e `[]` volta ao padrão do servidor; mesmo CSRF das outras rotas JSON) e a seção "Fontes de vaga" em `/tela/perfil`. A coleta (app e CLI) e a busca ao vivo `GET /vagas` usam os providers da pessoa.
+- **PostHog**: as vagas dele ficam no Ashby, então a fonte é `ashby` com `posthog` em `empresas`, sem client novo. **Ressalva: o slug `posthog` no Ashby não foi conferido contra a API real** (o host `api.ashbyhq.com` está bloqueado neste ambiente); os testes usam uma resposta escrita à mão.
+
 `BuscaService` consulta todos, remove vagas repetidas pela URL e registra em `erros` os providers que falharam, sem interromper a busca:
 
 ```python
@@ -99,11 +119,13 @@ A app de produção lê o Postgres pelas variáveis `PG*` (`PGHOST`, `PGPORT`, `
 
 ## Coleta
 
-`GET /vagas` busca ao vivo a cada chamada. A coleta roda a mesma recomendação para cada termo do perfil salvo (termos repetidos por grafia, como `Front-end` e `front end`, rodam uma vez) e guarda as vagas na tabela `vaga_encontrada` de `migrations/002_vaga_encontrada.sql` (idempotente, aplicada sozinha na subida). A chave é a URL: a mesma vaga achada por dois termos é uma linha só, com os dois em `termos`; uma coleta seguinte atualiza `ultima_vez_em` e os campos que vieram preenchidos, sem contar a vaga como nova e sem mexer em `primeira_vez_em` nem em `vista_em`. Nova = ainda não marcada como vista.
+`GET /vagas` busca ao vivo a cada chamada. A coleta roda a mesma recomendação para cada termo do perfil de cada pessoa (termos repetidos por grafia, como `Front-end` e `front end`, rodam uma vez) e guarda as vagas na tabela `vaga_encontrada` de `migrations/002_vaga_encontrada.sql` (idempotente, aplicada sozinha na subida). A chave é a URL: a mesma vaga achada por dois termos é uma linha só, com os dois em `termos`; uma coleta seguinte atualiza `ultima_vez_em` e os campos que vieram preenchidos, sem contar a vaga como nova e sem mexer em `primeira_vez_em` nem em `vista_em`. Nova = ainda não marcada como vista.
+
+**Várias pessoas.** A coleta cobre todas as pessoas da tabela `pessoa`, uma depois da outra, dentro da mesma trava; pessoa sem perfil ou sem termos é pulada e não atrapalha as outras. Cada termo (normalizado: `Front-end` = `front end`) é buscado nos providers uma vez por coleta, mesmo com várias pessoas, para não pagar o Apify duas vezes: o cache é só em memória e guarda o resultado cru, e o filtro do perfil, o registro e o lote da IA são de cada pessoa (a mesma URL achada para duas pessoas são duas linhas). A CLI imprime uma linha por pessoa e termo (`pessoa 2 | python: 20 encontradas, 3 novas`), sempre com o id, nunca o nome.
 
 | Método e rota | O que faz |
 |---|---|
-| `POST /coletas` | roda a coleta e devolve `{termos: [{termo, encontradas, novas, erros}], novas}`; 422 sem perfil salvo ou com perfil sem termos; provider que falha aparece em `erros` do termo e não interrompe |
+| `POST /coletas` | roda a coleta (de todas as pessoas) e devolve, da pessoa da requisição, `{termos: [{termo, encontradas, novas, erros}], novas}`; 422 se nenhuma pessoa tem perfil com termos; provider que falha aparece em `erros` do termo e não interrompe |
 | `GET /vagas/encontradas?novas=true&limite=50&q=&deslocamento=0` | vagas guardadas com o perfil salvo aplicado na leitura (ver "Histórico pelo perfil" abaixo); sem perfil salvo, primeiro as achadas mais recentemente; `novas=false` inclui as já vistas; `q` filtra por palavra (título, empresa, local ou plataforma: `linkedin` traz as do LinkedIn); `limite` de 1 a 500 (fora disso, 422) |
 | `POST /vagas/vistas` | `{"urls": [...]}` (até 500): marca como vistas e devolve `{"marcadas": n}`, só as que ainda não estavam |
 
@@ -113,10 +135,10 @@ A própria app coleta às 08:00 e às 18:00 de Brasília (`COLETA_HORARIOS`, `HH
 
 O log da app (logger `src`: migrations, coleta agendada, pedidos de IA) sai no stderr em INFO, ou no nível de `LOG_NIVEL` (`DEBUG`, `INFO`, `WARNING`...; inválido cai em INFO). Só contagens e ids, nunca vaga, termo ou dado do perfil. O root e as bibliotecas ficam em WARNING: em INFO o httpx logaria a URL do Apify, que leva o token.
 
-- É a mesma coleta do `POST /coletas`: a mesma trava (outra coleta rodando = "em andamento") e, no fim, o lote da IA.
+- É a mesma coleta do `POST /coletas`: a mesma trava (outra coleta rodando = "em andamento") e, no fim, o lote da IA de cada pessoa.
 - Cada horário é reservado em `coleta_agendada` (`migrations/008_coleta_agendada.sql`) ANTES de coletar, com `INSERT ... ON CONFLICT DO NOTHING`: só quem insere coleta, então um reinício ou uma segunda réplica nunca rodam o mesmo horário.
 - Recuperação: ao subir e a cada volta (no máximo 5 min), o horário mais recente que passou há até 6 h e não foi reservado roda (Pi desligado ou app reiniciando no horário). Mais velho que isso fica para o próximo.
-- O registro guarda só contagens (`ok termos=6 novas=12 termos_com_erro=1`) ou o motivo (`em andamento`, `sem perfil ou sem termos`, `erro <Tipo>`); o log também. Banco fora ao reservar: tenta de novo em 60 s, sem marcar o horário. Uma coleta que falha nunca derruba a thread.
+- O registro guarda só contagens somadas de todas as pessoas, sem id nem nome (`ok termos=6 novas=12 termos_com_erro=1`) ou o motivo (`em andamento`, `sem perfil ou sem termos`, `erro <Tipo>`); o log também. Banco fora ao reservar: tenta de novo em 60 s, sem marcar o horário. Uma coleta que falha nunca derruba a thread.
 - A CLI `python -m src.controller.coleta` continua para rodar à mão.
 
 ### Histórico pelo perfil
