@@ -1,31 +1,37 @@
-<div id="aplicadas">
-  <div class="painel-cabecalho">
-    <h2 id="t-aplicadas">Vagas aplicadas</h2>
-    <div class="aplicadas-resumo">
-      {% if total_encerradas %}
-      {# Só CSS (tela.css, :has): sem estado no servidor. `hx-preserve` mantém a escolha quando o bloco é trocado
-         (marcar, desfazer). As encerradas já vêm no fim da tabela. #}
-      <label id="ocultar-encerradas-rotulo" class="opcao-pequena" hx-preserve="true">
-        <input type="checkbox" id="ocultar-encerradas"> Ocultar encerradas ({{ total_encerradas }})
-      </label>
-      {% endif %}
-      <span class="mono">{{ total_candidaturas|default(0) }} candidaturas</span>
-    </div>
-  </div>
-  {% if candidaturas %}
+{% macro tabela(lista) %}
   <div class="tabela-rolavel">
     <table class="tabela">
       <thead>
         <tr><th>Vaga</th><th>Empresa</th><th>Aplicada em</th><th>Status</th><th><span class="visualmente-oculto">Ações</span></th></tr>
       </thead>
       <tbody>
-        {% for c in candidaturas %}
+        {% for c in lista %}
         {% include "tela/_linha_candidatura.html" %}
         {% endfor %}
       </tbody>
     </table>
   </div>
+{% endmacro %}
+<div id="aplicadas">
+  <div class="painel-cabecalho">
+    <h2 id="t-aplicadas">Vagas aplicadas</h2>
+    <div class="aplicadas-resumo">
+      <span class="mono">{{ total_candidaturas|default(0) }} candidaturas</span>
+    </div>
+  </div>
+  {% if em_andamento %}
+  {{ tabela(em_andamento) }}
+  {% elif encerradas %}
+  <p class="vazio">Nenhuma candidatura em andamento</p>
   {% else %}
   <p class="vazio">Nenhuma candidatura ainda</p>
+  {% endif %}
+  {% if encerradas %}
+  {# Processo acabado (vaga encerrada, recusada, sem resposta, proposta aceita): fica guardado, recolhido.
+     Sem estado no servidor: abre fechada; volta aberta só quando a mudança veio de dentro dela. #}
+  <details id="encerradas" class="encerradas"{% if encerradas_aberta %} open{% endif %}>
+    <summary>Encerradas ({{ encerradas|length }})</summary>
+    {{ tabela(encerradas) }}
+  </details>
   {% endif %}
 </div>

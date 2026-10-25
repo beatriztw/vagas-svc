@@ -36,14 +36,16 @@ def contexto_linha() -> dict:
     }
 
 
-def contexto_aplicadas(servico: CandidaturaService) -> dict:
-    """Variáveis de `tela/_aplicadas.html`; `GET /tela` e as rotas daqui usam a mesma. As encerradas vão
-    para o fim (`sorted` é estável: dentro de cada grupo fica a ordem do repositório, a mais recente primeiro)."""
-    lista = sorted(servico.listar(), key=lambda c: c.status.encerrada)
+def contexto_aplicadas(servico: CandidaturaService, encerradas_aberta: bool = False) -> dict:
+    """Variáveis de `tela/_aplicadas.html`; `GET /tela` e as rotas daqui usam a mesma. As em andamento ficam
+    na tabela; as encerradas, na seção recolhida embaixo (cada grupo na ordem do repositório, a mais recente
+    primeiro). `encerradas_aberta` devolve a seção aberta quando a mudança veio de dentro dela."""
+    lista = servico.listar()
     return {
-        "candidaturas": lista,
+        "em_andamento": [c for c in lista if not c.status.encerrada],
+        "encerradas": [c for c in lista if c.status.encerrada],
         "total_candidaturas": len(lista),
-        "total_encerradas": sum(1 for c in lista if c.status.encerrada),
+        "encerradas_aberta": encerradas_aberta,
         **contexto_linha(),
     }
 
@@ -85,15 +87,14 @@ def criar_router_tela_candidaturas(servico: CandidaturaService) -> APIRouter:
         return bloco_com_acao(request, url, candidatura)
 
     @router.patch("/{id}", dependencies=[Depends(exigir_mutacao_da_tela)])
-    def mudar_status(id: str, request: Request, status: str = Form("")):
+    def mudar_status(id: str, request: Request, status: str = Form(""), encerradas_aberta: str = Form("")):
         # Status fora do enum: DadoInvalido, que em /tela vira o partial _erro.html com 422.
         candidatura = servico.mudar_status(id_da_rota(id), status)
         if candidatura is None:
             return resposta_de_erro(request, "Candidatura não encontrada", 404)
+        # Devolve o bloco inteiro: a linha pode trocar de grupo (encerrou ou voltou a andar).
         return templates.TemplateResponse(
-            request,
-            "tela/_linha_candidatura.html",
-            {"c": candidatura, **contexto_linha()},
+            request, "tela/_aplicadas.html", contexto_aplicadas(servico, encerradas_aberta=bool(encerradas_aberta))
         )
 
     @router.delete("/{id}", dependencies=[Depends(exigir_mutacao_da_tela)])
