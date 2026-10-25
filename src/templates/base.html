@@ -15,7 +15,9 @@
 <script src="{{ "tela.js"|estatico }}" defer></script>
 <script src="{{ "tela-mobile.js"|estatico }}" defer></script>
 </head>
-<body>
+{# Toda requisição do HTMX desta página leva a pessoa que ela mostra: com o seletor trocado em outra aba (o cookie
+   mudou), o "Salvar" desta aba grava na pessoa que estava na tela, e não na do cookie. #}
+<body{% if request.state.pessoa_id %} hx-headers='{"X-Person-Id": "{{ request.state.pessoa_id }}"}'{% endif %}>
 <header class="topo">
   <div class="topo-conteudo">
     <div class="marca">

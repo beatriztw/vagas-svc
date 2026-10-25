@@ -3,6 +3,7 @@
 Tudo escrito à mão: nomes e vagas inventados (nada aqui é resposta gravada nem dado de gente de verdade).
 """
 
+import json
 import os
 import re
 import unittest
@@ -210,6 +211,19 @@ class TelaPorPessoaTest(unittest.TestCase):
         self.assertEqual(self.mundo.perfis[1].obter().termos, ["termo da pessoa um"])
         self.assertEqual(self.mundo.fontes[2].listar(), [ProviderPessoa("ashby", {"empresas": ["outraempresa"]})])
         self.assertEqual(self.mundo.fontes[1].listar(), [])
+
+    def test_salvar_numa_aba_aberta_antes_de_trocar_a_pessoa_grava_na_pessoa_da_aba(self):
+        # A aba abriu o perfil da pessoa 1; outra aba trocou o seletor para a 2 (o cookie agora é 2).
+        api = self.mundo.cliente("1")
+        pagina = api.get("/tela/perfil").text
+        cabecalhos = json.loads(unescape(re.search(r"<body hx-headers='([^']*)'", pagina).group(1)))
+        api.cookies.set(COOKIE_PESSOA, "2")
+
+        resposta = api.put("/tela/perfil", data={"termos": "salvo na aba da um"}, headers={**HX, **cabecalhos})
+
+        self.assertEqual(resposta.status_code, 200)
+        self.assertEqual(self.mundo.perfis[1].obter().termos, ["salvo na aba da um"])
+        self.assertEqual(self.mundo.perfis[2].obter().termos, ["termo da pessoa dois"])  # a 2 não é sobrescrita
 
     def test_marcar_salva_e_vista_e_aplicada_na_tela_gravam_na_pessoa_do_cookie(self):
         api = self.mundo.cliente("2")
