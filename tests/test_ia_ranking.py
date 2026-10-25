@@ -83,9 +83,9 @@ def chips_por_card(pagina: Pagina) -> dict[str, list]:
 
 class OrdenarTest(unittest.TestCase):
     def setUp(self):
-        self.repo = VagaEncontradaRepositoryMemoria()
+        self.repo = VagaEncontradaRepositoryMemoria(1)
         self.repo.registrar(VAGAS, "dados")
-        self.perfis = PerfilBuscaRepositoryMemoria()
+        self.perfis = PerfilBuscaRepositoryMemoria(1)
         self.perfis.salvar(PERFIL)
         self.servico = HistoricoService(self.repo, self.perfis)
 
@@ -124,7 +124,7 @@ class OrdenarTest(unittest.TestCase):
         self.assertEqual(lidas, ORDEM_IA)
 
     def test_sem_perfil_a_ordem_pela_nota_usa_as_mais_recentes_como_desempate(self):
-        servico = HistoricoService(self.repo, PerfilBuscaRepositoryMemoria())
+        servico = HistoricoService(self.repo, PerfilBuscaRepositoryMemoria(1))
         recentes = urls(servico.pagina(False, 500, hoje=HOJE).vagas)
         # Sem perfil o padrão não muda por causa das notas: só a ordem pedida de propósito ranqueia.
         self.assertEqual(urls(servico.pagina(False, 500, hoje=HOJE, notas=NOTAS).vagas), recentes)
@@ -136,7 +136,7 @@ class OrdenarTest(unittest.TestCase):
     def test_sem_perfil_uma_nota_nao_corta_o_historico_na_janela_de_varredura(self):
         from unittest import mock
 
-        servico = HistoricoService(self.repo, PerfilBuscaRepositoryMemoria())
+        servico = HistoricoService(self.repo, PerfilBuscaRepositoryMemoria(1))
         total = servico.pagina(False, 500, hoje=HOJE).total
         with mock.patch("src.service.historico_service.TETO_VARREDURA_HISTORICO", 2):
             pagina = servico.pagina(False, 500, hoje=HOJE, notas=NOTAS)
@@ -162,9 +162,9 @@ class OrdenarPostgresTest(OrdenarTest):
         from src.repository.postgres import VagaEncontradaRepositoryPostgres
         from tests.test_coleta import _schema_descartavel
 
-        self.repo = VagaEncontradaRepositoryPostgres(_schema_descartavel(self, "rank")[0])
+        self.repo = VagaEncontradaRepositoryPostgres(_schema_descartavel(self, "rank")[0], 1)
         self.repo.registrar(VAGAS, "dados")
-        self.perfis = PerfilBuscaRepositoryMemoria()
+        self.perfis = PerfilBuscaRepositoryMemoria(1)
         self.perfis.salvar(PERFIL)
         self.servico = HistoricoService(self.repo, self.perfis)
 
@@ -175,13 +175,13 @@ def compat(n: int, faixa: str) -> dict:
 
 class TelaTest(unittest.TestCase):
     def setUp(self):
-        self.encontradas = VagaEncontradaRepositoryMemoria()
+        self.encontradas = VagaEncontradaRepositoryMemoria(1)
         self.encontradas.registrar(VAGAS, "dados")
-        self.perfis = PerfilBuscaRepositoryMemoria()
+        self.perfis = PerfilBuscaRepositoryMemoria(1)
         self.perfis.salvar(PERFIL)
-        self.curriculos = CurriculoRepositoryMemoria()
+        self.curriculos = CurriculoRepositoryMemoria(1)
         self.curriculos.salvar(Curriculo(tipo="base", titulo="Base", conteudo_md="# Base"))
-        self.pedidos = PedidoIARepositoryMemoria(vaga_por_url_em(self.encontradas))
+        self.pedidos = PedidoIARepositoryMemoria(1, vaga_por_url_em(self.encontradas))
         self.app = criar_app(
             self.perfis, self.curriculos, BuscaService([]), encontradas=self.encontradas, pedidos_ia=self.pedidos
         )

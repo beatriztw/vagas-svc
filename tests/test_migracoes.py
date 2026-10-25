@@ -184,6 +184,243 @@ class MigracoesTest(unittest.TestCase):
         self.assertTrue(PASTA_MIGRATIONS.is_absolute())
         self.assertEqual(aplicar_pendentes(conectar=self.conectar), sorted(p.name for p in PASTA_MIGRATIONS.glob("*.sql")))
 
+    # --- 013_pessoa.sql: dados de antes da 013 ficam na pessoa 1; a 013 é idempotente; a FK composta isola ---
+
+    def aplicar_ate_012(self):
+        """Só as 001–012 numa pasta própria, aplicadas pelo runner de verdade (com schema_migrations)."""
+        for arquivo in sorted(PASTA_MIGRATIONS.glob("*.sql")):
+            if arquivo.name < "013":
+                (self.pasta / arquivo.name).write_text(arquivo.read_text(encoding="utf-8"), encoding="utf-8")
+        self.assertEqual(len(self.aplicar()), 11)  # a 005 nunca existiu
+
+    def aplicar_013(self):
+        (self.pasta / "013_pessoa.sql").write_text(
+            (PASTA_MIGRATIONS / "013_pessoa.sql").read_text(encoding="utf-8"), encoding="utf-8"
+        )
+        return self.aplicar()
+
+    def popular_como_antes_da_013(self):
+        """Uma linha de cada tabela, como o banco de produção tinha: vaga, candidatura, pedido, rótulo,
+        perfil, currículo e pausa. Dados inventados."""
+        for sql in (
+            "INSERT INTO vaga_encontrada (url, titulo, empresa, plataforma) VALUES "
+            "('https://exemplo.com/v1', 'Dev', 'Acme', 'Teste'), ('https://exemplo.com/v2', 'Dados', 'Acme', 'Teste')",
+            "INSERT INTO candidatura (vaga_url) VALUES ('https://exemplo.com/v1')",
+            "INSERT INTO curriculo (tipo, titulo, conteudo_md) VALUES ('base', 'Base', '# base')",
+            "INSERT INTO curriculo (tipo, titulo, conteudo_md, base_id, vaga_url) "
+            "VALUES ('adaptado', 'Adaptado', '# adaptado', 1, 'https://exemplo.com/v1')",
+            "INSERT INTO pedido_ia (vaga_url, tipo, curriculo_base_id) VALUES ('https://exemplo.com/v1', 'compatibilidade', 1)",
+            "INSERT INTO pedido_ia (vaga_url, tipo) VALUES ('https://exemplo.com/v2', 'curriculo')",
+            "INSERT INTO rotulo_ia (vaga_url, faixa) VALUES ('https://exemplo.com/v1', 'alta')",
+            "INSERT INTO perfil_busca (id, termos) VALUES (1, ARRAY['python'])",
+            "INSERT INTO ia_lote_pausa (id, pausado) VALUES (1, true)",
+        ):
+            self.admin.execute(sql)
+
+    TABELAS_DA_PESSOA = (
+        "vaga_encontrada", "candidatura", "pedido_ia", "rotulo_ia", "curriculo", "perfil_busca", "ia_lote_pausa",
+    )
+
+    def test_013_dados_de_antes_continuam_e_ficam_na_pessoa_1(self):
+        from src.repository.candidatura_postgres import CandidaturaRepositoryPostgres
+        from src.repository.pedido_ia_postgres import PedidoIARepositoryPostgres
+        from src.repository.postgres import (
+            CurriculoRepositoryPostgres,
+            PerfilBuscaRepositoryPostgres,
+            VagaEncontradaRepositoryPostgres,
+        )
+
+        self.aplicar_ate_012()
+        self.popular_como_antes_da_013()
+        antes = {t: self.admin.execute(f"SELECT count(*) FROM {t}").fetchone()[0] for t in self.TABELAS_DA_PESSOA}
+        self.assertEqual(antes, dict(zip(self.TABELAS_DA_PESSOA, (2, 1, 2, 1, 2, 1, 1))))
+
+        self.assertEqual(self.aplicar_013(), ["013_pessoa.sql"])
+
+        for tabela in self.TABELAS_DA_PESSOA:
+            with self.subTest(tabela=tabela):
+                self.assertEqual(self.admin.execute(f"SELECT count(*) FROM {tabela}").fetchone()[0], antes[tabela])
+                self.assertEqual(
+                    self.admin.execute(f"SELECT DISTINCT pessoa_id FROM {tabela}").fetchall(), [(1,)]
+                )
+        # A pessoa 1 é a dona, com nome neutro (o real, se houver, fica só no banco).
+        self.assertEqual(self.admin.execute("SELECT id, nome_exibicao FROM pessoa").fetchall(), [(1, "Pessoa 1")])
+
+        # Os repositórios da pessoa 1 leem tudo o que existia.
+        conn = self.conectar()
+        self.addCleanup(conn.close)
+        self.assertEqual(PerfilBuscaRepositoryPostgres(conn, 1).obter().termos, ["python"])
+        self.assertEqual(CurriculoRepositoryPostgres(conn, 1).obter_base().titulo, "Base")
+        self.assertEqual([c.titulo for c in CurriculoRepositoryPostgres(conn, 1).listar_adaptados()], ["Adaptado"])
+        vagas = VagaEncontradaRepositoryPostgres(conn, 1)
+        self.assertEqual(vagas.contar(False), 2)
+        self.assertEqual(vagas.obter("https://exemplo.com/v1").titulo, "Dev")
+        self.assertEqual(CandidaturaRepositoryPostgres(conn, 1).contar(), 1)
+        pedidos = PedidoIARepositoryPostgres(conn, 1)
+        self.assertEqual(pedidos.urls_ativas("compatibilidade"), {"https://exemplo.com/v1"})
+        self.assertEqual(pedidos.listar_rotulos(), {"https://exemplo.com/v1": "alta"})
+        self.assertTrue(pedidos.lote_pausado())
+        # E a pessoa 2 não herda nada.
+        self.admin.execute("INSERT INTO pessoa (id, nome_exibicao) VALUES (2, 'Pessoa 2')")
+        self.assertIsNone(PerfilBuscaRepositoryPostgres(conn, 2).obter())
+        self.assertEqual(VagaEncontradaRepositoryPostgres(conn, 2).contar(False), 0)
+        self.assertFalse(PedidoIARepositoryPostgres(conn, 2).lote_pausado())
+
+    def test_013_roda_duas_vezes_sem_erro_e_sem_mexer_nos_dados(self):
+        self.aplicar_ate_012()
+        self.popular_como_antes_da_013()
+        self.aplicar_013()
+        texto = (PASTA_MIGRATIONS / "013_pessoa.sql").read_text(encoding="utf-8")
+
+        def retrato():
+            return (
+                {t: self.admin.execute(f"SELECT count(*) FROM {t}").fetchone()[0] for t in self.TABELAS_DA_PESSOA},
+                self.admin.execute(
+                    "SELECT conname, contype FROM pg_constraint WHERE connamespace = current_schema()::regnamespace "
+                    "ORDER BY conname"
+                ).fetchall(),
+                self.admin.execute(
+                    "SELECT indexname, indexdef FROM pg_indexes WHERE schemaname = current_schema() ORDER BY indexname"
+                ).fetchall(),
+            )
+
+        depois_da_primeira = retrato()
+        self.admin.execute(texto)
+        self.admin.execute(texto)
+        self.assertEqual(retrato(), depois_da_primeira)
+        # E uma 013 aplicada a mão por cima do runner também é aceita pelo runner (já consta).
+        self.assertEqual(self.aplicar(), [])
+
+    def test_013_estado_final_do_schema(self):
+        self.aplicar_ate_012()
+        self.aplicar_013()
+        constraints = dict(
+            self.admin.execute(
+                "SELECT conname, pg_get_constraintdef(oid) FROM pg_constraint "
+                "WHERE connamespace = current_schema()::regnamespace"
+            ).fetchall()
+        )
+        self.assertEqual(constraints["vaga_encontrada_pkey"], "PRIMARY KEY (pessoa_id, url)")
+        self.assertEqual(constraints["rotulo_ia_pkey"], "PRIMARY KEY (pessoa_id, vaga_url)")
+        self.assertEqual(constraints["perfil_busca_pkey"], "PRIMARY KEY (pessoa_id)")
+        self.assertEqual(constraints["ia_lote_pausa_pkey"], "PRIMARY KEY (pessoa_id)")
+        self.assertEqual(constraints["candidatura_pessoa_vaga_key"], "UNIQUE (pessoa_id, vaga_url)")
+        for nome in ("candidatura_vaga_fkey", "pedido_ia_vaga_fkey", "rotulo_ia_vaga_fkey"):
+            self.assertEqual(
+                constraints[nome],
+                "FOREIGN KEY (pessoa_id, vaga_url) REFERENCES vaga_encontrada(pessoa_id, url)",
+            )
+        # As antigas saíram, com o CHECK id = 1.
+        for velha in (
+            "candidatura_vaga_url_fkey", "pedido_ia_vaga_url_fkey", "rotulo_ia_vaga_url_fkey",
+            "candidatura_vaga_url_key", "perfil_busca_id_check", "ia_lote_pausa_id_check",
+        ):
+            self.assertNotIn(velha, constraints)
+        indices = dict(
+            self.admin.execute(
+                "SELECT indexname, indexdef FROM pg_indexes WHERE schemaname = current_schema()"
+            ).fetchall()
+        )
+        for nome in (
+            "vaga_encontrada_novas_idx", "vaga_encontrada_primeira_vez_idx", "vaga_encontrada_salva_em_idx",
+            "candidatura_aplicada_idx", "pedido_ia_ativo_uq", "pedido_ia_vaga_idx", "pedido_ia_lote_idx",
+            "curriculo_pessoa_tipo_idx",
+        ):
+            self.assertIn("(pessoa_id, ", indices[nome], nome)
+        self.assertIn("(pessoa_id, vaga_url, tipo) WHERE", indices["pedido_ia_ativo_uq"])
+        self.assertIn("UNIQUE", indices["pedido_ia_ativo_uq"])
+        # A fila do worker segue global.
+        self.assertNotIn("pessoa_id", indices["pedido_ia_fila_prioridade_idx"])
+        # Sem DEFAULT: quem esquecer a pessoa falha alto.
+        com_default = self.admin.execute(
+            "SELECT table_name FROM information_schema.columns WHERE table_schema = current_schema() "
+            "AND column_name = 'pessoa_id' AND column_default IS NOT NULL"
+        ).fetchall()
+        self.assertEqual(com_default, [])
+        obrigatorias = self.admin.execute(
+            "SELECT table_name FROM information_schema.columns WHERE table_schema = current_schema() "
+            "AND column_name = 'pessoa_id' AND is_nullable = 'NO'"
+        ).fetchall()
+        self.assertEqual(sorted(c[0] for c in obrigatorias), sorted(self.TABELAS_DA_PESSOA))
+        self.assertEqual(
+            self.admin.execute(
+                "SELECT count(*) FROM information_schema.columns WHERE table_schema = current_schema() "
+                "AND column_name = 'id' AND table_name IN ('perfil_busca', 'ia_lote_pausa')"
+            ).fetchone()[0],
+            0,
+        )
+
+    def test_013_sem_pessoa_o_insert_falha_e_pessoa_inexistente_tambem(self):
+        self.aplicar_ate_012()
+        self.aplicar_013()
+        with self.assertRaises(psycopg.errors.NotNullViolation):
+            self.admin.execute("INSERT INTO vaga_encontrada (url, titulo, empresa, plataforma) VALUES ('u', 't', 'e', 'p')")
+        with self.assertRaises(psycopg.errors.ForeignKeyViolation):
+            self.admin.execute(
+                "INSERT INTO vaga_encontrada (pessoa_id, url, titulo, empresa, plataforma) VALUES (99, 'u', 't', 'e', 'p')"
+            )
+
+    def test_013_fk_composta_barra_pessoa_2_em_vaga_que_so_existe_na_pessoa_1(self):
+        self.aplicar_ate_012()
+        self.popular_como_antes_da_013()
+        self.aplicar_013()
+        self.admin.execute("INSERT INTO pessoa (id, nome_exibicao) VALUES (2, 'Pessoa 2')")
+        url = "https://exemplo.com/v1"  # só existe para a pessoa 1
+        for tabela, colunas, valores in (
+            ("candidatura", "pessoa_id, vaga_url", "2, %s"),
+            ("pedido_ia", "pessoa_id, vaga_url, tipo", "2, %s, 'curriculo'"),
+            ("rotulo_ia", "pessoa_id, vaga_url, faixa", "2, %s, 'alta'"),
+        ):
+            with self.subTest(tabela=tabela), self.assertRaises(psycopg.errors.ForeignKeyViolation):
+                self.admin.execute(f"INSERT INTO {tabela} ({colunas}) VALUES ({valores})", (url,))
+
+        # Controle: com a vaga na pessoa 2, os mesmos INSERTs entram (a falha acima era a FK, e só ela).
+        self.admin.execute(
+            "INSERT INTO vaga_encontrada (pessoa_id, url, titulo, empresa, plataforma) VALUES (2, %s, 'Dev', 'Acme', 'Teste')",
+            (url,),
+        )
+        self.admin.execute("INSERT INTO candidatura (pessoa_id, vaga_url) VALUES (2, %s)", (url,))
+        self.admin.execute("INSERT INTO pedido_ia (pessoa_id, vaga_url, tipo) VALUES (2, %s, 'curriculo')", (url,))
+        self.admin.execute("INSERT INTO rotulo_ia (pessoa_id, vaga_url, faixa) VALUES (2, %s, 'baixa')", (url,))
+
+    def test_013_mesma_url_em_duas_pessoas_mas_nao_duas_vezes_na_mesma(self):
+        self.aplicar_ate_012()
+        self.popular_como_antes_da_013()
+        self.aplicar_013()
+        self.admin.execute("INSERT INTO pessoa (id, nome_exibicao) VALUES (2, 'Pessoa 2')")
+        url = "https://exemplo.com/v1"
+        self.admin.execute(
+            "INSERT INTO vaga_encontrada (pessoa_id, url, titulo, empresa, plataforma) VALUES (2, %s, 'Dev', 'Acme', 'Teste')",
+            (url,),
+        )
+        self.assertEqual(
+            self.admin.execute("SELECT pessoa_id FROM vaga_encontrada WHERE url = %s ORDER BY 1", (url,)).fetchall(),
+            [(1,), (2,)],
+        )
+        with self.assertRaises(psycopg.errors.UniqueViolation):
+            self.admin.execute(
+                "INSERT INTO vaga_encontrada (pessoa_id, url, titulo, empresa, plataforma) VALUES (2, %s, 'x', 'x', 'x')",
+                (url,),
+            )
+        # Uma candidatura e um pedido ativo por vaga de cada pessoa, não por URL no banco todo.
+        self.admin.execute("INSERT INTO candidatura (pessoa_id, vaga_url) VALUES (2, %s)", (url,))
+        with self.assertRaises(psycopg.errors.UniqueViolation):
+            self.admin.execute("INSERT INTO candidatura (pessoa_id, vaga_url) VALUES (2, %s)", (url,))
+        # A pessoa 1 já tinha o pedido ativo de compatibilidade nesta URL: a 2 pede o dela sem conflito.
+        self.admin.execute("INSERT INTO pedido_ia (pessoa_id, vaga_url, tipo) VALUES (2, %s, 'compatibilidade')", (url,))
+        with self.assertRaises(psycopg.errors.UniqueViolation):
+            self.admin.execute(
+                "INSERT INTO pedido_ia (pessoa_id, vaga_url, tipo) VALUES (2, %s, 'compatibilidade')", (url,)
+            )
+        self.admin.execute("INSERT INTO rotulo_ia (pessoa_id, vaga_url, faixa) VALUES (2, %s, 'baixa')", (url,))
+        # Perfil e pausa: uma linha por pessoa.
+        self.admin.execute("INSERT INTO perfil_busca (pessoa_id, termos) VALUES (2, ARRAY['go'])")
+        with self.assertRaises(psycopg.errors.UniqueViolation):
+            self.admin.execute("INSERT INTO perfil_busca (pessoa_id) VALUES (2)")
+        self.admin.execute("INSERT INTO ia_lote_pausa (pessoa_id, pausado) VALUES (2, false)")
+        with self.assertRaises(psycopg.errors.UniqueViolation):
+            self.admin.execute("INSERT INTO ia_lote_pausa (pessoa_id, pausado) VALUES (2, true)")
+
 
 class RetryTest(unittest.TestCase):
     """Sem Postgres: `conectar` falso e relógio/sleep injetados (nada espera de verdade)."""
@@ -264,7 +501,7 @@ class LifespanTest(unittest.TestCase):
         from src.repository.base import CurriculoRepositoryMemoria, PerfilBuscaRepositoryMemoria
         from src.service.busca_service import BuscaService
 
-        return criar_app(PerfilBuscaRepositoryMemoria(), CurriculoRepositoryMemoria(), BuscaService([]), ao_subir=ao_subir)
+        return criar_app(PerfilBuscaRepositoryMemoria(1), CurriculoRepositoryMemoria(1), BuscaService([]), ao_subir=ao_subir)
 
     def test_startup_chama_ao_subir_uma_vez(self):
         from fastapi.testclient import TestClient

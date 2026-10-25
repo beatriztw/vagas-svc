@@ -14,7 +14,7 @@ from src.repository.candidatura import (
 
 _SELECT = (
     "SELECT c.id, c.vaga_url, c.status, c.aplicada_em, c.atualizada_em, v.titulo, v.empresa, v.expirada_em "
-    "FROM candidatura c JOIN vaga_encontrada v ON v.url = c.vaga_url "
+    "FROM candidatura c JOIN vaga_encontrada v ON v.pessoa_id = c.pessoa_id AND v.url = c.vaga_url "
 )
 
 
@@ -23,12 +23,13 @@ def _candidatura(linha: dict) -> CandidaturaComVaga:
 
 
 class CandidaturaRepositoryPostgres(CandidaturaRepository):
-    def __init__(self, conn: psycopg.Connection) -> None:
+    def __init__(self, conn: psycopg.Connection, pessoa_id: int) -> None:
         self._conn = conn
+        self._pessoa_id = pessoa_id
 
     def _um(self, filtro: str, params: tuple) -> CandidaturaComVaga | None:
         with self._conn.cursor(row_factory=dict_row) as cur:
-            cur.execute(f"{_SELECT}WHERE {filtro}", params)
+            cur.execute(f"{_SELECT}WHERE c.pessoa_id = %s AND {filtro}", (self._pessoa_id, *params))
             linha = cur.fetchone()
         return _candidatura(linha) if linha else None
 
@@ -39,12 +40,13 @@ class CandidaturaRepositoryPostgres(CandidaturaRepository):
                 # ON CONFLICT DO NOTHING espera a transação concorrente que gravou a mesma vaga;
                 # sem linha devolvida, a candidatura já existia e é relida abaixo.
                 cur.execute(
-                    "INSERT INTO candidatura (vaga_url) VALUES (%s) ON CONFLICT (vaga_url) DO NOTHING RETURNING id",
-                    (vaga_url,),
+                    "INSERT INTO candidatura (pessoa_id, vaga_url) VALUES (%s, %s) "
+                    "ON CONFLICT (pessoa_id, vaga_url) DO NOTHING RETURNING id",
+                    (self._pessoa_id, vaga_url),
                 )
                 criada = cur.fetchone() is not None
         except errors.ForeignKeyViolation:
-            # Só a vaga inexistente (a única chave estrangeira da tabela); o resto sobe como 500.
+            # Só a vaga inexistente para esta pessoa (a FK composta; a da pessoa existe); o resto sobe como 500.
             raise DadoInvalido(f"vaga não encontrada no histórico: {vaga_url}") from None
         candidatura = self.obter_por_url(vaga_url)
         if candidatura is None:
@@ -54,12 +56,12 @@ class CandidaturaRepositoryPostgres(CandidaturaRepository):
 
     def listar(self) -> list[CandidaturaComVaga]:
         with self._conn.cursor(row_factory=dict_row) as cur:
-            cur.execute(f"{_SELECT}ORDER BY c.aplicada_em DESC, c.id DESC")
+            cur.execute(f"{_SELECT}WHERE c.pessoa_id = %s ORDER BY c.aplicada_em DESC, c.id DESC", (self._pessoa_id,))
             return [_candidatura(linha) for linha in cur.fetchall()]
 
     def contar(self) -> int:
         with self._conn.cursor() as cur:
-            cur.execute("SELECT count(*) FROM candidatura")
+            cur.execute("SELECT count(*) FROM candidatura WHERE pessoa_id = %s", (self._pessoa_id,))
             return cur.fetchone()[0]
 
     def obter(self, id: int) -> CandidaturaComVaga | None:
@@ -76,8 +78,9 @@ class CandidaturaRepositoryPostgres(CandidaturaRepository):
             return None
         with self._conn.transaction(), self._conn.cursor() as cur:
             cur.execute(
-                "UPDATE candidatura SET status = %s, atualizada_em = now() WHERE id = %s RETURNING id",
-                (status.value, id),
+                "UPDATE candidatura SET status = %s, atualizada_em = now() "
+                "WHERE pessoa_id = %s AND id = %s RETURNING id",
+                (status.value, self._pessoa_id, id),
             )
             if cur.fetchone() is None:
                 return None
@@ -88,5 +91,5 @@ class CandidaturaRepositoryPostgres(CandidaturaRepository):
         if not id_possivel(id):
             return False
         with self._conn.transaction(), self._conn.cursor() as cur:
-            cur.execute("DELETE FROM candidatura WHERE id = %s", (id,))
+            cur.execute("DELETE FROM candidatura WHERE pessoa_id = %s AND id = %s", (self._pessoa_id, id))
             return cur.rowcount > 0

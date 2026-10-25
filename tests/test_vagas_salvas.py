@@ -76,7 +76,7 @@ class ContratoSalvas:
 class SalvasMemoriaTest(ContratoSalvas, unittest.TestCase):
     def setUp(self):
         self.agora = datetime(2026, 10, 13, 12, 0, tzinfo=timezone.utc)
-        self.repo = VagaEncontradaRepositoryMemoria(relogio=lambda: self.agora)
+        self.repo = VagaEncontradaRepositoryMemoria(1, relogio=lambda: self.agora)
 
     def passar_tempo(self) -> None:
         self.agora += timedelta(seconds=1)
@@ -88,7 +88,7 @@ class SalvasPostgresTest(ContratoSalvas, unittest.TestCase):
         from src.repository.postgres import VagaEncontradaRepositoryPostgres
 
         self.conn, _ = _schema_descartavel(self, "teste_salvas")
-        self.repo = VagaEncontradaRepositoryPostgres(self.conn)
+        self.repo = VagaEncontradaRepositoryPostgres(self.conn, 1)
 
     def passar_tempo(self) -> None:
         time.sleep(0.01)  # o now() de cada transação avança
@@ -106,12 +106,12 @@ class SalvasPostgresTest(ContratoSalvas, unittest.TestCase):
 
 class Tela:
     def __init__(self, vagas: list[VagaExterna], perfil: Perfil | None = None):
-        self.repo = VagaEncontradaRepositoryMemoria()
+        self.repo = VagaEncontradaRepositoryMemoria(1)
         self.repo.registrar(vagas, "dados")
-        perfis = PerfilBuscaRepositoryMemoria()
+        perfis = PerfilBuscaRepositoryMemoria(1)
         if perfil is not None:
             perfis.salvar(perfil)
-        self.cliente = TestClient(criar_app(perfis, CurriculoRepositoryMemoria(), BuscaService([]), encontradas=self.repo))
+        self.cliente = TestClient(criar_app(perfis, CurriculoRepositoryMemoria(1), BuscaService([]), encontradas=self.repo))
 
     def salvar(self, i: int, salvar: str = "1"):
         return self.cliente.post("/tela/vagas/salva", data={"url": url(i), "salvar": salvar}, headers=HX)

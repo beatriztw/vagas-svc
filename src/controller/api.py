@@ -13,7 +13,7 @@ from typing import Any
 from fastapi import Depends, FastAPI, HTTPException, Query, Request
 from fastapi.responses import JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, StrictInt
 
 from src.client.armazenamento import Armazenamento
 from src.controller.candidaturas import criar_router_candidaturas
@@ -54,8 +54,13 @@ from src.service.candidatura_service import CandidaturaService
 from src.service.coleta_service import ColetaService
 from src.service.detalhe_service import DetalheService
 from src.service.historico_service import HistoricoService
-from src.service.pedido_ia_service import PedidoIAService
+from src.service.pedido_ia_service import FabricasPorPessoa, PedidoIAService
 from src.service.recomendacao_service import RecomendacaoService
+
+
+# Em produção a pessoa é sempre esta (a dona dos dados de antes da migration 013). Os repositórios recebem a
+# pessoa no construtor; quando a sessão por pessoa chegar, esta constante sai e a pessoa vem da requisição.
+PESSOA_PADRAO = 1
 
 
 class PerfilJson(BaseModel):
@@ -110,6 +115,9 @@ class NovoAdaptado(BaseModel):
     conteudo_md: str = Field(min_length=1)
     vaga_url: str = Field(min_length=1)
     base_id: int | None = None
+    # O `id` do pedido de currículo que o worker está atendendo: o servidor grava na pessoa dona do pedido.
+    # Sem ele vale a pessoa da requisição.
+    pedido_id: StrictInt | None = None
 
 
 class VagaJson(BaseModel):
@@ -161,6 +169,21 @@ class ResultadoColetaJson(BaseModel):
     novas: int
 
 
+def _fabricas_da_requisicao(perfis, curriculos, encontradas) -> FabricasPorPessoa:
+    """Sem fábricas por pessoa (testes com uma pessoa só): os repositórios passados valem para a PESSOA_PADRAO e
+    um pedido de outra pessoa falha alto, em vez de montar o payload com os dados da pessoa errada."""
+
+    def so_a_padrao(repositorio):
+        def fabrica(pessoa_id: int):
+            if pessoa_id != PESSOA_PADRAO:
+                raise RuntimeError(f"sem repositórios para a pessoa {pessoa_id}")
+            return repositorio
+
+        return fabrica
+
+    return FabricasPorPessoa(so_a_padrao(perfis), so_a_padrao(curriculos), so_a_padrao(encontradas))
+
+
 # Teto do corpo de POST /vagas/vistas: uma página de GET /vagas/encontradas por vez.
 MAX_URLS_VISTAS = MAX_LIMITE_VAGAS
 
@@ -192,6 +215,7 @@ def criar_app(
     detalhe: DetalheService | None = None,
     ao_subir: Callable[[], object] | None = None,
     agendador: Callable[[Callable[[], object]], "AgendadorColeta | None"] | None = None,
+    fabricas: FabricasPorPessoa | None = None,
     conferencia: Callable[[VagaEncontradaRepository], ConferenciaService] | None = None,
 ) -> FastAPI:
     """Sem `encontradas` e `candidaturas`, o histórico da coleta e as candidaturas ficam em memória (testes);
@@ -200,7 +224,9 @@ def criar_app(
     (a mesma do POST /coletas) e devolve o agendador da coleta, que o lifespan inicia depois do
     `ao_subir` e para no shutdown; sem ele (testes), nada é agendado. `conferencia` recebe o histórico e
     devolve a conferência na fonte, que roda (em segundo plano) quando a app sobe e depois de cada coleta
-    agendada; sem ela (testes), nenhuma vaga é reconsultada."""
+    agendada; sem ela (testes), nenhuma vaga é reconsultada. `fabricas` dão os repositórios da pessoa
+    dona de cada pedido da fila do worker (a fila é de todas as pessoas); sem elas só existe a pessoa da
+    requisição, e um pedido de outra pessoa é erro em vez de ler os dados da errada."""
 
     @asynccontextmanager
     async def ciclo_de_vida(app_: FastAPI):
@@ -222,14 +248,18 @@ def criar_app(
     app = FastAPI(title="vagas-svc", lifespan=ciclo_de_vida, dependencies=[Depends(exigir_json_mesma_origem)])
     app.state.armazenamento = armazenamento
     recomendacao = RecomendacaoService(busca)
-    encontradas = encontradas if encontradas is not None else VagaEncontradaRepositoryMemoria()
+    encontradas = encontradas if encontradas is not None else VagaEncontradaRepositoryMemoria(PESSOA_PADRAO)
     # Lista do histórico (JSON e tela) com o perfil salvo aplicado na leitura.
     historico = HistoricoService(encontradas, perfis)
     if pedidos_ia is None:
-        pedidos_ia = PedidoIARepositoryMemoria(vaga_por_url_em(encontradas))
+        pedidos_ia = PedidoIARepositoryMemoria(PESSOA_PADRAO, vaga_por_url_em(encontradas))
     # Um serviço só para as rotas do worker, as da tela e as métricas.
     # Com `detalhe`, o pedido de currículo busca antes a descrição que faltar (LinkedIn sob demanda).
-    servico_ia = PedidoIAService(pedidos_ia, encontradas, perfis, curriculos, trava_lote=trava_lote_ia, detalhe=detalhe)
+    if fabricas is None:
+        fabricas = _fabricas_da_requisicao(perfis, curriculos, encontradas)
+    servico_ia = PedidoIAService(
+        pedidos_ia, encontradas, perfis, curriculos, trava_lote=trava_lote_ia, detalhe=detalhe, fabricas=fabricas
+    )
     # Toda coleta (API, tela, CLI) termina mandando as vagas sem nota para a fila da IA em lote.
     coleta = ColetaService(
         recomendacao, perfis, encontradas, trava, ao_terminar=lambda _: servico_ia.enfileirar_lote(historico.visiveis())
@@ -246,7 +276,7 @@ def criar_app(
 
     app.state.agendador = agendador(coletar_e_conferir) if agendador is not None else None
     if candidaturas is None:
-        candidaturas = CandidaturaRepositoryMemoria(vaga_por_url_em(encontradas))
+        candidaturas = CandidaturaRepositoryMemoria(PESSOA_PADRAO, vaga_por_url_em(encontradas))
     # Um serviço só, para as rotas JSON e as da tela (na produção, o repositório é o _PorChamada).
     servico_candidaturas = CandidaturaService(candidaturas, encontradas)
     # Só para os testes alcançarem o serviço; as rotas recebem o serviço explicitamente.
@@ -344,15 +374,21 @@ def criar_app(
 
     @app.post("/curriculos/adaptados", status_code=201)
     def novo_adaptado(corpo: NovoAdaptado) -> CurriculoJson:
+        # Do worker (com `pedido_id`): a pessoa é a dona do pedido. Sem ele: a da requisição.
+        curriculos_da_pessoa = (
+            curriculos
+            if corpo.pedido_id is None
+            else servico_ia.curriculos_do_pedido(corpo.pedido_id, corpo.vaga_url)
+        )
         if corpo.base_id is None:
-            base = curriculos.obter_base()
+            base = curriculos_da_pessoa.obter_base()
             if base is None:
                 raise HTTPException(409, "Não há currículo base para adaptar")
         else:
-            base = curriculos.obter(corpo.base_id)
+            base = curriculos_da_pessoa.obter(corpo.base_id)
             if base is None or base.tipo != "base":
                 raise HTTPException(404, f"Currículo base {corpo.base_id} não encontrado")
-        salvo = curriculos.salvar(
+        salvo = curriculos_da_pessoa.salvar(
             Curriculo(
                 tipo="adaptado",
                 titulo=corpo.titulo,
@@ -399,17 +435,22 @@ class _PorChamada:
     Uma conexão compartilhada entre as threads do FastAPI misturaria as transações de
     requisições simultâneas: o segundo `transaction()` vira SAVEPOINT do primeiro, e o
     rollback de um desfaz a gravação do outro, que já respondeu 201.
+
+    `pessoa_id` é a pessoa dos dados do repositório; sem ele (o registro da coleta agendada, que é do app),
+    o repositório só recebe a conexão.
     """
 
-    def __init__(self, pool: Callable[[], Any], classe: Callable[[], type]):
+    def __init__(self, pool: Callable[[], Any], classe: Callable[[], type], pessoa_id: int | None = None):
         self._pool = pool
         # A classe vem por função para o import do psycopg ficar para o primeiro uso.
         self._classe = classe
+        self._pessoa_id = pessoa_id
 
     def __getattr__(self, nome: str) -> Any:
         def chamar(*args, **kwargs):
             with self._pool().connection() as conn:
-                return getattr(self._classe()(conn), nome)(*args, **kwargs)
+                repositorio = self._classe()(conn) if self._pessoa_id is None else self._classe()(conn, self._pessoa_id)
+                return getattr(repositorio, nome)(*args, **kwargs)
 
         return chamar
 
@@ -612,17 +653,24 @@ def criar_app_producao() -> FastAPI:
     configurar_log()
 
     pool = _PoolPreguicoso()
-    encontradas = _PorChamada(pool, _encontradas_postgres)
+    encontradas = _PorChamada(pool, _encontradas_postgres, PESSOA_PADRAO)
+    # Pedido do worker: os repositórios da pessoa do pedido, também uma conexão do pool por chamada.
+    fabricas = FabricasPorPessoa(
+        perfis=lambda pessoa_id: _PorChamada(pool, _perfis_postgres, pessoa_id),
+        curriculos=lambda pessoa_id: _PorChamada(pool, _curriculos_postgres, pessoa_id),
+        encontradas=lambda pessoa_id: _PorChamada(pool, _encontradas_postgres, pessoa_id),
+    )
     return criar_app(
-        perfis=_PorChamada(pool, _perfis_postgres),
-        curriculos=_PorChamada(pool, _curriculos_postgres),
+        perfis=_PorChamada(pool, _perfis_postgres, PESSOA_PADRAO),
+        curriculos=_PorChamada(pool, _curriculos_postgres, PESSOA_PADRAO),
         busca=BuscaService(providers_padrao()),
         armazenamento=Armazenamento(),
         encontradas=encontradas,
-        candidaturas=_PorChamada(pool, _candidaturas_postgres),
+        candidaturas=_PorChamada(pool, _candidaturas_postgres, PESSOA_PADRAO),
         trava=TravaColetaPostgres(),
-        pedidos_ia=_PorChamada(pool, _pedidos_ia_postgres),
+        pedidos_ia=_PorChamada(pool, _pedidos_ia_postgres, PESSOA_PADRAO),
         trava_lote_ia=TravaColetaPostgres(chave=CHAVE_TRAVA_LOTE_IA),
+        fabricas=fabricas,
         # LinkedIn: a coleta (Apify) não traz a descrição; a página pública da vaga dá, uma requisição
         # por vaga aberta sem descrição.
         detalhe=DetalheService(

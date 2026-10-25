@@ -25,9 +25,9 @@ URLS_DIFICEIS = [
 
 
 def montar(*vagas: VagaExterna):
-    encontradas = VagaEncontradaRepositoryMemoria()
+    encontradas = VagaEncontradaRepositoryMemoria(1)
     encontradas.registrar(list(vagas) or [VagaExterna("Analista de Dados", "Empresa Teste", "Remotar", URL)], "dados")
-    app = criar_app(PerfilBuscaRepositoryMemoria(), CurriculoRepositoryMemoria(), BuscaService([]), encontradas=encontradas)
+    app = criar_app(PerfilBuscaRepositoryMemoria(1), CurriculoRepositoryMemoria(1), BuscaService([]), encontradas=encontradas)
     return TestClient(app, raise_server_exceptions=False), app.state.candidaturas
 
 

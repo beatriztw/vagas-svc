@@ -29,7 +29,7 @@ URL_TRAMPOS = "https://trampos.co/oportunidades/123"
 
 class Montagem:
     def __init__(self, linkedin, com_detalhe: bool = True):
-        self.encontradas = VagaEncontradaRepositoryMemoria()
+        self.encontradas = VagaEncontradaRepositoryMemoria(1)
         self.encontradas.registrar(
             [
                 vaga_linkedin(),
@@ -38,11 +38,11 @@ class Montagem:
             ],
             "dados",
         )
-        curriculos = CurriculoRepositoryMemoria()
+        curriculos = CurriculoRepositoryMemoria(1)
         curriculos.salvar(Curriculo(tipo="base", titulo="Base", conteudo_md="# Base\nConsultas SQL"))
         detalhe = DetalheService(self.encontradas, ProviderProibido(), linkedin=linkedin) if com_detalhe else None
         self.app = criar_app(
-            PerfilBuscaRepositoryMemoria(), curriculos, BuscaService([]), encontradas=self.encontradas, detalhe=detalhe
+            PerfilBuscaRepositoryMemoria(1), curriculos, BuscaService([]), encontradas=self.encontradas, detalhe=detalhe
         )
         self.servico = self.app.state.pedido_ia_service
         self.cliente = TestClient(self.app)

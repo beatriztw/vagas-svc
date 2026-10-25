@@ -1,6 +1,6 @@
 from abc import ABC, abstractmethod
 from collections.abc import Callable
-from dataclasses import replace
+from dataclasses import dataclass, field, replace
 from datetime import date, datetime, timezone
 
 from src.client.base import _LIGACAO, _equivalentes, _formas_do_titulo, palavras, radical
@@ -22,27 +22,30 @@ from src.model.vaga_externa import VagaExterna
 
 
 class PerfilBuscaRepository(ABC):
-    """Perfil de busca único (linha id=1)."""
+    """Perfil de busca de uma pessoa (uma linha por `pessoa_id`)."""
 
     @abstractmethod
     def obter(self) -> Perfil | None: ...
 
     @abstractmethod
     def salvar(self, perfil: Perfil) -> None:
-        """Grava por cima do perfil existente (upsert da linha id=1)."""
+        """Grava por cima do perfil existente da pessoa (upsert da linha dela)."""
 
 
 class CurriculoRepository(ABC):
+    """Currículos de uma pessoa: o repositório só enxerga e só grava os dela."""
+
     @abstractmethod
     def obter_base(self) -> Curriculo | None:
-        """Base vigente: o currículo tipo='base' mais recente."""
+        """Base vigente da pessoa: o currículo tipo='base' mais recente dela."""
 
     @abstractmethod
     def salvar(self, curriculo: Curriculo) -> Curriculo:
         """Insere uma nova linha e devolve o currículo com id e criado_em preenchidos."""
 
     @abstractmethod
-    def obter(self, id: int) -> Curriculo | None: ...
+    def obter(self, id: int) -> Curriculo | None:
+        """O currículo da pessoa pelo id; o de outra pessoa é None."""
 
     @abstractmethod
     def listar_adaptados(self, vaga_url: str | None = None) -> list[Curriculo]:
@@ -58,7 +61,8 @@ MAX_TAMANHO_BUSCA = 200
 
 
 class VagaEncontradaRepository(ABC):
-    """Histórico da coleta: uma linha por URL de vaga."""
+    """Histórico da coleta de uma pessoa: uma linha por URL de vaga e por pessoa (a mesma URL achada
+    para duas pessoas são duas linhas, cada uma com a própria vista, salva, detalhe e expiração)."""
 
     @abstractmethod
     def registrar(self, vagas: list[VagaExterna], termo: str) -> int:
@@ -389,45 +393,69 @@ def validar_perfil(perfil: Perfil) -> Perfil:
 
 
 class PerfilBuscaRepositoryMemoria(PerfilBuscaRepository):
-    def __init__(self) -> None:
-        self._perfil: Perfil | None = None
+    """`compartilhado`: outra instância cujo armazenamento esta usa, para duas pessoas no mesmo "banco"."""
+
+    def __init__(self, pessoa_id: int, compartilhado: "PerfilBuscaRepositoryMemoria | None" = None) -> None:
+        self._pessoa_id = pessoa_id
+        self._perfis: dict[int, Perfil] = compartilhado._perfis if compartilhado is not None else {}
 
     def obter(self) -> Perfil | None:
-        return normalizar_perfil(self._perfil) if self._perfil else None
+        perfil = self._perfis.get(self._pessoa_id)
+        return normalizar_perfil(perfil) if perfil else None
 
     def salvar(self, perfil: Perfil) -> None:
-        self._perfil = validar_perfil(perfil)
+        self._perfis[self._pessoa_id] = validar_perfil(perfil)
+
+
+@dataclass
+class _ArmazemCurriculos:
+    """O "banco" dos currículos em memória: o id é global (como o BIGINT do Postgres) e cada linha tem dona."""
+
+    linhas: dict[int, Curriculo] = field(default_factory=dict)
+    donos: dict[int, int] = field(default_factory=dict)
+    proximo_id: int = 1
 
 
 class CurriculoRepositoryMemoria(CurriculoRepository):
-    def __init__(self) -> None:
-        self._linhas: dict[int, Curriculo] = {}
-        self._proximo_id = 1
+    """`compartilhado`: outra instância cujo armazenamento esta usa, para duas pessoas no mesmo "banco"."""
+
+    def __init__(self, pessoa_id: int, compartilhado: "CurriculoRepositoryMemoria | None" = None) -> None:
+        self._pessoa_id = pessoa_id
+        self._armazem = compartilhado._armazem if compartilhado is not None else _ArmazemCurriculos()
+
+    def _da_pessoa(self) -> list[Curriculo]:
+        a = self._armazem
+        return [c for c in a.linhas.values() if a.donos[c.id] == self._pessoa_id]
 
     def obter_base(self) -> Curriculo | None:
-        bases = [c for c in self._linhas.values() if c.tipo == "base"]
+        bases = [c for c in self._da_pessoa() if c.tipo == "base"]
         return replace(max(bases, key=lambda c: (c.criado_em, c.id))) if bases else None
 
     def salvar(self, curriculo: Curriculo) -> Curriculo:
         curriculo.validar()
+        a = self._armazem
         if curriculo.base_id is not None:
-            base = self._linhas.get(curriculo.base_id)
+            # A base de outra pessoa não existe para esta.
+            base = self.obter(curriculo.base_id)
             if base is None:
                 raise DadoInvalido(f"base_id {curriculo.base_id} não existe")
             if base.tipo != "base":
                 raise DadoInvalido(f"base_id {curriculo.base_id} é um currículo adaptado, não uma base")
-        salvo = replace(curriculo, id=self._proximo_id, criado_em=datetime.now(timezone.utc))
-        self._linhas[salvo.id] = salvo
-        self._proximo_id += 1
+        salvo = replace(curriculo, id=a.proximo_id, criado_em=datetime.now(timezone.utc))
+        a.linhas[salvo.id] = salvo
+        a.donos[salvo.id] = self._pessoa_id
+        a.proximo_id += 1
         return replace(salvo)
 
     def obter(self, id: int) -> Curriculo | None:
-        curriculo = self._linhas.get(id)
-        return replace(curriculo) if curriculo else None
+        curriculo = self._armazem.linhas.get(id)
+        if curriculo is None or self._armazem.donos[id] != self._pessoa_id:
+            return None
+        return replace(curriculo)
 
     def listar_adaptados(self, vaga_url: str | None = None) -> list[Curriculo]:
         adaptados = [
-            c for c in self._linhas.values() if c.tipo == "adaptado" and (vaga_url is None or c.vaga_url == vaga_url)
+            c for c in self._da_pessoa() if c.tipo == "adaptado" and (vaga_url is None or c.vaga_url == vaga_url)
         ]
         return [replace(c) for c in sorted(adaptados, key=lambda c: (c.criado_em, c.id), reverse=True)]
 
@@ -456,8 +484,20 @@ def com_detalhe(vaga: VagaEncontrada, detalhe: DetalheVaga | None, agora: dateti
 
 
 class VagaEncontradaRepositoryMemoria(VagaEncontradaRepository):
-    def __init__(self, relogio: Callable[[], datetime] = _agora) -> None:
-        self._linhas: dict[str, VagaEncontrada] = {}
+    """`compartilhado`: outra instância cujo armazenamento esta usa, para duas pessoas no mesmo "banco"."""
+
+    def __init__(
+        self,
+        pessoa_id: int,
+        relogio: Callable[[], datetime] = _agora,
+        compartilhado: "VagaEncontradaRepositoryMemoria | None" = None,
+    ) -> None:
+        self._pessoa_id = pessoa_id
+        self._por_pessoa: dict[int, dict[str, VagaEncontrada]] = (
+            compartilhado._por_pessoa if compartilhado is not None else {}
+        )
+        # As linhas desta pessoa; a das outras ficam fora do alcance.
+        self._linhas: dict[str, VagaEncontrada] = self._por_pessoa.setdefault(pessoa_id, {})
         # Injetável: o teste faz o prazo de `expirada_em` passar sem esperar.
         self._agora = relogio
 

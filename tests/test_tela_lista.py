@@ -72,10 +72,10 @@ def vaga(i: int | str, titulo: str | None = None, **campos) -> VagaExterna:
 
 
 def criar(vagas: list[VagaExterna]) -> tuple[TestClient, VagaEncontradaRepositoryMemoria]:
-    repo = VagaEncontradaRepositoryMemoria()
+    repo = VagaEncontradaRepositoryMemoria(1)
     if vagas:
         repo.registrar(vagas, "teste")
-    app = criar_app(PerfilBuscaRepositoryMemoria(), CurriculoRepositoryMemoria(), BuscaService([]), encontradas=repo)
+    app = criar_app(PerfilBuscaRepositoryMemoria(1), CurriculoRepositoryMemoria(1), BuscaService([]), encontradas=repo)
     return TestClient(app, raise_server_exceptions=False), repo
 
 

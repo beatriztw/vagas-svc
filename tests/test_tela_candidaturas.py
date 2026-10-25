@@ -27,9 +27,9 @@ def vaga(url, titulo="Analista de Dados", empresa="Empresa Teste"):
 
 
 def cliente(*vagas):
-    encontradas = VagaEncontradaRepositoryMemoria()
+    encontradas = VagaEncontradaRepositoryMemoria(1)
     encontradas.registrar(list(vagas) or [vaga(URL_A), vaga(URL_B, "Engenheira", "Beta")], "dados")
-    app = criar_app(PerfilBuscaRepositoryMemoria(), CurriculoRepositoryMemoria(), BuscaService([]), encontradas=encontradas)
+    app = criar_app(PerfilBuscaRepositoryMemoria(1), CurriculoRepositoryMemoria(1), BuscaService([]), encontradas=encontradas)
     return TestClient(app), app.state.candidaturas
 
 

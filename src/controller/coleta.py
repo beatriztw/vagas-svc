@@ -61,7 +61,7 @@ def rodar(
 
 
 def main() -> int:
-    from src.controller.api import providers_padrao
+    from src.controller.api import PESSOA_PADRAO, providers_padrao
     from src.repository.conexao import conectar
     from src.repository.trava import CHAVE_TRAVA_LOTE_IA, TravaColetaPostgres
     from src.repository.pedido_ia_postgres import PedidoIARepositoryPostgres
@@ -83,12 +83,13 @@ def main() -> int:
         # Cada `registrar` roda na própria transação (autocommit fora dela).
         conn = conectar()
         conexoes.append(conn)
-        perfis, vagas = PerfilBuscaRepositoryPostgres(conn), VagaEncontradaRepositoryPostgres(conn)
+        perfis = PerfilBuscaRepositoryPostgres(conn, PESSOA_PADRAO)
+        vagas = VagaEncontradaRepositoryPostgres(conn, PESSOA_PADRAO)
         ia = PedidoIAService(
-            PedidoIARepositoryPostgres(conn),
+            PedidoIARepositoryPostgres(conn, PESSOA_PADRAO),
             vagas,
             perfis,
-            CurriculoRepositoryPostgres(conn),
+            CurriculoRepositoryPostgres(conn, PESSOA_PADRAO),
             trava_lote=TravaColetaPostgres(chave=CHAVE_TRAVA_LOTE_IA),
         )
         lote.append(lambda: enfileirar_lote(ia, HistoricoService(vagas, perfis)))

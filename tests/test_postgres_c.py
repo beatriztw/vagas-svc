@@ -255,7 +255,7 @@ class ContratoHistorico:
             "dados",
         )
         self.repo.marcar_expirada(C)  # saiu do ar (404 do provider)
-        perfis = PerfilBuscaRepositoryMemoria()
+        perfis = PerfilBuscaRepositoryMemoria(1)
         if com_perfil:
             perfis.salvar(Perfil(termos=["analista de dados"]))
         return HistoricoService(self.repo, perfis)
@@ -277,7 +277,7 @@ class ContratoHistorico:
 class MemoriaTest(ContratoDetalhe, ContratoHistorico, unittest.TestCase):
     def setUp(self):
         self.deslocamento = timedelta(0)
-        self.repo = VagaEncontradaRepositoryMemoria(relogio=self.agora)
+        self.repo = VagaEncontradaRepositoryMemoria(1, relogio=self.agora)
 
     def agora(self) -> datetime:
         return datetime.now(timezone.utc) + self.deslocamento
@@ -292,7 +292,7 @@ class PostgresTest(ContratoDetalhe, ContratoHistorico, unittest.TestCase):
         from src.repository.postgres import VagaEncontradaRepositoryPostgres
 
         self.conn, self.schema = _schema_descartavel(self, "teste_detalhe")
-        self.repo = VagaEncontradaRepositoryPostgres(self.conn)
+        self.repo = VagaEncontradaRepositoryPostgres(self.conn, 1)
 
     def agora(self) -> datetime:
         # A hora do BANCO (é o now() do filtro), não a da máquina.
@@ -321,6 +321,8 @@ class PostgresTest(ContratoDetalhe, ContratoHistorico, unittest.TestCase):
         self.conn.execute((MIGRATIONS / "004_detalhe_vaga.sql").read_text(encoding="utf-8"))
         # As migrations seguintes que mexem em vaga_encontrada: o repositório lê as colunas delas.
         self.conn.execute((MIGRATIONS / "009_vaga_salva.sql").read_text(encoding="utf-8"))
+        # A 013 dá a linha antiga à pessoa 1 (a tabela refeita aqui perdeu a coluna e o resto da 013).
+        self.conn.execute((MIGRATIONS / "013_pessoa.sql").read_text(encoding="utf-8"))
         self.assertEqual(self.repo.contar(False), 1)
         self.assertIsNone(self.repo.obter("u").expirada_em)
 
@@ -372,7 +374,7 @@ class PostgresTest(ContratoDetalhe, ContratoHistorico, unittest.TestCase):
             def detalhar(self, id):
                 return DETALHE
 
-        encontradas = _PorChamada(lambda: pool, lambda: VagaEncontradaRepositoryPostgres)
+        encontradas = _PorChamada(lambda: pool, lambda: VagaEncontradaRepositoryPostgres, 1)
         aberta = DetalheService(encontradas, Provider()).carregar(A)
         self.assertEqual(aberta.vaga.descricao, DETALHE.descricao)
         self.assertEqual(pool.get_stats()["pool_available"], 1)

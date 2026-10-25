@@ -300,7 +300,7 @@ class ProviderProibido:
 
 class DetalheServiceTest(unittest.TestCase):
     def setUp(self):
-        self.repo = VagaEncontradaRepositoryMemoria()
+        self.repo = VagaEncontradaRepositoryMemoria(1)
         self.repo.registrar([vaga_remotar(123)], "dados")  # sem detalhe: veio de antes da 004
         self.url = "https://remotar.com.br/job/123"
         self.provider = ProviderFalso()
@@ -428,7 +428,7 @@ class ConexaoPorChamadaTest(unittest.TestCase):
         from src.controller.api import _PorChamada
 
         abertas = {"n": 0, "durante": None}
-        memoria = VagaEncontradaRepositoryMemoria()
+        memoria = VagaEncontradaRepositoryMemoria(1)
         memoria.registrar([vaga_remotar(5)], "dados")
 
         class Pool:
@@ -460,10 +460,10 @@ class ConexaoPorChamadaTest(unittest.TestCase):
 
 
 def montar_tela(provider=None, vagas=None):
-    repo = VagaEncontradaRepositoryMemoria()
+    repo = VagaEncontradaRepositoryMemoria(1)
     repo.registrar(vagas or [vaga_remotar(123)], "dados")
     servico = DetalheService(repo, provider)
-    app = criar_app(PerfilBuscaRepositoryMemoria(), CurriculoRepositoryMemoria(), BuscaService([]), encontradas=repo, detalhe=servico)
+    app = criar_app(PerfilBuscaRepositoryMemoria(1), CurriculoRepositoryMemoria(1), BuscaService([]), encontradas=repo, detalhe=servico)
     return TestClient(app), repo, app
 
 
@@ -528,9 +528,9 @@ class TelaNaoBloqueiaTest(unittest.TestCase):
         self.assertIsNone(carregador(cliente.get(URL_DETALHE, headers=HX).text))
 
     def test_sem_servico_de_detalhe_a_tela_nao_busca_nada(self):
-        repo = VagaEncontradaRepositoryMemoria()
+        repo = VagaEncontradaRepositoryMemoria(1)
         repo.registrar([vaga_remotar(123)], "dados")
-        app = criar_app(PerfilBuscaRepositoryMemoria(), CurriculoRepositoryMemoria(), BuscaService([]), encontradas=repo)
+        app = criar_app(PerfilBuscaRepositoryMemoria(1), CurriculoRepositoryMemoria(1), BuscaService([]), encontradas=repo)
         with mock.patch("urllib.request.urlopen", side_effect=AssertionError("foi para a rede")):
             cliente = TestClient(app)
             self.assertEqual(cliente.get(URL_DETALHE, headers=HX).status_code, 200)
@@ -624,11 +624,11 @@ class TelaExpiradaTest(unittest.TestCase):
 
     def test_prazo_futuro_aparece_hoje_e_some_depois_do_prazo_sem_nova_coleta(self):
         relogio = {"agora": HOJE}
-        repo = VagaEncontradaRepositoryMemoria(relogio=lambda: relogio["agora"])
+        repo = VagaEncontradaRepositoryMemoria(1, relogio=lambda: relogio["agora"])
         prazo = HOJE + timedelta(days=2)
         repo.registrar([vaga_remotar(123, expirada_em=prazo, detalhe=DETALHE_COMPLETO)], "dados")
         servico = DetalheService(repo, ProviderProibido(), agora=lambda: relogio["agora"])
-        app = criar_app(PerfilBuscaRepositoryMemoria(), CurriculoRepositoryMemoria(), BuscaService([]), encontradas=repo, detalhe=servico)
+        app = criar_app(PerfilBuscaRepositoryMemoria(1), CurriculoRepositoryMemoria(1), BuscaService([]), encontradas=repo, detalhe=servico)
         cliente = TestClient(app)
 
         hoje = cliente.get("/tela")

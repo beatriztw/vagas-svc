@@ -25,8 +25,8 @@ VAGA = VagaExterna("Analista de Dados", "Empresa Teste", "Remotar", "https://exe
 
 def criar_cliente(encontradas=None, **kwargs) -> tuple[TestClient, object]:
     app = criar_app(
-        PerfilBuscaRepositoryMemoria(),
-        CurriculoRepositoryMemoria(),
+        PerfilBuscaRepositoryMemoria(1),
+        CurriculoRepositoryMemoria(1),
         BuscaService([]),
         encontradas=encontradas,
     )
@@ -54,7 +54,7 @@ class PaginaTest(unittest.TestCase):
         self.assertIn('id="aplicadas"', html)
 
     def test_com_vaga_no_historico_nao_mostra_o_vazio(self):
-        encontradas = VagaEncontradaRepositoryMemoria()
+        encontradas = VagaEncontradaRepositoryMemoria(1)
         encontradas.registrar([VAGA], "dados")
         cliente, _ = criar_cliente(encontradas)
 

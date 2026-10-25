@@ -169,8 +169,8 @@ class ContratoCandidatura:
 
 class CandidaturaMemoriaTest(ContratoCandidatura, unittest.TestCase):
     def criar_repositorios(self):
-        self.vagas = VagaEncontradaRepositoryMemoria()
-        self.repo = CandidaturaRepositoryMemoria(vaga_por_url_em(self.vagas))
+        self.vagas = VagaEncontradaRepositoryMemoria(1)
+        self.repo = CandidaturaRepositoryMemoria(1, vaga_por_url_em(self.vagas))
 
     def test_vaga_antiga_fora_da_primeira_pagina_do_historico_pode_ser_marcada(self):
         # URL_A entrou antes: com MAX_LIMITE_VAGAS vagas mais novas, ela sai da primeira página da listagem.
@@ -232,8 +232,8 @@ class CandidaturaPostgresTest(ContratoCandidatura, unittest.TestCase):
         from src.repository.postgres import VagaEncontradaRepositoryPostgres
 
         self.conn, self.schema = _schema_descartavel(self, "teste_candidatura")
-        self.vagas = VagaEncontradaRepositoryPostgres(self.conn)
-        self.repo = CandidaturaRepositoryPostgres(self.conn)
+        self.vagas = VagaEncontradaRepositoryPostgres(self.conn, 1)
+        self.repo = CandidaturaRepositoryPostgres(self.conn, 1)
 
     def igualar_aplicada_em(self):
         self.conn.execute("UPDATE candidatura SET aplicada_em = '2026-01-01T00:00:00Z'")
@@ -251,17 +251,17 @@ class CandidaturaPostgresTest(ContratoCandidatura, unittest.TestCase):
         from psycopg import errors
 
         with self.assertRaises(errors.CheckViolation):
-            self.conn.execute("INSERT INTO candidatura (vaga_url, status) VALUES (%s, 'aprovada')", (URL_A,))
+            self.conn.execute("INSERT INTO candidatura (pessoa_id, vaga_url, status) VALUES (1, %s, 'aprovada')", (URL_A,))
         self.assertEqual(self.repo.contar(), 0)
 
     def test_chave_estrangeira_e_unica_no_banco(self):
         from psycopg import errors
 
         with self.assertRaises(errors.ForeignKeyViolation):
-            self.conn.execute("INSERT INTO candidatura (vaga_url) VALUES ('nao-existe')")
-        self.conn.execute("INSERT INTO candidatura (vaga_url) VALUES (%s)", (URL_A,))
+            self.conn.execute("INSERT INTO candidatura (pessoa_id, vaga_url) VALUES (1, 'nao-existe')")
+        self.conn.execute("INSERT INTO candidatura (pessoa_id, vaga_url) VALUES (1, %s)", (URL_A,))
         with self.assertRaises(errors.UniqueViolation):
-            self.conn.execute("INSERT INTO candidatura (vaga_url) VALUES (%s)", (URL_A,))
+            self.conn.execute("INSERT INTO candidatura (pessoa_id, vaga_url) VALUES (1, %s)", (URL_A,))
 
     def test_erro_do_banco_que_nao_e_a_vaga_inexistente_nao_vira_dado_invalido(self):
         from psycopg import errors
@@ -287,7 +287,7 @@ class CandidaturaPostgresTest(ContratoCandidatura, unittest.TestCase):
         def marcar(_):
             with pool.connection() as conn:
                 largada.wait(timeout=10)
-                return CandidaturaRepositoryPostgres(conn).criar(URL_A)
+                return CandidaturaRepositoryPostgres(conn, 1).criar(URL_A)
 
         with ThreadPoolExecutor(max_workers=8) as executor:
             resultados = list(executor.map(marcar, range(8)))
@@ -298,11 +298,11 @@ class CandidaturaPostgresTest(ContratoCandidatura, unittest.TestCase):
 
 
 def api_com_memoria(candidaturas=None, **kwargs):
-    encontradas = VagaEncontradaRepositoryMemoria()
+    encontradas = VagaEncontradaRepositoryMemoria(1)
     encontradas.registrar([vaga(URL_A, "Dev Python", "Alfa"), vaga(URL_B, "Analista", "Beta")], "python")
     app = criar_app(
-        PerfilBuscaRepositoryMemoria(),
-        CurriculoRepositoryMemoria(),
+        PerfilBuscaRepositoryMemoria(1),
+        CurriculoRepositoryMemoria(1),
         BuscaService([]),
         encontradas=encontradas,
         candidaturas=candidaturas,
@@ -424,9 +424,9 @@ class ApiCandidaturaErroDoServidorTest(unittest.TestCase):
 
 class CandidaturaServiceTest(unittest.TestCase):
     def test_fluxo_marcar_listar_mudar_desfazer(self):
-        vagas = VagaEncontradaRepositoryMemoria()
+        vagas = VagaEncontradaRepositoryMemoria(1)
         vagas.registrar([vaga(URL_A)], "python")
-        servico = CandidaturaService(CandidaturaRepositoryMemoria(vaga_por_url_em(vagas)))
+        servico = CandidaturaService(CandidaturaRepositoryMemoria(1, vaga_por_url_em(vagas)))
 
         candidatura, criada = servico.marcar_aplicada(URL_A)
         self.assertTrue(criada)
@@ -477,15 +477,15 @@ class ApiCandidaturaPostgresTest(unittest.TestCase):
         )
 
         conn, schema = _schema_descartavel(self, "teste_api_candidatura")
-        VagaEncontradaRepositoryPostgres(conn).registrar([vaga(URL_A, "Dev Python", "Alfa")], "python")
+        VagaEncontradaRepositoryPostgres(conn, 1).registrar([vaga(URL_A, "Dev Python", "Alfa")], "python")
         pool = _pool(self, schema)
         api = TestClient(
             criar_app(
-                _PorChamada(lambda: pool, lambda: PerfilBuscaRepositoryPostgres),
-                _PorChamada(lambda: pool, lambda: CurriculoRepositoryPostgres),
+                _PorChamada(lambda: pool, lambda: PerfilBuscaRepositoryPostgres, 1),
+                _PorChamada(lambda: pool, lambda: CurriculoRepositoryPostgres, 1),
                 BuscaService([]),
-                encontradas=_PorChamada(lambda: pool, lambda: VagaEncontradaRepositoryPostgres),
-                candidaturas=_PorChamada(lambda: pool, lambda: CandidaturaRepositoryPostgres),
+                encontradas=_PorChamada(lambda: pool, lambda: VagaEncontradaRepositoryPostgres, 1),
+                candidaturas=_PorChamada(lambda: pool, lambda: CandidaturaRepositoryPostgres, 1),
             ),
             raise_server_exceptions=False,
         )

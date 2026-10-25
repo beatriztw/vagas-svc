@@ -14,8 +14,8 @@ PERFIL = {"termos": ["python"]}
 
 class CsrfJsonTest(unittest.TestCase):
     def setUp(self):
-        self.perfis = PerfilBuscaRepositoryMemoria()
-        self.app = criar_app(self.perfis, CurriculoRepositoryMemoria(), BuscaService([]))
+        self.perfis = PerfilBuscaRepositoryMemoria(1)
+        self.app = criar_app(self.perfis, CurriculoRepositoryMemoria(1), BuscaService([]))
         self.api = TestClient(self.app)
 
     def salvar(self, headers):

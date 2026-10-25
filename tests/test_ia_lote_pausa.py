@@ -65,9 +65,9 @@ class ContratoPausa:
 
 class PausaMemoriaTest(ContratoPausa, unittest.TestCase):
     def setUp(self):
-        vagas = VagaEncontradaRepositoryMemoria()
+        vagas = VagaEncontradaRepositoryMemoria(1)
         vagas.registrar([vaga(u) for u in U], "dados")
-        self.repo = PedidoIARepositoryMemoria(vaga_por_url_em(vagas))
+        self.repo = PedidoIARepositoryMemoria(1, vaga_por_url_em(vagas))
 
 
 @unittest.skipUnless(os.environ.get("PGHOST"), "PGHOST não definido: integração com Postgres pulada")
@@ -77,15 +77,15 @@ class PausaPostgresTest(ContratoPausa, unittest.TestCase):
         from src.repository.postgres import VagaEncontradaRepositoryPostgres
 
         self.conn, _ = _schema_descartavel(self, "teste_pausa")
-        VagaEncontradaRepositoryPostgres(self.conn).registrar(
+        VagaEncontradaRepositoryPostgres(self.conn, 1).registrar(
             [VagaExterna(titulo="Analista", empresa="Acme", plataforma="Remotar", url=u) for u in U], "dados"
         )
-        self.repo = PedidoIARepositoryPostgres(self.conn)
+        self.repo = PedidoIARepositoryPostgres(self.conn, 1)
 
     def novo_repo(self):
         from src.repository.pedido_ia_postgres import PedidoIARepositoryPostgres
 
-        return PedidoIARepositoryPostgres(self.conn)
+        return PedidoIARepositoryPostgres(self.conn, 1)
 
 
 class PausaServicoTest(unittest.TestCase):

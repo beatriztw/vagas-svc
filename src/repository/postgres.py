@@ -70,12 +70,13 @@ def linha_para_perfil(linha: dict) -> Perfil:
 
 
 class PerfilBuscaRepositoryPostgres(PerfilBuscaRepository):
-    def __init__(self, conn: psycopg.Connection) -> None:
+    def __init__(self, conn: psycopg.Connection, pessoa_id: int) -> None:
         self._conn = conn
+        self._pessoa_id = pessoa_id
 
     def obter(self) -> Perfil | None:
         with self._conn.cursor(row_factory=dict_row) as cur:
-            cur.execute("SELECT * FROM perfil_busca WHERE id = 1")
+            cur.execute("SELECT * FROM perfil_busca WHERE pessoa_id = %s", (self._pessoa_id,))
             linha = cur.fetchone()
         return linha_para_perfil(linha) if linha else None
 
@@ -88,15 +89,16 @@ class PerfilBuscaRepositoryPostgres(PerfilBuscaRepository):
         atualizacao = ", ".join(f"{c} = EXCLUDED.{c}" for c in colunas)
         with self._conn.transaction(), self._conn.cursor() as cur:
             cur.execute(
-                f"INSERT INTO perfil_busca (id, {nomes}) VALUES (1, {valores}) "
-                f"ON CONFLICT (id) DO UPDATE SET {atualizacao}, atualizado_em = now()",
-                perfil_para_linha(perfil),
+                f"INSERT INTO perfil_busca (pessoa_id, {nomes}) VALUES (%(pessoa_id)s, {valores}) "
+                f"ON CONFLICT (pessoa_id) DO UPDATE SET {atualizacao}, atualizado_em = now()",
+                {**perfil_para_linha(perfil), "pessoa_id": self._pessoa_id},
             )
 
 
 class CurriculoRepositoryPostgres(CurriculoRepository):
-    def __init__(self, conn: psycopg.Connection) -> None:
+    def __init__(self, conn: psycopg.Connection, pessoa_id: int) -> None:
         self._conn = conn
+        self._pessoa_id = pessoa_id
 
     def _um(self, sql: str, params: tuple = ()) -> Curriculo | None:
         with self._conn.cursor(row_factory=dict_row) as cur:
@@ -106,8 +108,9 @@ class CurriculoRepositoryPostgres(CurriculoRepository):
 
     def obter_base(self) -> Curriculo | None:
         return self._um(
-            f"SELECT {_COLUNAS_CURRICULO} FROM curriculo WHERE tipo = 'base' "
-            "ORDER BY criado_em DESC, id DESC LIMIT 1"
+            f"SELECT {_COLUNAS_CURRICULO} FROM curriculo WHERE pessoa_id = %s AND tipo = 'base' "
+            "ORDER BY criado_em DESC, id DESC LIMIT 1",
+            (self._pessoa_id,),
         )
 
     def salvar(self, curriculo: Curriculo) -> Curriculo:
@@ -115,15 +118,19 @@ class CurriculoRepositoryPostgres(CurriculoRepository):
         with self._conn.transaction(), self._conn.cursor(row_factory=dict_row) as cur:
             if curriculo.base_id is not None:
                 # O CHECK da tabela não enxerga outra linha: adaptado de adaptado é barrado aqui.
-                # FOR SHARE segura a base até o commit.
-                cur.execute("SELECT tipo FROM curriculo WHERE id = %s FOR SHARE", (curriculo.base_id,))
+                # FOR SHARE segura a base até o commit. A base de outra pessoa não existe para esta: a FK de
+                # base_id é global e deixaria o adaptado apontar para o currículo de outra pessoa.
+                cur.execute("SELECT tipo, pessoa_id FROM curriculo WHERE id = %s FOR SHARE", (curriculo.base_id,))
                 linha = cur.fetchone()
+                if linha is not None and linha["pessoa_id"] != self._pessoa_id:
+                    raise DadoInvalido(f"base_id {curriculo.base_id} não existe")
                 if linha is not None and linha["tipo"] != "base":
                     raise DadoInvalido(f"base_id {curriculo.base_id} é um currículo adaptado, não uma base")
             cur.execute(
-                "INSERT INTO curriculo (tipo, titulo, conteudo_md, base_id, vaga_url, arquivo_s3) "
-                f"VALUES (%s, %s, %s, %s, %s, %s) RETURNING {_COLUNAS_CURRICULO}",
+                "INSERT INTO curriculo (pessoa_id, tipo, titulo, conteudo_md, base_id, vaga_url, arquivo_s3) "
+                f"VALUES (%s, %s, %s, %s, %s, %s, %s) RETURNING {_COLUNAS_CURRICULO}",
                 (
+                    self._pessoa_id,
                     curriculo.tipo,
                     curriculo.titulo,
                     curriculo.conteudo_md,
@@ -135,13 +142,15 @@ class CurriculoRepositoryPostgres(CurriculoRepository):
             return Curriculo(**cur.fetchone())
 
     def obter(self, id: int) -> Curriculo | None:
-        return self._um(f"SELECT {_COLUNAS_CURRICULO} FROM curriculo WHERE id = %s", (id,))
+        return self._um(
+            f"SELECT {_COLUNAS_CURRICULO} FROM curriculo WHERE id = %s AND pessoa_id = %s", (id, self._pessoa_id)
+        )
 
     def listar_adaptados(self, vaga_url: str | None = None) -> list[Curriculo]:
-        filtro, params = ("", ()) if vaga_url is None else (" AND vaga_url = %s", (vaga_url,))
+        filtro, params = ("", (self._pessoa_id,)) if vaga_url is None else (" AND vaga_url = %s", (self._pessoa_id, vaga_url))
         with self._conn.cursor(row_factory=dict_row) as cur:
             cur.execute(
-                f"SELECT {_COLUNAS_CURRICULO} FROM curriculo WHERE tipo = 'adaptado'{filtro} "
+                f"SELECT {_COLUNAS_CURRICULO} FROM curriculo WHERE pessoa_id = %s AND tipo = 'adaptado'{filtro} "
                 "ORDER BY criado_em DESC, id DESC",
                 params,
             )
@@ -169,8 +178,9 @@ _ORDEM = 'ORDER BY primeira_vez_em DESC, publicada_em DESC NULLS LAST, url COLLA
 
 
 class VagaEncontradaRepositoryPostgres(VagaEncontradaRepository):
-    def __init__(self, conn: psycopg.Connection) -> None:
+    def __init__(self, conn: psycopg.Connection, pessoa_id: int) -> None:
         self._conn = conn
+        self._pessoa_id = pessoa_id
 
     def registrar(self, vagas: list[VagaExterna], termo: str) -> int:
         termo = validar_termo(termo)
@@ -180,6 +190,7 @@ class VagaEncontradaRepositoryPostgres(VagaEncontradaRepository):
             for vaga in validas:
                 params = {
                     **{c: getattr(vaga, c) for c in _CAMPOS_DA_LISTAGEM},
+                    "pessoa_id": self._pessoa_id,
                     "termo": termo,
                     **_parametros_do_detalhe(vaga.detalhe),
                     # O provider disse que não há prazo: um prazo futuro sai (o vencido fica, pelo CASE).
@@ -189,13 +200,13 @@ class VagaEncontradaRepositoryPostgres(VagaEncontradaRepository):
                 # sem linha devolvida, a vaga já existia e cai no UPDATE abaixo.
                 cur.execute(
                     "INSERT INTO vaga_encontrada "
-                    "(url, titulo, empresa, plataforma, local, remoto, publicada_em, termos, expirada_em, "
+                    "(pessoa_id, url, titulo, empresa, plataforma, local, remoto, publicada_em, termos, expirada_em, "
                     "descricao, requisitos, salario, beneficios, subtitulo, detalhada_em) "
-                    "VALUES (%(url)s, %(titulo)s, %(empresa)s, %(plataforma)s, %(local)s, %(remoto)s, "
+                    "VALUES (%(pessoa_id)s, %(url)s, %(titulo)s, %(empresa)s, %(plataforma)s, %(local)s, %(remoto)s, "
                     "%(publicada_em)s, ARRAY[%(termo)s::text], %(expirada_em)s::timestamptz, "
                     "%(descricao)s, %(requisitos)s, %(salario)s, %(beneficios)s, %(subtitulo)s, "
                     "CASE WHEN %(tem_detalhe)s THEN now() END) "
-                    "ON CONFLICT (url) DO NOTHING RETURNING url",
+                    "ON CONFLICT (pessoa_id, url) DO NOTHING RETURNING url",
                     params,
                 )
                 if cur.fetchone() is not None:
@@ -225,7 +236,7 @@ class VagaEncontradaRepositoryPostgres(VagaEncontradaRepository):
                     "subtitulo = CASE WHEN %(tem_detalhe)s THEN %(subtitulo)s ELSE subtitulo END, "
                     "detalhada_em = CASE WHEN %(tem_detalhe)s THEN now() ELSE detalhada_em END, "
                     "ultima_vez_em = now() "
-                    "WHERE url = %(url)s",
+                    "WHERE pessoa_id = %(pessoa_id)s AND url = %(url)s",
                     params,
                 )
         return novas
@@ -240,10 +251,10 @@ class VagaEncontradaRepositoryPostgres(VagaEncontradaRepository):
         # `vista_em` na mesma ordem e filtra em Python com o `casa_busca` da memória; custo O(n)
         # do histórico por chamada (aceito para o tamanho esperado; índice de texto fica para depois).
         sql = f"SELECT {_COLUNAS_VAGA} FROM vaga_encontrada {self._filtro(somente_novas)}" + _ORDEM
-        params: tuple = ()
+        params: tuple = (self._pessoa_id,)
         if not exigidas:
             sql += " LIMIT %s OFFSET %s"
-            params = (limite, deslocamento)
+            params = (self._pessoa_id, limite, deslocamento)
         with self._conn.cursor(row_factory=dict_row) as cur:
             cur.execute(sql, params)
             vagas = [VagaEncontrada(**{**linha, "termos": list(linha["termos"])}) for linha in cur.fetchall()]
@@ -255,9 +266,13 @@ class VagaEncontradaRepositoryPostgres(VagaEncontradaRepository):
         exigidas = exigidas_da_busca(q)
         with self._conn.cursor(row_factory=dict_row) as cur:
             if not exigidas:
-                cur.execute(f"SELECT count(*) AS n FROM vaga_encontrada {self._filtro(somente_novas)}")
+                cur.execute(
+                    f"SELECT count(*) AS n FROM vaga_encontrada {self._filtro(somente_novas)}", (self._pessoa_id,)
+                )
                 return cur.fetchone()["n"]
-            cur.execute(f"SELECT {_COLUNAS_VAGA} FROM vaga_encontrada {self._filtro(somente_novas)}")
+            cur.execute(
+                f"SELECT {_COLUNAS_VAGA} FROM vaga_encontrada {self._filtro(somente_novas)}", (self._pessoa_id,)
+            )
             return sum(1 for linha in cur.fetchall() if casa_busca(VagaEncontrada(**linha), exigidas))
 
     def listar_recentes(self, somente_novas: bool, teto: int, q: str | None = None) -> list[VagaEncontrada]:
@@ -266,7 +281,7 @@ class VagaEncontradaRepositoryPostgres(VagaEncontradaRepository):
         # O teto vai no SQL (custo limitado); o `q` por radical é filtrado em Python, como em `listar`.
         sql = f"SELECT {_COLUNAS_VAGA} FROM vaga_encontrada {self._filtro(somente_novas)}" + _ORDEM + " LIMIT %s"
         with self._conn.cursor(row_factory=dict_row) as cur:
-            cur.execute(sql, (teto,))
+            cur.execute(sql, (self._pessoa_id, teto))
             vagas = [VagaEncontrada(**{**linha, "termos": list(linha["termos"])}) for linha in cur.fetchall()]
         return [v for v in vagas if casa_busca(v, exigidas)]
 
@@ -275,7 +290,10 @@ class VagaEncontradaRepositoryPostgres(VagaEncontradaRepository):
             return None
         # `obter` acha também a vaga expirada (link direto mostra "vaga expirada").
         with self._conn.cursor(row_factory=dict_row) as cur:
-            cur.execute(f"SELECT {_COLUNAS_VAGA_DETALHE} FROM vaga_encontrada WHERE url = %s", (url,))
+            cur.execute(
+                f"SELECT {_COLUNAS_VAGA_DETALHE} FROM vaga_encontrada WHERE pessoa_id = %s AND url = %s",
+                (self._pessoa_id, url),
+            )
             linha = cur.fetchone()
         if not linha:
             return None
@@ -296,6 +314,7 @@ class VagaEncontradaRepositoryPostgres(VagaEncontradaRepository):
             return False
         parametros = {
             **_parametros_do_detalhe(limpo),
+            "pessoa_id": self._pessoa_id,
             "url": url,
             "expirada_em": limpo.expirada_em,
             "limpar_prazo": limpo.tem_prazo is False,
@@ -308,7 +327,7 @@ class VagaEncontradaRepositoryPostgres(VagaEncontradaRepository):
                 "expirada_em = CASE WHEN expirada_em IS NOT NULL AND expirada_em <= now() THEN expirada_em "
                 "ELSE COALESCE(%(expirada_em)s::timestamptz, "
                 "CASE WHEN %(limpar_prazo)s::boolean THEN NULL ELSE expirada_em END) END "
-                "WHERE url = %(url)s",
+                "WHERE pessoa_id = %(pessoa_id)s AND url = %(url)s",
                 parametros,
             )
             return cur.rowcount > 0
@@ -319,8 +338,8 @@ class VagaEncontradaRepositoryPostgres(VagaEncontradaRepository):
         with self._conn.transaction(), self._conn.cursor() as cur:
             cur.execute(
                 "UPDATE vaga_encontrada SET expirada_em = CASE WHEN expirada_em IS NOT NULL AND expirada_em <= now() "
-                "THEN expirada_em ELSE now() END WHERE url = %s",
-                (url,),
+                "THEN expirada_em ELSE now() END WHERE pessoa_id = %s AND url = %s",
+                (self._pessoa_id, url),
             )
             return cur.rowcount > 0
 
@@ -330,7 +349,10 @@ class VagaEncontradaRepositoryPostgres(VagaEncontradaRepository):
         # Já salva fica com a data da primeira vez; tirar dos salvos volta a NULL.
         valor = "COALESCE(salva_em, now())" if salva else "NULL"
         with self._conn.transaction(), self._conn.cursor() as cur:
-            cur.execute(f"UPDATE vaga_encontrada SET salva_em = {valor} WHERE url = %s", (url,))
+            cur.execute(
+                f"UPDATE vaga_encontrada SET salva_em = {valor} WHERE pessoa_id = %s AND url = %s",
+                (self._pessoa_id, url),
+            )
             return cur.rowcount > 0
 
     def listar_salvas(self, teto: int, q: str | None = None) -> list[VagaEncontrada]:
@@ -338,30 +360,38 @@ class VagaEncontradaRepositoryPostgres(VagaEncontradaRepository):
         exigidas = exigidas_da_busca(q)
         # Sem o filtro `no_ar`: a salva que expirou continua na aba, marcada como encerrada.
         sql = (
-            f"SELECT {_COLUNAS_VAGA} FROM vaga_encontrada WHERE salva_em IS NOT NULL "
+            f"SELECT {_COLUNAS_VAGA} FROM vaga_encontrada WHERE pessoa_id = %s AND salva_em IS NOT NULL "
             'ORDER BY salva_em DESC, url COLLATE "C" LIMIT %s'
         )
         with self._conn.cursor(row_factory=dict_row) as cur:
-            cur.execute(sql, (teto,))
+            cur.execute(sql, (self._pessoa_id, teto))
             vagas = [VagaEncontrada(**{**linha, "termos": list(linha["termos"])}) for linha in cur.fetchall()]
         return [v for v in vagas if casa_busca(v, exigidas)]
 
     def contar_salvas(self) -> int:
         with self._conn.cursor(row_factory=dict_row) as cur:
-            cur.execute("SELECT count(*) AS n FROM vaga_encontrada WHERE salva_em IS NOT NULL")
+            cur.execute(
+                "SELECT count(*) AS n FROM vaga_encontrada WHERE pessoa_id = %s AND salva_em IS NOT NULL",
+                (self._pessoa_id,),
+            )
             return cur.fetchone()["n"]
 
     def ultima_coleta(self) -> datetime | None:
         with self._conn.cursor(row_factory=dict_row) as cur:
-            cur.execute("SELECT max(ultima_vez_em) AS em FROM vaga_encontrada")
+            cur.execute("SELECT max(ultima_vez_em) AS em FROM vaga_encontrada WHERE pessoa_id = %s", (self._pessoa_id,))
             return cur.fetchone()["em"]
 
     @staticmethod
     def _filtro(somente_novas: bool) -> str:
+        """O WHERE da lista, com UM parâmetro posicional (a pessoa) que quem chama passa antes dos demais."""
         # A vaga com o prazo vencido some da lista e do contador (`obter` ainda a acha); com o prazo
         # por vir, aparece até o prazo passar, sem nova coleta.
         no_ar = "(expirada_em IS NULL OR expirada_em > now())"
-        return f"WHERE {no_ar} AND vista_em IS NULL " if somente_novas else f"WHERE {no_ar} "
+        return (
+            f"WHERE pessoa_id = %s AND {no_ar} AND vista_em IS NULL "
+            if somente_novas
+            else f"WHERE pessoa_id = %s AND {no_ar} "
+        )
 
     def marcar_vistas(self, urls: list[str]) -> int:
         urls = validar_urls(urls)
@@ -370,7 +400,7 @@ class VagaEncontradaRepositoryPostgres(VagaEncontradaRepository):
         with self._conn.transaction(), self._conn.cursor() as cur:
             # Já vista fica com a data da primeira vez.
             cur.execute(
-                "UPDATE vaga_encontrada SET vista_em = now() WHERE url = ANY(%s) AND vista_em IS NULL",
-                (urls,),
+                "UPDATE vaga_encontrada SET vista_em = now() WHERE pessoa_id = %s AND url = ANY(%s) AND vista_em IS NULL",
+                (self._pessoa_id, urls),
             )
             return cur.rowcount

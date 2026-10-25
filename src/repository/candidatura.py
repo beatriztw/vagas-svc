@@ -1,7 +1,7 @@
 import threading
 from abc import ABC, abstractmethod
 from collections.abc import Callable
-from dataclasses import replace
+from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
 
 from src.model.candidatura import STATUS_PADRAO, CandidaturaComVaga, StatusCandidatura
@@ -11,6 +11,8 @@ from src.repository.base import VagaEncontradaRepository
 
 
 class CandidaturaRepository(ABC):
+    """Candidaturas de uma pessoa: o repositório só enxerga e só grava as dela, sobre as vagas dela."""
+
     @abstractmethod
     def criar(self, vaga_url: str) -> tuple[CandidaturaComVaga, bool]:
         """Marca a vaga como aplicada (status `enviada`). Idempotente: a repetida devolve a existente.
@@ -78,14 +80,37 @@ def vaga_por_url_em(encontradas: VagaEncontradaRepository) -> Callable[[str], Va
     return encontradas.obter
 
 
-class CandidaturaRepositoryMemoria(CandidaturaRepository):
-    """`vaga_por_url` faz o papel da chave estrangeira do Postgres: vaga desconhecida é DadoInvalido."""
+@dataclass
+class _ArmazemCandidaturas:
+    """O "banco" das candidaturas em memória: o id é global (como o BIGSERIAL) e cada pessoa tem as suas."""
 
-    def __init__(self, vaga_por_url: Callable[[str], VagaEncontrada | None]) -> None:
+    por_pessoa: dict[int, dict[int, CandidaturaComVaga]] = field(default_factory=dict)
+    proximo_id: int = 1
+    lock: threading.Lock = field(default_factory=threading.Lock)
+
+
+class CandidaturaRepositoryMemoria(CandidaturaRepository):
+    """`vaga_por_url` faz o papel da chave estrangeira do Postgres: vaga desconhecida é DadoInvalido. Ele tem
+    que ler as vagas da MESMA pessoa (o `obter` do repositório de vagas dela).
+
+    `compartilhado`: outra instância cujo armazenamento esta usa, para duas pessoas no mesmo "banco".
+    """
+
+    def __init__(
+        self,
+        pessoa_id: int,
+        vaga_por_url: Callable[[str], VagaEncontrada | None],
+        compartilhado: "CandidaturaRepositoryMemoria | None" = None,
+    ) -> None:
+        self._pessoa_id = pessoa_id
         self._vaga_por_url = vaga_por_url
-        self._linhas: dict[int, CandidaturaComVaga] = {}
-        self._proximo_id = 1
-        self._lock = threading.Lock()
+        self._armazem = compartilhado._armazem if compartilhado is not None else _ArmazemCandidaturas()
+        self._linhas: dict[int, CandidaturaComVaga] = self._armazem.por_pessoa.setdefault(pessoa_id, {})
+        self._lock = self._armazem.lock
+
+    @property
+    def _proximo_id(self) -> int:
+        return self._armazem.proximo_id
 
     def _com_vaga(self, linha: CandidaturaComVaga) -> CandidaturaComVaga:
         # Título e empresa lidos na hora (como o JOIN): a vaga pode ter sido atualizada pela coleta.
@@ -105,7 +130,7 @@ class CandidaturaRepositoryMemoria(CandidaturaRepository):
             agora = datetime.now(timezone.utc)
             linha = CandidaturaComVaga(self._proximo_id, vaga_url, STATUS_PADRAO, agora, agora)
             self._linhas[linha.id] = linha
-            self._proximo_id += 1
+            self._armazem.proximo_id += 1
             return self._com_vaga(linha), True
 
     def listar(self) -> list[CandidaturaComVaga]:

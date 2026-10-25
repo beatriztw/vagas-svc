@@ -350,11 +350,11 @@ class ProviderQuebrado(ProviderClient):
 
 
 def app_de_coleta(provider, termos=("dados",), encontradas=None):
-    perfis = PerfilBuscaRepositoryMemoria()
+    perfis = PerfilBuscaRepositoryMemoria(1)
     if termos is not None:
         perfis.salvar(Perfil(termos=list(termos)))
-    repo = encontradas if encontradas is not None else VagaEncontradaRepositoryMemoria()
-    app = criar_app(perfis, CurriculoRepositoryMemoria(), BuscaService([provider]), encontradas=repo)
+    repo = encontradas if encontradas is not None else VagaEncontradaRepositoryMemoria(1)
+    app = criar_app(perfis, CurriculoRepositoryMemoria(1), BuscaService([provider]), encontradas=repo)
     return app, repo
 
 
@@ -517,7 +517,7 @@ class ColetaPelaTelaTest(unittest.TestCase):
 
         provider = ProviderBloqueado()
         provider.soltar.set()
-        app, _ = app_de_coleta(provider, encontradas=FalhaDoBanco())
+        app, _ = app_de_coleta(provider, encontradas=FalhaDoBanco(1))
         cliente = TestClient(app, raise_server_exceptions=False)
 
         self.assertEqual(mutacao(cliente, "/tela/coletas").status_code, 500)
