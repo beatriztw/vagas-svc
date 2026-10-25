@@ -246,6 +246,17 @@ class ErroDeUmaPessoaTest(unittest.TestCase):
         self.assertEqual(terminadas, [1, 3])  # o lote da IA de quem coletou é enfileirado
         self.assertIn("pessoas_com_erro=1", resumir(resultado))
 
+    def test_post_coletas_da_pessoa_com_erro_e_erro_e_nao_um_vazio(self):
+        # A pessoa da requisição (1) cai no meio; a 2 coleta. A resposta não pode dizer "0 novas" como se fosse sucesso.
+        self.banco.vagas[1] = BancoFora(1)
+        self.banco.vagas[2] = VagaEncontradaRepositoryMemoria(2)
+        cliente = TestClient(self.banco.app(self.client).app, raise_server_exceptions=False)
+
+        resposta = cliente.post("/coletas", json={})
+
+        self.assertEqual(resposta.status_code, 500)
+        self.assertEqual(self.banco.urls(2), {"u1"})  # a outra pessoa coletou mesmo assim
+
     def test_cli_avisa_a_pessoa_com_erro_e_sai_com_zero(self):
         saida, erro = io.StringIO(), io.StringIO()
 

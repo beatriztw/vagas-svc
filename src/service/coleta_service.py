@@ -55,6 +55,8 @@ class ResultadoColeta:
     puladas: list[int] = field(default_factory=list)
     # Pessoas cuja coleta deu erro (ex.: banco no meio): as outras seguem; o que já gravou fica.
     com_erro: list[int] = field(default_factory=list)
+    # O erro de cada pessoa de `com_erro`: quem pede o resultado dela (a API e a tela) recebe o erro, não um vazio.
+    erros: dict[int, Exception] = field(default_factory=dict, repr=False)
 
     @property
     def termos(self) -> list[ColetaDoTermo]:
@@ -71,7 +73,10 @@ class ResultadoColeta:
         return bool(self.pessoas) and all(p.falhou for p in self.pessoas)
 
     def da_pessoa(self, pessoa_id: int) -> ColetaDaPessoa:
-        """A coleta da pessoa; vazia (sem termos, sem falha) se ela foi pulada."""
+        """A coleta da pessoa; vazia (sem termos, sem falha) se ela foi pulada. Levanta o erro dela se a coleta dela
+        deu erro (as outras pessoas já coletaram e tiveram o lote enfileirado)."""
+        if pessoa_id in self.erros:
+            raise self.erros[pessoa_id]
         for p in self.pessoas:
             if p.pessoa_id == pessoa_id:
                 return p
@@ -196,6 +201,7 @@ class ColetaService:
         coletadas: list[ColetaDaPessoa] = []
         puladas: list[int] = []
         com_erro: list[int] = []
+        erros: dict[int, Exception] = {}
         ultimo_erro: Exception | None = None
         algum_perfil = False
         for pessoa_id in self.pessoas.listar():
@@ -222,6 +228,7 @@ class ColetaService:
                 # Só o id e o tipo: a mensagem pode trazer termo ou dado do perfil.
                 log.warning("coleta da pessoa %s falhou: %s", pessoa_id, type(e).__name__)
                 com_erro.append(pessoa_id)
+                erros[pessoa_id] = e
                 ultimo_erro = e
                 continue
             coletadas.append(ColetaDaPessoa(pessoa_id, resultado, providers=len(busca_da_pessoa.clients)))
@@ -233,5 +240,5 @@ class ColetaService:
                 raise DadoInvalido("O perfil salvo não tem termos de busca: inclua pelo menos um em `termos`")
             raise DadoInvalido("Nenhum perfil salvo: salve um perfil com termos (PUT /perfil) antes de coletar")
         return ResultadoColeta(
-            coletadas, providers=len(self.recomendacao.busca.clients), puladas=puladas, com_erro=com_erro
+            coletadas, providers=len(self.recomendacao.busca.clients), puladas=puladas, com_erro=com_erro, erros=erros
         )
