@@ -123,7 +123,13 @@ class PedidoIARepositoryPostgres(PedidoIARepository):
         return _pedido(linha) if linha else None
 
     def proximo(self, agora: datetime | None = None) -> PedidoIA | None:
-        params = {"agora": agora, "prazo": PRAZO_RODANDO.total_seconds(), "max": MAX_TENTATIVAS, "erro": ERRO_PRESO}
+        params = {
+            "agora": agora,
+            "prazo": PRAZO_RODANDO.total_seconds(),
+            "max": MAX_TENTATIVAS,
+            "erro": ERRO_PRESO,
+            "lote": PRIORIDADE_LOTE,
+        }
         with self._conn.transaction(), self._conn.cursor(row_factory=dict_row) as cur:
             # 1. Preso que já gastou as tentativas vira erro.
             cur.execute(
@@ -132,12 +138,20 @@ class PedidoIARepositoryPostgres(PedidoIARepository):
                 f"WHERE estado = 'rodando' AND reivindicado_em < {_PRAZO} AND tentativas >= %(max)s",
                 params,
             )
-            # 2. Pendente antes de preso; dentro de cada grupo, a prioridade (a pessoa antes do lote) e
-            # depois o mais antigo. SKIP LOCKED: dois workers simultâneos nunca pegam o mesmo pedido.
+            # 2. Pendente antes de preso; dentro de cada grupo, a prioridade (a pessoa antes do lote). Entre os
+            # pendentes do lote, rodízio: a pessoa cujo último pedido de lote foi reivindicado há mais tempo (ou
+            # nunca: NULL primeiro) vai na frente, para uma não gastar a cota do worker da outra. Dentro da
+            # pessoa, e com uma pessoa só, vale a ordem de sempre (o mais antigo). Clique (prioridade 0) e presos
+            # não entram no rodízio. SKIP LOCKED: dois workers simultâneos nunca pegam o mesmo pedido.
             cur.execute(
-                "SELECT id FROM pedido_ia "
-                f"WHERE estado = 'pendente' OR (estado = 'rodando' AND reivindicado_em < {_PRAZO}) "
-                "ORDER BY (estado = 'rodando'), prioridade, criado_em, id LIMIT 1 FOR UPDATE SKIP LOCKED",
+                "WITH ultima_do_lote AS ("
+                " SELECT pe.id AS pessoa_id, (SELECT max(l.reivindicado_em) FROM pedido_ia l"
+                "  WHERE l.pessoa_id = pe.id AND l.prioridade = %(lote)s) AS em FROM pessoa pe) "
+                "SELECT p.id FROM pedido_ia p JOIN ultima_do_lote u ON u.pessoa_id = p.pessoa_id "
+                f"WHERE p.estado = 'pendente' OR (p.estado = 'rodando' AND p.reivindicado_em < {_PRAZO}) "
+                "ORDER BY (p.estado = 'rodando'), p.prioridade, "
+                "CASE WHEN p.estado = 'pendente' AND p.prioridade = %(lote)s THEN u.em END NULLS FIRST, "
+                "p.criado_em, p.id LIMIT 1 FOR UPDATE OF p SKIP LOCKED",
                 params,
             )
             escolhido = cur.fetchone()
@@ -267,8 +281,9 @@ class PedidoIARepositoryPostgres(PedidoIARepository):
     def contar_lote_desde(self, desde: datetime) -> int:
         with self._conn.cursor() as cur:
             cur.execute(
-                "SELECT count(*) FROM pedido_ia WHERE pessoa_id = %s AND prioridade = %s AND criado_em >= %s",
-                (self._pessoa_id, PRIORIDADE_LOTE, desde),
+                # Global, de todas as pessoas: o teto é a cota do worker (a assinatura), não a de cada pessoa.
+                "SELECT count(*) FROM pedido_ia WHERE prioridade = %s AND criado_em >= %s",
+                (PRIORIDADE_LOTE, desde),
             )
             return cur.fetchone()[0]
 
