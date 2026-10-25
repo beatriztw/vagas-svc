@@ -20,6 +20,7 @@ from src.model.detalhe_vaga import (
     Requisito,
     salario_de_json,
 )
+from src.model.situacao_vaga import SituacaoNaFonte
 from src.model.vaga_externa import VagaExterna
 
 BASE_URL = "https://api.remotar.com.br/jobs"
@@ -192,6 +193,30 @@ class RemotarClient(ProviderClient):
             return self._detalhe_do_job(job, self._consultar_gupy(job))
         except (KeyError, TypeError, ValueError, AttributeError, IndexError, RecursionError) as erro:
             raise ErroProvider(f"resposta com forma inesperada: {type(erro).__name__}") from erro
+
+    def situacao(self, id: str) -> SituacaoNaFonte:
+        """Se a vaga `id` ainda está no ar, para a conferência diária. A vaga encerrada some da busca, então
+        só perguntando por ela se descobre que fechou: 404/410, `expired: true` ou `active: false` no
+        Remotar, ou o encerramento no Gupy (onde o Remotar às vezes segue "ativo") já passado, é FECHADA.
+        Falha ou resposta torta é DESCONHECIDA: nunca fecha uma vaga por engano."""
+        if not isinstance(id, str) or not ID_DA_VAGA.fullmatch(id):
+            raise ValueError("id da vaga do Remotar tem que ter só dígitos")
+        try:
+            job = self._http_detalhe(f"{BASE_URL}/{id}")
+        except VagaNaoEncontrada:
+            return SituacaoNaFonte.FECHADA
+        except ErroProvider:
+            return SituacaoNaFonte.DESCONHECIDA
+        if not isinstance(job, dict):
+            return SituacaoNaFonte.DESCONHECIDA
+        if job.get("expired") is True or job.get("active") is False:
+            return SituacaoNaFonte.FECHADA
+        encerramento = self._consultar_gupy(job).encerramento
+        if encerramento is not None and encerramento <= self._relogio():
+            return SituacaoNaFonte.FECHADA
+        if job.get("expired") is False and job.get("active") is True:
+            return SituacaoNaFonte.ABERTA
+        return SituacaoNaFonte.DESCONHECIDA
 
     def buscar(self, termo: str) -> list[VagaExterna]:
         jobs = []
