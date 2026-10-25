@@ -56,6 +56,7 @@ from src.repository.pessoa_provider import PessoaProviderRepository, PessoaProvi
 from src.repository.trava import CHAVE_TRAVA_LOTE_IA, ColetaEmAndamento, TravaColeta, TravaColetaPostgres
 from src.service.agendador_coleta import AgendadorColeta
 from src.service.autenticacao import Autenticacao
+from src.service.conferencia_service import ConferenciaDasPessoas, ConferenciaService
 from src.service.busca_service import BuscaService
 from src.service.candidatura_service import CandidaturaService
 from src.service.coleta_service import ColetaDaPessoa, ColetaService, RepositoriosDaPessoa
@@ -247,6 +248,7 @@ def criar_app(
     repositorios_da_pessoa: Callable[[int], RepositoriosDaPessoa] | None = None,
     providers_da_pessoa: Callable[[int], PessoaProviderRepository] | None = None,
     fabricas: FabricasPorPessoa | None = None,
+    conferencia: Callable[[VagaEncontradaRepository], ConferenciaService] | None = None,
     sessoes: SessaoRepository | None = None,
     autenticacao: Autenticacao | None = None,
 ) -> FastAPI:
@@ -254,10 +256,13 @@ def criar_app(
     a produção passa os do Postgres. Sem `detalhe`, a tela não busca o detalhe no provider (testes).
     `ao_subir` roda no startup (lifespan); se levantar, a app não sobe. `agendador` recebe a coleta
     (a mesma do POST /coletas) e devolve o agendador da coleta, que o lifespan inicia depois do
-    `ao_subir` e para no shutdown; sem ele (testes), nada é agendado. A coleta roda para cada pessoa de `pessoas`
-    com os repositórios de `repositorios_da_pessoa` (a produção passa os do Postgres, um por chamada); sem eles
-    (testes) a única pessoa é a PESSOA_PADRAO, com `perfis` e `encontradas`. `providers_da_pessoa` dá o repositório das
-    fontes de vaga de cada pessoa (sem ele, em memória); pessoa sem fontes usa `busca`, as do ambiente. `fabricas` dão os repositórios da
+    `ao_subir` e para no shutdown; sem ele (testes), nada é agendado. `conferencia` recebe o histórico de uma
+    pessoa e devolve a conferência na fonte, que roda (em segundo plano, pessoa por pessoa) quando a app sobe e
+    depois de cada coleta agendada; sem ela (testes), nenhuma vaga é reconsultada. A coleta roda para cada pessoa
+    de `pessoas` com os repositórios de `repositorios_da_pessoa` (a produção passa os do Postgres, um por chamada);
+    sem eles (testes) a única pessoa é a PESSOA_PADRAO, com `perfis` e `encontradas`. `providers_da_pessoa` dá o
+    repositório das fontes de vaga de cada pessoa (sem ele, em memória); pessoa sem fontes usa `busca`, as do
+    ambiente. `fabricas` dão os repositórios da
     pessoa dona de cada pedido da fila do worker (a fila é de todas as pessoas); sem elas só existe a pessoa da
     requisição, e um pedido de outra pessoa é erro em vez de ler os dados da errada.
 
@@ -274,6 +279,9 @@ def criar_app(
         agendado = app_.state.agendador
         if agendado is not None:
             agendado.iniciar()
+        if app_.state.conferencia is not None:
+            # Na subida também: um deploy já limpa as vagas que fecharam desde a última conferência.
+            app_.state.conferencia.conferir_em_segundo_plano()
         try:
             yield
         finally:
@@ -370,7 +378,24 @@ def criar_app(
         ao_terminar=enfileirar_lote_da_pessoa,
         buscas=buscas,
     )
-    app.state.agendador = agendador(coleta.coletar) if agendador is not None else None
+    if conferencia is None:
+        app.state.conferencia = None
+    else:
+        # Cada pessoa tem o próprio histórico: a conferência roda sobre o de cada uma, em segundo plano e sem sessão.
+        app.state.conferencia = ConferenciaDasPessoas(
+            pessoas.listar,
+            lambda pessoa_id: conferencia(contexto_de(pessoa_id).encontradas),
+        )
+
+    def coletar_e_conferir():
+        """A coleta agendada e, depois dela (mesmo se falhar), a conferência das vagas no ar."""
+        try:
+            return coleta.coletar()
+        finally:
+            if app.state.conferencia is not None:
+                app.state.conferencia.conferir_em_segundo_plano()
+
+    app.state.agendador = agendador(coletar_e_conferir) if agendador is not None else None
     app.include_router(criar_router_candidaturas(contexto_da_requisicao))
     app.state.pedido_ia_service = servico_ia
     app.include_router(criar_router_pedidos_ia(app.state.pedido_ia_service, contexto_da_requisicao))
@@ -775,6 +800,10 @@ def criar_app_producao() -> FastAPI:
         sessoes=_PorChamada(pool, _sessoes_postgres),
         repositorios_da_pessoa=repositorios_da_pessoa,
         providers_da_pessoa=lambda pessoa_id: _PorChamada(pool, _providers_postgres, pessoa_id),
+        # Reconsulta na fonte (Remotar e LinkedIn) as vagas no ar: a encerrada some da busca e a coleta não vê.
+        conferencia=lambda historico: ConferenciaService(
+            historico, RemotarClient(gupy=GupyClient().encerramento), LinkedInDetalheClient()
+        ),
     )
 
 
