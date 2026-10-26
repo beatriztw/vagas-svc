@@ -335,6 +335,40 @@ class ApiCandidaturaTest(unittest.TestCase):
         self.assertIn("vaga não encontrada", resposta.json()["detail"])
         self.assertEqual(self.api.get("/candidaturas").json(), [])
 
+    def test_vaga_externa_com_titulo_e_empresa_entra_no_historico_ja_vista(self):
+        url = "https://empresa.inhire.app/vagas/123/analista"
+        resposta = self.api.post(
+            "/candidaturas", json={"vaga_url": url, "titulo": " Analista de Atendimento ", "empresa": "Atlas"}
+        )
+
+        self.assertEqual(resposta.status_code, 201)
+        corpo = resposta.json()
+        self.assertEqual((corpo["vaga_url"], corpo["titulo"], corpo["empresa"]), (url, "Analista de Atendimento", "Atlas"))
+        todas = {v["url"]: v for v in self.api.get("/vagas/encontradas?novas=false").json()}
+        self.assertEqual(todas[url]["plataforma"], "manual")
+        novas = [v["url"] for v in self.api.get("/vagas/encontradas?novas=true").json()]
+        self.assertNotIn(url, novas)
+
+    def test_titulo_e_empresa_nao_sobrescrevem_a_vaga_coletada(self):
+        resposta = self.api.post("/candidaturas", json={"vaga_url": URL_A, "titulo": "Outro", "empresa": "Outra"})
+
+        self.assertEqual(resposta.status_code, 201)
+        self.assertEqual((resposta.json()["titulo"], resposta.json()["empresa"]), ("Dev Python", "Alfa"))
+
+    def test_vaga_externa_incompleta_e_422_e_nao_grava(self):
+        url = "https://exemplo.com/externa"
+        for extra in ({"titulo": "Analista"}, {"empresa": "Atlas"}, {"titulo": "  ", "empresa": "Atlas"},
+                      {"titulo": "A\x00", "empresa": "Atlas"}):
+            with self.subTest(extra=extra):
+                resposta = self.api.post("/candidaturas", json={"vaga_url": url, **extra})
+                self.assertEqual(resposta.status_code, 422)
+                # Recusada por estar incompleta, não por a vaga faltar no histórico.
+                self.assertIn("informe título e empresa", resposta.json()["detail"])
+        self.assertEqual(self.api.post("/candidaturas", json={"vaga_url": url, "titulo": "", "empresa": "Atlas"}).status_code, 422)
+        self.assertEqual(self.api.get("/candidaturas").json(), [])
+        urls = [v["url"] for v in self.api.get("/vagas/encontradas?novas=false").json()]
+        self.assertNotIn(url, urls)
+
     def test_corpo_invalido_e_422(self):
         for corpo in ({}, {"vaga_url": ""}, {"vaga_url": 3}, {"vaga_url": URL_A, "status": "oferta"}, {"vaga_url": "a\x00b"}):
             with self.subTest(corpo=corpo):
