@@ -1,7 +1,19 @@
+import html
+
 from src.client.base import HttpGet, ProviderClient, contem, get_json, parse_data
+from src.client.sanitizar import html_para_texto
+from src.model.detalhe_vaga import DetalheVaga
 from src.model.vaga_externa import VagaExterna
 
 BASE_URL = "https://api.ashbyhq.com/posting-api/job-board/{empresa}"
+
+
+def _detalhe(job: dict) -> DetalheVaga | None:
+    descricao = html_para_texto(job.get("descriptionHtml"))
+    if not descricao and isinstance(job.get("descriptionPlain"), str):
+        descricao = html_para_texto(html.escape(job["descriptionPlain"]))
+    # Sem texto útil, não cria detalhe vazio que poderia apagar o já gravado na recoleta.
+    return DetalheVaga(descricao=descricao) if descricao else None
 
 
 class AshbyClient(ProviderClient):
@@ -29,6 +41,7 @@ class AshbyClient(ProviderClient):
                         local=job.get("location"),
                         remoto=job.get("isRemote"),
                         publicada_em=parse_data(job.get("publishedAt")),
+                        detalhe=_detalhe(job),
                     )
                 )
         return vagas

@@ -82,6 +82,32 @@ class ContratoVagaEncontrada:
         self.repo.registrar(ApifyLinkedInClient(token="tk", http_post=lambda u, c, t: sem).buscar("dados"), "dados")
         self.assertEqual(self.repo.obter(url).descricao, salva.descricao)
 
+    def test_recoleta_ashby_preenche_descricao_da_vaga_existente_e_nao_apaga_se_ausente(self):
+        from src.client.ashby import AshbyClient
+
+        # Resposta inventada, escrita à mão: vaga já coletada antes da correção do Ashby.
+        url = "https://jobs.ashbyhq.com/exemplo/backend"
+        job = {"title": "Backend Engineer", "jobUrl": url}
+        client = AshbyClient(["exemplo"], http=lambda _: {"jobs": [job]})
+        perfis = PerfilBuscaRepositoryMemoria(1)
+        perfis.salvar(Perfil(termos=["backend"]))
+        coleta = ColetaService.de_uma_pessoa(RecomendacaoService(BuscaService([client])), perfis, self.repo)
+        self.assertEqual(coleta.coletar().novas, 1)
+        self.assertIsNone(self.repo.obter(url).descricao)
+        primeira_vez = self.repo.obter(url).primeira_vez_em
+
+        job["descriptionHtml"] = "<p>Descrição inventada: Python e SQL.</p>"
+        self.assertEqual(coleta.coletar().novas, 0)
+        salva = self.repo.obter(url)
+        self.assertEqual(salva.descricao, "Descrição inventada: Python e SQL.")
+        self.assertIsNotNone(salva.detalhada_em)
+        self.assertEqual(salva.primeira_vez_em, primeira_vez)
+
+        job["descriptionHtml"] = "<p> </p>"
+        job["descriptionPlain"] = ["campo inválido"]
+        coleta.coletar()
+        self.assertEqual(self.repo.obter(url).descricao, salva.descricao)
+
     def test_mesma_vaga_por_dois_termos_vira_uma_linha_com_os_dois(self):
         self.assertEqual(self.repo.registrar([vaga("u1")], "python"), 1)
         self.assertEqual(self.repo.registrar([vaga("u1")], "django"), 0)
