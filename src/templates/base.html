@@ -15,7 +15,9 @@
 <script src="{{ "tela.js"|estatico }}" defer></script>
 <script src="{{ "tela-mobile.js"|estatico }}" defer></script>
 </head>
-<body>
+{# Toda requisição do HTMX desta página leva a pessoa que ela mostra: com o seletor trocado em outra aba (o cookie
+   mudou), o "Salvar" desta aba grava na pessoa que estava na tela, e não na do cookie. #}
+<body{% if request.state.pessoa_id %} hx-headers='{"X-Person-Id": "{{ request.state.pessoa_id }}"}'{% endif %}>
 <header class="topo">
   <div class="topo-conteudo">
     <div class="marca">
@@ -24,7 +26,20 @@
       </span>
       <span class="marca-nome">vagas-svc</span>
     </div>
-    <a class="botao" href="/tela/perfil">Meu perfil</a>
+    <div class="topo-acoes">
+      {% set pessoas_do_seletor = request.state.pessoas_do_seletor %}
+      {% if pessoas_do_seletor and pessoas_do_seletor|length > 1 %}
+      <form class="seletor-pessoa" hx-post="/tela/pessoa" hx-trigger="change" hx-swap="none">
+        <label for="seletor-pessoa">Pessoa</label>
+        <select id="seletor-pessoa" name="pessoa_id">
+          {% for p in pessoas_do_seletor %}
+          <option value="{{ p.id }}"{% if p.id == request.state.pessoa_id %} selected{% endif %}>{{ p.nome_exibicao }}</option>
+          {% endfor %}
+        </select>
+      </form>
+      {% endif %}
+      <a class="botao" href="/tela/perfil">Meu perfil</a>
+    </div>
   </div>
 </header>
 {% block aviso %}<div id="aviso" class="erro" role="alert" hidden></div>{% endblock %}

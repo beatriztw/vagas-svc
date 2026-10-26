@@ -3,6 +3,7 @@
 O log traz só id, tipo, estado e tentativa: nunca resultado, erro, currículo nem descrição.
 """
 
+import copy
 import json
 import logging
 import os
@@ -134,6 +135,27 @@ class PedidoIAService:
         # Um enfileiramento por vez (coleta do timer, botão, duas abas): sem isso as chamadas leriam
         # a mesma contagem do teto diário e cada uma criaria até o teto. Produção usa a do Postgres.
         self.trava_lote = trava_lote if trava_lote is not None else TravaColetaMemoria()
+
+    def da_pessoa(
+        self,
+        pedidos: PedidoIARepository,
+        encontradas: VagaEncontradaRepository,
+        perfis: PerfilBuscaRepository,
+        curriculos: CurriculoRepository,
+        detalhe: DetalheService | None,
+    ) -> "PedidoIAService":
+        """O mesmo serviço (teto do lote, relógio, trava, fábricas) com os repositórios de OUTRA pessoa: a da
+        requisição. É uma cópia rasa, então a configuração e o que os testes trocaram na instância de origem
+        valem para ela."""
+        copia = copy.copy(self)
+        copia.pedidos, copia.encontradas, copia.perfis, copia.curriculos, copia.detalhe = (
+            pedidos,
+            encontradas,
+            perfis,
+            curriculos,
+            detalhe,
+        )
+        return copia
 
     def pedir(self, vaga_url: str, tipo: TipoPedidoIA | str) -> tuple[PedidoIA, bool]:
         """(pedido, criado). Já havendo um ativo para (vaga, tipo), devolve o ativo com criado=False."""

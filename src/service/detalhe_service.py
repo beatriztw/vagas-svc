@@ -6,6 +6,7 @@ demanda, por uma chamada à parte (`carregar`), nunca na página inteira. Cada p
 provider: Remotar pelo `remotar`, LinkedIn pelo `linkedin`.
 """
 
+import copy
 import re
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -81,6 +82,12 @@ class DetalheService:
         self.remotar = remotar
         self.linkedin = linkedin
         self._agora = agora
+
+    def para(self, vagas: VagaEncontradaRepository) -> "DetalheService":
+        """O mesmo serviço (providers, relógio) lendo e gravando as vagas de outra pessoa."""
+        copia = copy.copy(self)
+        copia.vagas = vagas
+        return copia
 
     def _fonte(self, vaga: VagaEncontrada) -> tuple[ProviderDeDetalhe, str] | None:
         """O provider da plataforma da vaga e o id que vai para ele; None se não há o que buscar."""

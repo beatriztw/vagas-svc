@@ -2,14 +2,15 @@
 
 O CSRF das rotas que mudam estado vem da dependência do app (`seguranca_json.py`)."""
 
+from collections.abc import Callable
 from datetime import datetime
 
-from fastapi import APIRouter, HTTPException, Response
+from fastapi import APIRouter, Depends, HTTPException, Response
 from pydantic import BaseModel, ConfigDict, Field
 
+from src.controller.contexto_pessoa import ContextoPessoa
 from src.controller.seguranca_json import exigir_json  # noqa: F401  (reexportado: outros módulos importam daqui)
 from src.model.candidatura import CandidaturaComVaga, StatusCandidatura
-from src.service.candidatura_service import CandidaturaService
 
 
 class NovaCandidatura(BaseModel):
@@ -40,31 +41,35 @@ class CandidaturaJson(BaseModel):
         return cls(**{**vars(c), "status_rotulo": c.status.rotulo})
 
 
-def criar_router_candidaturas(servico: CandidaturaService) -> APIRouter:
+def criar_router_candidaturas(contexto_da_pessoa: Callable[..., ContextoPessoa]) -> APIRouter:
     router = APIRouter()
 
     @router.post("/candidaturas", status_code=201)
-    def marcar_aplicada(corpo: NovaCandidatura, resposta: Response) -> CandidaturaJson:
+    def marcar_aplicada(
+        corpo: NovaCandidatura, resposta: Response, ctx: ContextoPessoa = Depends(contexto_da_pessoa)
+    ) -> CandidaturaJson:
         # Vaga fora do histórico: DadoInvalido do repositório, 422.
-        candidatura, criada = servico.marcar_aplicada(corpo.vaga_url)
+        candidatura, criada = ctx.candidaturas.marcar_aplicada(corpo.vaga_url)
         if not criada:
             resposta.status_code = 200
         return CandidaturaJson.de(candidatura)
 
     @router.get("/candidaturas")
-    def listar_candidaturas() -> list[CandidaturaJson]:
-        return [CandidaturaJson.de(c) for c in servico.listar()]
+    def listar_candidaturas(ctx: ContextoPessoa = Depends(contexto_da_pessoa)) -> list[CandidaturaJson]:
+        return [CandidaturaJson.de(c) for c in ctx.candidaturas.listar()]
 
     @router.patch("/candidaturas/{id}")
-    def mudar_status(id: int, corpo: MudancaDeStatus) -> CandidaturaJson:
-        candidatura = servico.mudar_status(id, corpo.status)
+    def mudar_status(
+        id: int, corpo: MudancaDeStatus, ctx: ContextoPessoa = Depends(contexto_da_pessoa)
+    ) -> CandidaturaJson:
+        candidatura = ctx.candidaturas.mudar_status(id, corpo.status)
         if candidatura is None:
             raise HTTPException(404, f"Candidatura {id} não encontrada")
         return CandidaturaJson.de(candidatura)
 
     @router.delete("/candidaturas/{id}", status_code=204)
-    def desfazer(id: int) -> Response:
-        if not servico.desfazer(id):
+    def desfazer(id: int, ctx: ContextoPessoa = Depends(contexto_da_pessoa)) -> Response:
+        if not ctx.candidaturas.desfazer(id):
             raise HTTPException(404, f"Candidatura {id} não encontrada")
         return Response(status_code=204)
 

@@ -1,9 +1,11 @@
 """Rotas HTML de "Meu perfil" (`/tela/perfil`): o mesmo perfil, validação e repositório da rota JSON `PUT /perfil`."""
 
+from collections.abc import Callable
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Form, Request
 
+from src.controller.contexto_pessoa import ContextoPessoa
 from src.controller.tela_seguranca import PREFIXO_TELA, exigir_mutacao_da_tela, renderizar, resposta_de_erro, templates
 from src.model.erros import DadoInvalido
 from src.model.perfil import Perfil
@@ -16,8 +18,7 @@ from src.model.provider_pessoa import (
     limite_posts_max,
 )
 from src.model.vaga import Modalidade, Nivel
-from src.repository.base import MAX_PUBLICADA_DESDE_DIAS, MAX_SALARIO_MINIMO, PerfilBuscaRepository, validar_perfil
-from src.repository.pessoa_provider import PessoaProviderRepository
+from src.repository.base import MAX_PUBLICADA_DESDE_DIAS, MAX_SALARIO_MINIMO, validar_perfil
 
 def _linhas(texto: str) -> list[str]:
     """Uma entrada por linha; linha em branco é ignorada. Teto, repetidos e normalização ficam com `validar_perfil`."""
@@ -129,17 +130,18 @@ def providers_do_formulario(campos: dict[str, str], usar: list[str]) -> list[Pro
     return itens
 
 
-def criar_router_tela_perfil(perfis: PerfilBuscaRepository, providers: PessoaProviderRepository) -> APIRouter:
+def criar_router_tela_perfil(contexto_da_pessoa: Callable[..., ContextoPessoa]) -> APIRouter:
     router = APIRouter(prefix=PREFIXO_TELA + "/perfil", include_in_schema=False)
 
     @router.get("")
-    def formulario(request: Request):
-        contexto = {**contexto_do_formulario(perfis.obter()), **contexto_dos_providers(providers.listar())}
+    def formulario(request: Request, ctx: ContextoPessoa = Depends(contexto_da_pessoa)):
+        contexto = {**contexto_do_formulario(ctx.perfis.obter()), **contexto_dos_providers(ctx.providers.listar())}
         return renderizar(request, "tela/perfil.html", "tela/_perfil_form.html", contexto)
 
     @router.put("", dependencies=[Depends(exigir_mutacao_da_tela)])
     def salvar(
         request: Request,
+        ctx: ContextoPessoa = Depends(contexto_da_pessoa),
         termos: Annotated[str, Form()] = "",
         excluir: Annotated[str, Form()] = "",
         localidades: Annotated[str, Form()] = "",
@@ -165,9 +167,9 @@ def criar_router_tela_perfil(perfis: PerfilBuscaRepository, providers: PessoaPro
             ocultar_candidatadas=ocultar_candidatadas is not None,
             salario_minimo=_salario(salario_minimo),
         )
-        perfis.salvar(validar_perfil(perfil))
+        ctx.perfis.salvar(validar_perfil(perfil))
         # Relê do repositório: o formulário mostra o que ficou gravado (normalizado, sem repetidos).
-        salvo = perfis.obter()
+        salvo = ctx.perfis.obter()
         if salvo is None:
             return resposta_de_erro(request, "O perfil não foi salvo", 500)
         return templates.TemplateResponse(request, "tela/_perfil_form.html", contexto_do_formulario(salvo, salvo=True))
@@ -175,6 +177,7 @@ def criar_router_tela_perfil(perfis: PerfilBuscaRepository, providers: PessoaPro
     @router.put("/providers", dependencies=[Depends(exigir_mutacao_da_tela)])
     def salvar_providers(
         request: Request,
+        ctx: ContextoPessoa = Depends(contexto_da_pessoa),
         usar: Annotated[list[str] | None, Form()] = None,
         greenhouse_empresas: Annotated[str, Form()] = "",
         lever_empresas: Annotated[str, Form()] = "",
@@ -197,10 +200,10 @@ def criar_router_tela_perfil(perfis: PerfilBuscaRepository, providers: PessoaPro
             "himalayas_limite": himalayas_limite,
             "remotive_limite": remotive_limite,
         }
-        providers.salvar(providers_do_formulario(campos, usar or []))
+        ctx.providers.salvar(providers_do_formulario(campos, usar or []))
         # Relê do repositório: o formulário mostra o que ficou gravado (normalizado, sem repetidos).
         return templates.TemplateResponse(
-            request, "tela/_providers_form.html", contexto_dos_providers(providers.listar(), salvo=True)
+            request, "tela/_providers_form.html", contexto_dos_providers(ctx.providers.listar(), salvo=True)
         )
 
     return router
