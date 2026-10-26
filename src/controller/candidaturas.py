@@ -16,6 +16,9 @@ class NovaCandidatura(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     vaga_url: str = Field(min_length=1)
+    # Vaga que a coleta não achou (blog, inHire, site da empresa): com os dois, ela entra no histórico.
+    titulo: str | None = Field(default=None, min_length=1, max_length=300)
+    empresa: str | None = Field(default=None, min_length=1, max_length=300)
 
 
 class MudancaDeStatus(BaseModel):
@@ -45,8 +48,8 @@ def criar_router_candidaturas(servico: CandidaturaService) -> APIRouter:
 
     @router.post("/candidaturas", status_code=201)
     def marcar_aplicada(corpo: NovaCandidatura, resposta: Response) -> CandidaturaJson:
-        # Vaga fora do histórico: DadoInvalido do repositório, 422.
-        candidatura, criada = servico.marcar_aplicada(corpo.vaga_url)
+        # Vaga fora do histórico sem título e empresa: DadoInvalido do repositório, 422.
+        candidatura, criada = servico.marcar_aplicada(corpo.vaga_url, corpo.titulo, corpo.empresa)
         if not criada:
             resposta.status_code = 200
         return CandidaturaJson.de(candidatura)
