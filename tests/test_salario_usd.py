@@ -45,6 +45,8 @@ class PisoUsdTest(unittest.TestCase):
                  vaga("equity", "Equity compensation USD 150,000 per year."),
                  vaga("equity-no-valor", "Salary USD 150,000 in equity per year."),
                  vaga("bonus", "Salary USD 150,000 bonus per year."),
+                 vaga("periodo-do-beneficio", "Base salary USD 95,000. Monthly home office allowance."),
+                 vaga("frequencia-do-pagamento", "Salary: USD 120,000 - 150,000 gross, paid monthly."),
                  vaga("sem-periodo", "Salary USD 150,000."), vaga("ausente")]
         self.assertEqual([v.url for v in self.filtrar(vagas)], ["controle"])
 

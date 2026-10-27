@@ -14,6 +14,9 @@ _FAIXA = re.compile(
 )
 _ANO = re.compile(r"\b(?:annual|annually|year|yearly|anual|ano|annum)\b|/yr\b")
 _MES = re.compile(r"\b(?:month|monthly|mensal|mes)\b|/mo\b")
+_PERIODO_APOS_VALOR = re.compile(
+    r"^\s*(?:(?:/\s*|per\s+|por\s+)(?:year|month|ano|mes|annum|yr|mo)|annual|annually|yearly|anual|monthly|mensal)\b"
+)
 
 
 def _centavos(texto: str) -> int:
@@ -41,7 +44,10 @@ def salario_usd_do_texto(descricao: object) -> Salario | None:
             continue
         if re.match(r"[.,]\d", match["sufixo"]):
             continue  # formato numérico não reconhecido: não trunca centavos como se fosse outro valor
-        periodo_texto = match["prefixo"] + " " + match["sufixo"]
+        # Período precisa qualificar o VALOR; 'paid monthly' pode ser só a frequência de um salário anual.
+        # Uma frase seguinte sobre benefício mensal também não define o período do salário.
+        periodo_apos = _PERIODO_APOS_VALOR.match(match["sufixo"].split(".", 1)[0])
+        periodo_texto = match["prefixo"] + " " + (periodo_apos[0] if periodo_apos else "")
         anual, mensal = bool(_ANO.search(periodo_texto)), bool(_MES.search(periodo_texto))
         if anual == mensal:
             continue
