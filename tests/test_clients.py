@@ -66,6 +66,42 @@ class AshbyClientTest(unittest.TestCase):
         self.assertTrue(vagas[0].remoto)
         self.assertEqual(vagas[0].publicada_em, date(2024, 3, 4))
 
+    def test_descricao_html_da_listagem_e_sanitizada(self):
+        # Resposta inventada, escrita à mão; não altera a fixture gravada do provider.
+        job = {
+            "title": "Backend Engineer", "jobUrl": "https://jobs.ashbyhq.com/exemplo/backend",
+            "descriptionHtml": "<p>Vaga inventada.</p><ul><li>Python &amp; SQL</li></ul><script>alert(1)</script>",
+            "descriptionPlain": "Fallback que não deve substituir o HTML.",
+        }
+        [vaga] = AshbyClient(["exemplo"], http=lambda _: {"jobs": [job]}).buscar("backend")
+
+        self.assertIsNotNone(vaga.detalhe)
+        self.assertEqual(vaga.detalhe.descricao, "Vaga inventada.\n\n• Python & SQL")
+
+    def test_descricao_plain_e_fallback_quando_html_nao_tem_texto(self):
+        for html in [None, "", "<p> </p><script>descartado</script>", {"invalido": True}]:
+            with self.subTest(html=html):
+                job = {
+                    "title": "Backend Engineer", "jobUrl": "https://jobs.ashbyhq.com/exemplo/backend",
+                    "descriptionHtml": html, "descriptionPlain": "Python < 4 & SQL.\nTexto inventado.",
+                }
+                [vaga] = AshbyClient(["exemplo"], http=lambda _: {"jobs": [job]}).buscar("backend")
+
+                self.assertIsNotNone(vaga.detalhe)
+                self.assertEqual(vaga.detalhe.descricao, "Python < 4 & SQL.\nTexto inventado.")
+
+    def test_descricao_respeita_o_teto_no_html_e_no_plain(self):
+        from src.client.sanitizar import MAX_CARACTERES_DESCRICAO
+
+        for campo, texto in [("descriptionHtml", "<p>" + "x" * 30_000 + "</p>"), ("descriptionPlain", "y" * 30_000)]:
+            with self.subTest(campo=campo):
+                job = {"title": "Backend Engineer", "jobUrl": "https://jobs.ashbyhq.com/exemplo/backend", campo: texto}
+                [vaga] = AshbyClient(["exemplo"], http=lambda _: {"jobs": [job]}).buscar("backend")
+
+                self.assertIsNotNone(vaga.detalhe)
+                self.assertEqual(len(vaga.detalhe.descricao), MAX_CARACTERES_DESCRICAO)
+                self.assertTrue(vaga.detalhe.descricao.endswith("…"))
+
 
 class RemotarClientTest(unittest.TestCase):
     def test_envia_termo_para_api_e_converte(self):
