@@ -392,6 +392,7 @@ class PedidoIAService:
             "skills": list(perfil.skills),
             "publicada_desde_dias": perfil.publicada_desde_dias,
             "salario_minimo": perfil.salario_minimo,
+            "salario_minimo_usd": perfil.salario_minimo_usd,
             "ocultar_candidatadas": perfil.ocultar_candidatadas,
         }
 

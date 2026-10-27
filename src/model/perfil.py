@@ -18,6 +18,8 @@ class Perfil:
     ocultar_candidatadas: bool = True
     # Em reais por mês. Não filtra a coleta: vai para a IA, que limita a nota de vaga que paga isso ou menos.
     salario_minimo: int | None = None
+    # Faixa de salário base em USD precisa alcançar este valor MENSAL, sem bônus/equity.
+    salario_minimo_usd: int | None = None
 
 
 @dataclass

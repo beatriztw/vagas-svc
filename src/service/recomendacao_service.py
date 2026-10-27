@@ -4,6 +4,7 @@ from typing import TypeVar
 
 from src.client.base import _LIGACAO, contem, normalizar, palavras, relevancia_termo
 from src.model.perfil import Perfil
+from src.model.remuneracao import atinge_piso_usd
 from src.model.vaga import Modalidade, Nivel
 from src.model.vaga_externa import VagaExterna
 from src.service.busca_service import BuscaService, ResultadoBusca
@@ -97,6 +98,8 @@ def filtrar_pelo_perfil(vagas: list[V], perfil: Perfil, hoje: date) -> list[V]:
     cidades = {c for c in (_cidade(loc) for loc in perfil.localidades) if c and c not in _SO_PAIS}
     if cidades:
         filtradas = [v for v in filtradas if _no_lugar(v, cidades)]
+    if perfil.salario_minimo_usd is not None:
+        filtradas = [v for v in filtradas if atinge_piso_usd(v, perfil.salario_minimo_usd)]
     return filtradas
 
 

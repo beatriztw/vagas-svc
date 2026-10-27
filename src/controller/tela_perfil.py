@@ -152,6 +152,7 @@ def criar_router_tela_perfil(contexto_da_pessoa: Callable[..., ContextoPessoa]) 
         publicada_desde_dias: Annotated[str, Form()] = "",
         ocultar_candidatadas: Annotated[str | None, Form()] = None,
         salario_minimo: Annotated[str, Form()] = "",
+        salario_minimo_usd: Annotated[str, Form()] = "",
     ):
         # Modalidade/nível fora dos enums, dias fora de 1..teto: DadoInvalido, que em /tela vira o aviso 422
         # (o handler de api.py) e não grava nada. A validação é a da rota JSON.
@@ -166,6 +167,7 @@ def criar_router_tela_perfil(contexto_da_pessoa: Callable[..., ContextoPessoa]) 
             publicada_desde_dias=_dias(publicada_desde_dias),
             ocultar_candidatadas=ocultar_candidatadas is not None,
             salario_minimo=_salario(salario_minimo),
+            salario_minimo_usd=_inteiro(salario_minimo_usd, "salario_minimo_usd", MAX_SALARIO_MINIMO),
         )
         ctx.perfis.salvar(validar_perfil(perfil))
         # Relê do repositório: o formulário mostra o que ficou gravado (normalizado, sem repetidos).

@@ -58,6 +58,12 @@
   </div>
   <label class="opcao"><input type="checkbox" name="ocultar_candidatadas" value="1"{% if perfil.ocultar_candidatadas %} checked{% endif %}> Ocultar vagas em que já me candidatei</label>
 
+  <div class="campo">
+    <label for="p-salario-usd">Objetivo de salário base (USD por mês)</label>
+    <input id="p-salario-usd" type="number" name="salario_minimo_usd" min="1" max="{{ max_salario }}" step="1" value="{{ perfil.salario_minimo_usd if perfil.salario_minimo_usd is not none else '' }}">
+    <p class="dica">A lista mostra só vagas com salário em USD cuja faixa alcance esse objetivo. Salário anual é dividido por 12. Moeda, valor ou período desconhecidos ficam fora deste filtro; bônus e equity não contam. Vazio desliga o filtro.</p>
+  </div>
+
   <div class="acoes-form">
     <button type="submit" class="botao botao-primario">Salvar perfil</button>
     <a href="/tela">Voltar para a lista</a>

@@ -92,6 +92,7 @@ class PerfilJson(BaseModel):
     publicada_desde_dias: int | None = Field(default=None, gt=0, le=MAX_PUBLICADA_DESDE_DIAS)
     ocultar_candidatadas: bool = True
     salario_minimo: int | None = Field(default=None, gt=0, le=MAX_SALARIO_MINIMO)
+    salario_minimo_usd: StrictInt | None = Field(default=None, gt=0, le=MAX_SALARIO_MINIMO)
 
     @classmethod
     def de(cls, perfil: Perfil) -> "PerfilJson":

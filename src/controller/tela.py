@@ -189,6 +189,7 @@ def criar_router_tela(coleta: ColetaService, contexto_da_pessoa: Callable[..., C
         return {
             "vagas": vagas,
             "total": total,
+            "salario_minimo_usd": lida.salario_minimo_usd,
             "q": q,
             "novas": novas,
             "salvas": salvas,
