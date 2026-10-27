@@ -72,7 +72,7 @@ def linha_para_perfil(linha: dict) -> Perfil:
         publicada_desde_dias=linha["publicada_desde_dias"],
         ocultar_candidatadas=linha["ocultar_candidatadas"],
         salario_minimo=linha["salario_minimo"],
-        salario_minimo_usd=linha["salario_minimo_usd"],
+        salario_minimo_usd=linha.get("salario_minimo_usd"),
     )
 
 

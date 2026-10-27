@@ -86,3 +86,12 @@ class PisoUsdTest(unittest.TestCase):
                 item["currency"] = moeda
                 [vaga_sem_usd] = HimalayasClient(http=lambda _: {"jobs": [item]}).buscar("backend")
                 self.assertEqual(self.filtrar([vaga_sem_usd]), [])
+
+    def test_linha_de_perfil_anterior_a_migration_usd_continua_legivel(self):
+        from src.repository.postgres import linha_para_perfil
+        linha_antiga = {"termos": ["python"], "excluir": [], "localidades": [], "plataformas": [],
+                        "skills": [], "modalidades": [], "niveis": [], "publicada_desde_dias": None,
+                        "ocultar_candidatadas": True, "salario_minimo": None}
+        perfil = linha_para_perfil(linha_antiga)
+        self.assertEqual(perfil.termos, ["python"])
+        self.assertIsNone(perfil.salario_minimo_usd)
