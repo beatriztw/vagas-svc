@@ -16,6 +16,7 @@ from src.model.detalhe_vaga import (
 )
 from src.model.erros import DadoInvalido
 from src.model.perfil import Perfil
+from src.model.remuneracao import salario_usd_do_texto
 from src.model.vaga import Modalidade, Nivel
 from src.model.vaga_encontrada import VagaEncontrada
 from src.model.vaga_externa import VagaExterna
@@ -278,6 +279,8 @@ def detalhe_valido(detalhe: object) -> DetalheVaga | None:
         if _texto_ate(b, MAX_TEXTO_ITEM) and b.strip()
     ]
     salario = detalhe.salario if isinstance(detalhe.salario, Salario) and _salario_gravavel(detalhe.salario) else None
+    if salario is None:
+        salario = salario_usd_do_texto(descricao)
     expirada_em = detalhe.expirada_em if _instante_valido(detalhe.expirada_em) else None
     return DetalheVaga(
         descricao,
@@ -385,6 +388,9 @@ def validar_perfil(perfil: Perfil) -> Perfil:
     salario = perfil.salario_minimo
     if salario is not None and (isinstance(salario, bool) or not 0 < salario <= MAX_SALARIO_MINIMO):
         raise DadoInvalido(f"salario_minimo tem que estar entre 1 e {MAX_SALARIO_MINIMO}")
+    piso_usd = perfil.salario_minimo_usd
+    if piso_usd is not None and (isinstance(piso_usd, bool) or not isinstance(piso_usd, int) or not 1 <= piso_usd <= MAX_SALARIO_MINIMO):
+        raise DadoInvalido(f"salario_minimo_usd tem que ser um inteiro entre 1 e {MAX_SALARIO_MINIMO}")
     try:
         return normalizar_perfil(perfil)
     except ValueError as erro:

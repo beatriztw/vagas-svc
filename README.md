@@ -96,6 +96,15 @@ O estado (perfil de busca e currículos) fica num Postgres. O schema está em `m
 
 ## API HTTP
 
+**Objetivo em USD.** `salario_minimo_usd` no perfil é um objetivo mensal de salário base, separado do
+`salario_minimo` em reais usado pela IA. Quando preenchido, coleta e lista só aceitam faixa em USD
+que alcance o objetivo (anual dividido por 12). O topo da faixa indica potencial de negociação,
+não uma oferta garantida. Moeda, valor ou período desconhecidos ficam fora do filtro; `$` sozinho,
+bônus e equity não confirmam salário em USD. O texto original é preservado para conferência.
+A migration `017_perfil_salario_usd.sql` adiciona o campo com padrão NULL, mantendo os perfis
+existentes. Vagas antigas precisam ter os detalhes regravados/recoletados para preencher a faixa
+extraída do texto; o filtro não apaga o histórico e pode ser desligado em "Meu perfil".
+
 `src/controller/api.py` expõe a API com FastAPI (porta 8000, sem autenticação: só para a rede interna). Localmente:
 
 ```bash

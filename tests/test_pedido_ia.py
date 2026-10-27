@@ -347,7 +347,7 @@ class ProximoTest(ComToken):
             {
                 "termos": ["dados"], "excluir": [], "modalidades": ["Remoto"], "localidades": [], "plataformas": [],
                 "niveis": [], "skills": ["sql"], "publicada_desde_dias": None, "ocultar_candidatadas": True,
-                "salario_minimo": None,
+                "salario_minimo": None, "salario_minimo_usd": None,
             },
         )
 

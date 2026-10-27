@@ -80,6 +80,7 @@ class PaginaHistorico:
     total: int
     # A ordem aplicada (a pedida, ou a padrão: IA quando há alguma nota).
     ordem: Ordem = Ordem.PERFIL
+    salario_minimo_usd: int | None = None
 
 
 def ordenar_por_match(vagas: list[VagaEncontrada], perfil: Perfil) -> list[VagaEncontrada]:
@@ -153,7 +154,10 @@ class HistoricoService:
             visiveis = [v for v in visiveis if v.url in notas and notas[v.url].faixa == _FAIXA_DO_FILTRO[faixa]]
         if ordem == Ordem.IA:
             visiveis = ordenar_por_nota(visiveis, notas)
-        return PaginaHistorico(vagas=visiveis[deslocamento : deslocamento + limite], total=len(visiveis), ordem=ordem)
+        return PaginaHistorico(
+            vagas=visiveis[deslocamento : deslocamento + limite], total=len(visiveis), ordem=ordem,
+            salario_minimo_usd=perfil.salario_minimo_usd if perfil is not None else None,
+        )
 
     def salvas(
         self, limite: int, q: str | None = None, apos: tuple[datetime, str] | None = None

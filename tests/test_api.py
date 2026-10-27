@@ -25,6 +25,7 @@ PERFIL = {
     "publicada_desde_dias": 30,
     "ocultar_candidatadas": False,
     "salario_minimo": 3500,
+    "salario_minimo_usd": None,
 }
 
 

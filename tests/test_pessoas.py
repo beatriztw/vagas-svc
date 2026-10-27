@@ -43,6 +43,28 @@ class Repos:
 class ContratoDuasPessoas:
     """Mixin: o teste concreto monta `self.um` e `self.dois` (os `Repos` das pessoas 1 e 2)."""
 
+    def test_objetivo_usd_e_faixa_da_mesma_url_sao_por_pessoa(self):
+        from dataclasses import replace
+        from src.model.detalhe_vaga import Salario
+        from src.service.historico_service import HistoricoService
+
+        self.um.perfis.salvar(Perfil(termos=["python"], salario_minimo_usd=10000))
+        self.dois.perfis.salvar(Perfil(termos=["python"]))
+        self.um.vagas.registrar([replace(vaga("Dev Python"), detalhe=DetalheVaga(
+            descricao="Base salary USD 100k-130k per year."))], "python")
+        self.dois.vagas.registrar([replace(vaga("Dev Python"), detalhe=DetalheVaga(
+            salario=Salario(300000, 400000, "BRL", "monthly")))], "python")
+        um = HistoricoService(self.um.vagas, self.um.perfis)
+        dois = HistoricoService(self.dois.vagas, self.dois.perfis)
+        self.assertEqual([v.url for v in um.visiveis()], [URL])
+        self.assertEqual(um.visiveis()[0].salario.moeda, "USD")
+        self.assertEqual(dois.visiveis()[0].salario.moeda, "BRL")
+        self.assertEqual(self.um.perfis.obter().salario_minimo_usd, 10000)
+        self.assertIsNone(self.dois.perfis.obter().salario_minimo_usd)
+        self.um.perfis.salvar(Perfil(termos=["python"], salario_minimo_usd=11000))
+        self.assertEqual(um.contar(False), 0)
+        self.assertEqual(dois.contar(False), 1)
+
     def test_perfis_separados(self):
         self.um.perfis.salvar(Perfil(termos=["python"], modalidades=[Modalidade.REMOTO]))
         self.assertIsNone(self.dois.perfis.obter())

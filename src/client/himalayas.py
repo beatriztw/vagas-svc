@@ -1,9 +1,11 @@
 from datetime import date, datetime, timezone
+from decimal import Decimal
+import math
 from functools import partial
 
 from src.client.base import HttpGet, ProviderClient, get_json, montar_url, palavras
 from src.client.sanitizar import MAX_CARACTERES_DESCRICAO, html_para_texto
-from src.model.detalhe_vaga import DetalheVaga
+from src.model.detalhe_vaga import DetalheVaga, salario_de_json
 from src.model.vaga_externa import VagaExterna
 
 # API pública e gratuita, sem token (conferida em 12/10/2026). `country=BR` devolve só as vagas que
@@ -81,6 +83,19 @@ class HimalayasClient(ProviderClient):
                 continue
             empresa = item.get("companyName")
             descricao = html_para_texto(item.get("description"), MAX_CARACTERES_DESCRICAO)
+            # A API informa unidades da moeda (não centavos); sem moeda explícita, não inferir USD.
+            salario = None
+            if item.get("currency") == "USD":
+                def centavos(valor):
+                    if isinstance(valor, bool) or not isinstance(valor, (int, float)) or not 0 < valor <= 10**9 or not math.isfinite(valor):
+                        return None
+                    return int(Decimal(str(valor)) * 100)
+
+                periodo = item.get("salaryPeriod")
+                salario = salario_de_json({
+                    "minimo": centavos(item.get("minSalary")), "maximo": centavos(item.get("maxSalary")),
+                    "moeda": "USD", "periodo": {"annual": "yearly", "monthly": "monthly", "hourly": "hourly"}.get(periodo if isinstance(periodo, str) else None),
+                })
             vagas.append(
                 VagaExterna(
                     titulo=titulo.strip(),
@@ -89,7 +104,7 @@ class HimalayasClient(ProviderClient):
                     url=url,
                     remoto=True,
                     publicada_em=publicada_em,
-                    detalhe=DetalheVaga(descricao=descricao) if descricao else None,
+                    detalhe=DetalheVaga(descricao=descricao or None, salario=salario) if descricao or salario else None,
                 )
             )
         return vagas

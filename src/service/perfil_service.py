@@ -69,7 +69,8 @@ def from_json(texto: str) -> Perfil:
     perfil.publicada_desde_dias = None if dias is None else int(dias)
     salario = bruto.get("salario_minimo")
     perfil.salario_minimo = None if salario is None else int(salario)
-    return perfil
+    perfil.salario_minimo_usd = bruto.get("salario_minimo_usd")
+    return validar_perfil(perfil)
 
 
 class PerfilIAService:

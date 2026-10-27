@@ -40,9 +40,14 @@ _COLUNAS_CURRICULO = "id, tipo, titulo, conteudo_md, base_id, vaga_url, arquivo_
 # A lista não lê o detalhe (descrição de até 20 mil caracteres vezes milhares de linhas); só `obter` lê.
 _COLUNAS_VAGA = (
     "url, titulo, empresa, plataforma, local, remoto, publicada_em, termos, primeira_vez_em, ultima_vez_em, "
-    "vista_em, expirada_em, detalhada_em, salva_em"
+    "vista_em, expirada_em, detalhada_em, salva_em, salario"
 )
-_COLUNAS_VAGA_DETALHE = f"{_COLUNAS_VAGA}, descricao, requisitos, salario, beneficios, subtitulo"
+_COLUNAS_VAGA_DETALHE = f"{_COLUNAS_VAGA}, descricao, requisitos, beneficios, subtitulo"
+
+
+def _vaga_listada(linha: dict) -> VagaEncontrada:
+    # Faixa pequena: permite filtrar USD sem ler milhares de descrições completas.
+    return VagaEncontrada(**{**linha, "termos": list(linha["termos"]), "salario": salario_de_json(linha["salario"])})
 
 
 def perfil_para_linha(perfil: Perfil) -> dict:
@@ -54,6 +59,7 @@ def perfil_para_linha(perfil: Perfil) -> dict:
     linha["publicada_desde_dias"] = perfil.publicada_desde_dias
     linha["ocultar_candidatadas"] = perfil.ocultar_candidatadas
     linha["salario_minimo"] = perfil.salario_minimo
+    linha["salario_minimo_usd"] = perfil.salario_minimo_usd
     return linha
 
 
@@ -66,6 +72,7 @@ def linha_para_perfil(linha: dict) -> Perfil:
         publicada_desde_dias=linha["publicada_desde_dias"],
         ocultar_candidatadas=linha["ocultar_candidatadas"],
         salario_minimo=linha["salario_minimo"],
+        salario_minimo_usd=linha["salario_minimo_usd"],
     )
 
 
@@ -257,7 +264,7 @@ class VagaEncontradaRepositoryPostgres(VagaEncontradaRepository):
             params = (self._pessoa_id, limite, deslocamento)
         with self._conn.cursor(row_factory=dict_row) as cur:
             cur.execute(sql, params)
-            vagas = [VagaEncontrada(**{**linha, "termos": list(linha["termos"])}) for linha in cur.fetchall()]
+            vagas = [_vaga_listada(linha) for linha in cur.fetchall()]
         if exigidas:
             vagas = [v for v in vagas if casa_busca(v, exigidas)][deslocamento : deslocamento + limite]
         return vagas
@@ -273,7 +280,7 @@ class VagaEncontradaRepositoryPostgres(VagaEncontradaRepository):
             cur.execute(
                 f"SELECT {_COLUNAS_VAGA} FROM vaga_encontrada {self._filtro(somente_novas)}", (self._pessoa_id,)
             )
-            return sum(1 for linha in cur.fetchall() if casa_busca(VagaEncontrada(**linha), exigidas))
+            return sum(1 for linha in cur.fetchall() if casa_busca(_vaga_listada(linha), exigidas))
 
     def listar_recentes(self, somente_novas: bool, teto: int, q: str | None = None) -> list[VagaEncontrada]:
         teto = validar_teto(teto)
@@ -282,7 +289,7 @@ class VagaEncontradaRepositoryPostgres(VagaEncontradaRepository):
         sql = f"SELECT {_COLUNAS_VAGA} FROM vaga_encontrada {self._filtro(somente_novas)}" + _ORDEM + " LIMIT %s"
         with self._conn.cursor(row_factory=dict_row) as cur:
             cur.execute(sql, (self._pessoa_id, teto))
-            vagas = [VagaEncontrada(**{**linha, "termos": list(linha["termos"])}) for linha in cur.fetchall()]
+            vagas = [_vaga_listada(linha) for linha in cur.fetchall()]
         return [v for v in vagas if casa_busca(v, exigidas)]
 
     def obter(self, url: str) -> VagaEncontrada | None:
@@ -365,7 +372,7 @@ class VagaEncontradaRepositoryPostgres(VagaEncontradaRepository):
         )
         with self._conn.cursor(row_factory=dict_row) as cur:
             cur.execute(sql, (self._pessoa_id, teto))
-            vagas = [VagaEncontrada(**{**linha, "termos": list(linha["termos"])}) for linha in cur.fetchall()]
+            vagas = [_vaga_listada(linha) for linha in cur.fetchall()]
         return [v for v in vagas if casa_busca(v, exigidas)]
 
     def contar_salvas(self) -> int:
