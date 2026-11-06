@@ -225,7 +225,7 @@ class TelaPorPessoaTest(unittest.TestCase):
         self.assertEqual(self.mundo.perfis[1].obter().termos, ["salvo na aba da um"])
         self.assertEqual(self.mundo.perfis[2].obter().termos, ["termo da pessoa dois"])  # a 2 não é sobrescrita
 
-    def test_marcar_salva_e_vista_e_aplicada_na_tela_gravam_na_pessoa_do_cookie(self):
+    def test_marcar_salva_vista_encerrada_e_aplicada_na_tela_gravam_na_pessoa_do_cookie(self):
         api = self.mundo.cliente("2")
 
         api.post("/tela/vagas/salva", data={"url": URL_A, "salvar": "1"}, headers=HX)
@@ -235,6 +235,11 @@ class TelaPorPessoaTest(unittest.TestCase):
         self.assertIsNone(self.mundo.vagas[1].obter(URL_A).salva_em)
         self.assertIsNotNone(self.mundo.vagas[2].obter(URL_A).vista_em)
         self.assertIsNone(self.mundo.vagas[1].obter(URL_A).vista_em)
+
+        api.post("/tela/vagas/encerrada", data={"url": URL_A}, headers=HX)
+
+        self.assertIsNotNone(self.mundo.vagas[2].obter(URL_A).expirada_em)
+        self.assertIsNone(self.mundo.vagas[1].obter(URL_A).expirada_em)
 
         api.post("/tela/candidaturas", data={"url": URL_A}, headers=HX)
 

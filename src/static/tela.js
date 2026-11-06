@@ -57,10 +57,34 @@
     }
   }
 
+  // Depois do "Encerrada" o card dessa vaga sai da lista; na aba "Salvas" ele fica, com a etiqueta.
+  function encerrarCard(evento) {
+    var form = evento.detail && evento.detail.elt;
+    var xhr = evento.detail && evento.detail.xhr;
+    if (!form || form.getAttribute("hx-post") !== "/tela/vagas/encerrada" || !xhr || xhr.status !== 200) { return; }
+    var campo = form.querySelector("input[name=url]");
+    if (!campo) { return; }
+    var salvas = new URLSearchParams(window.location.search).get("salvas") === "1";
+    var cards = document.querySelectorAll("#lista-vagas .card");
+    for (var i = 0; i < cards.length; i++) {
+      if (cards[i].getAttribute("data-url") !== campo.value) { continue; }
+      if (!salvas) {
+        var item = cards[i].closest(".card-item");
+        if (item) { item.remove(); }
+      } else if (!cards[i].querySelector(".chip-encerrada")) {
+        var chip = document.createElement("span");
+        chip.className = "chip-encerrada";
+        chip.textContent = "encerrada";
+        cards[i].appendChild(chip);
+      }
+    }
+  }
+
   document.addEventListener("htmx:afterSettle", marcarSelecionado);
   document.addEventListener("htmx:historyRestore", mostrarSelecionado);
   document.addEventListener("DOMContentLoaded", mostrarSelecionado);
   document.addEventListener("htmx:afterRequest", tirarSelo);
+  document.addEventListener("htmx:afterRequest", encerrarCard);
   document.addEventListener("htmx:afterRequest", function (evento) {
     // O 422/404/409 contam como `successful` no htmx (responseHandling com error:false). Quando a
     // resposta é o próprio aviso (HX-Retarget "#aviso", de `resposta_de_erro`), escondê-lo apagaria a

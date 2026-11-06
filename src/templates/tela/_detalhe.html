@@ -31,6 +31,14 @@
       {{ botao_salvar(vaga.url, vaga.salva_em is not none, "d") }}
       {% include "tela/_acao_aplicar.html" %}
       {% include "tela/_ia.html" %}
+      {% if not (aberta and aberta.expirada) %}
+      {# Para o que a conferência não vê (post do LinkedIn, vaga fechada só para quem está logado). Sem volta: confirma antes. #}
+      <form class="encerrar" hx-post="/tela/vagas/encerrada" hx-target="#detalhe" hx-swap="outerHTML"
+            hx-disabled-elt="find button" hx-confirm="Marcar a vaga como encerrada? Ela sai da lista e não tem como desfazer.">
+        <input type="hidden" name="url" value="{{ vaga.url }}">
+        <button type="submit" class="botao">Encerrada</button>
+      </form>
+      {% endif %}
     </div>
   </div>
 </section>
