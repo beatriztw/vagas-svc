@@ -369,6 +369,23 @@ def criar_router_tela(coleta: ColetaService, contexto_da_pessoa: Callable[..., C
             request, "tela/_salvar_oob.html", {"vaga_url": url, "salva": salva, "total_salvas": encontradas.contar_salvas()}
         )
 
+    @router.post("/vagas/encerrada", dependencies=[Depends(exigir_mutacao_da_tela)])
+    def encerrar(request: Request, ctx: ContextoPessoa = Depends(contexto_da_pessoa), url: str = Form("")):
+        """A pessoa diz que a vaga fechou (post do LinkedIn, vaga que só aparece fechada logada): o mesmo
+        `marcar_expirada` da conferência. Não tem volta, então o botão pede confirmação. A resposta é o
+        detalhe redesenhado (com o aviso de expirada e sem o botão); o tela.js tira o card da lista, ou, na
+        aba "Salvas", põe a etiqueta "encerrada" nele."""
+        if not url or len(url) > MAX_TAMANHO_URL:
+            raise DadoInvalido("url da vaga inválida")
+        if not ctx.encontradas.marcar_expirada(url):
+            return resposta_de_erro(request, "Vaga não encontrada", 404)
+        aberta = obter(ctx, url)
+        return templates.TemplateResponse(
+            request,
+            "tela/_detalhe.html",
+            {"selecionada": aberta.vaga, "aberta": aberta, "candidatura": candidatura_da(ctx, aberta.vaga)},
+        )
+
     @router.post("/vagas/vista", dependencies=[Depends(exigir_mutacao_da_tela)])
     def vista(ctx: ContextoPessoa = Depends(contexto_da_pessoa), url: str = Form("")):
         """Marca a vaga como vista: só aqui, nunca no GET do detalhe (D8). Sem corpo; o tela.js tira o selo."""
